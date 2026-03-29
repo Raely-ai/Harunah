@@ -1,0 +1,327 @@
+import { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { 
+  History, 
+  Search, 
+  Filter, 
+  Star, 
+  Share2, 
+  Trash2, 
+  ChevronRight, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle,
+  Coffee,
+  CreditCard,
+  Droplets,
+  Heart,
+  Zap,
+  Moon,
+  ArrowLeft,
+  MoreVertical,
+  Wallet,
+  RefreshCw,
+  ChevronLeft,
+  Sparkles,
+  Loader2
+} from "lucide-react";
+import { FortuneReading, FortuneType, UserProfile } from "../types";
+import { toast } from "sonner";
+
+interface HistoryScreenProps {
+  history: FortuneReading[];
+  userProfile: UserProfile;
+  onBack: () => void;
+  onDelete: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+}
+
+const TYPE_ICONS: Record<string, any> = {
+  coffee: Coffee,
+  tarot: CreditCard,
+  su: Droplets,
+  ebced: Heart,
+  yildizname: Star,
+  havas: Zap,
+};
+
+const STATUS_CONFIG = {
+  waiting: { label: 'Beklemede', color: 'text-amber-400', bg: 'bg-amber-500/10', icon: Clock },
+  interpreting: { label: 'Yorumlanıyor', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: AlertCircle },
+  completed: { label: 'Tamamlandı', color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+};
+
+export default function HistoryScreen({ history, userProfile, onBack, onDelete, onToggleFavorite }: HistoryScreenProps) {
+  const [filter, setFilter] = useState<FortuneType | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedReading, setSelectedReading] = useState<FortuneReading | null>(null);
+
+  const filteredHistory = history.filter(item => {
+    const matchesFilter = filter === 'all' || item.type === filter;
+    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  const handleShare = (reading: FortuneReading) => {
+    if (navigator.share) {
+      navigator.share({
+        title: reading.title,
+        text: reading.content,
+        url: window.location.href,
+      }).catch(() => toast.error("Paylaşım yapılamadı"));
+    } else {
+      navigator.clipboard.writeText(reading.content);
+      toast.success("Panoya kopyalandı");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black flex flex-col">
+      {/* Header */}
+      <header className="flex-shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5 px-4 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onBack}
+              className="p-2 rounded-xl bg-white/5 border border-white/10"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </motion.button>
+            <div>
+              <h1 className="text-xl font-serif font-bold text-amber-50">Kehanet Arşivi</h1>
+              <p className="text-[10px] text-purple-200/40 uppercase tracking-widest font-bold">Geçmişin İzleri</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <motion.button
+              whileHover={{ rotate: 180 }}
+              transition={{ duration: 0.5 }}
+              onClick={() => toast.success("Kehanetler güncellendi")}
+              className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
+            >
+              <History className="w-5 h-5 text-amber-400" />
+            </motion.button>
+          </div>
+        </div>
+
+        {/* Search & Filter */}
+        <div className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-purple-200/20" />
+            <input
+              type="text"
+              placeholder="Kehanetlerde ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:border-amber-500/50 transition-colors"
+            />
+          </div>
+          
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
+                filter === 'all' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:bg-white/10'
+              }`}
+            >
+              Tümü
+            </button>
+            {Object.keys(TYPE_ICONS).map((type) => (
+              <button
+                key={type}
+                onClick={() => setFilter(type as FortuneType)}
+                className={`px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
+                  filter === type ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:bg-white/10'
+                }`}
+              >
+                {type === 'coffee' ? 'Kahve' : (type === 'su' || type === 'water') ? 'Su' : type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* History List */}
+      <main className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar pb-32">
+        <div className="space-y-4">
+          {filteredHistory.length > 0 ? (
+            filteredHistory.map((reading) => {
+              const Icon = TYPE_ICONS[reading.type] || History;
+              const status = STATUS_CONFIG[reading.status];
+              const StatusIcon = status.icon;
+
+              return (
+                <motion.div
+                  key={reading.id}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="group relative"
+                >
+                  <div className={`p-5 rounded-[2rem] border border-white/5 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-xl transition-all duration-500 ${
+                    reading.isFavorite ? 'border-amber-500/30' : ''
+                  }`}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                          reading.type === 'coffee' ? 'bg-amber-500/10 text-amber-400' : 'bg-purple-500/10 text-purple-400'
+                        }`}>
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="font-serif font-bold text-amber-50">{reading.title}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-purple-200/40 uppercase tracking-widest font-bold">{reading.date}</span>
+                            <span className="w-1 h-1 rounded-full bg-white/10" />
+                            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
+                              <StatusIcon className="w-2.5 h-2.5" />
+                              <span className="text-[8px] font-black uppercase tracking-widest">{status.label}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => onToggleFavorite(reading.id)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            reading.isFavorite ? 'text-amber-400 bg-amber-500/10' : 'text-purple-200/20 hover:text-amber-400 hover:bg-white/5'
+                          }`}
+                        >
+                          <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => onDelete(reading.id)}
+                          className="p-2 rounded-lg text-purple-200/20 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {reading.status === 'completed' ? (
+                      <div className="space-y-4">
+                        <p className="text-sm text-purple-200/60 line-clamp-2 leading-relaxed italic">
+                          "{reading.content}"
+                        </p>
+                        <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                          <button
+                            onClick={() => handleShare(reading)}
+                            className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-purple-200/40 hover:text-amber-400 transition-colors"
+                          >
+                            <Share2 className="w-3 h-3" />
+                            Paylaş
+                          </button>
+                          <button
+                            onClick={() => setSelectedReading(reading)}
+                            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-400 group-hover:translate-x-1 transition-transform"
+                          >
+                            Detayları Gör
+                            <ChevronRight className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="p-4 rounded-xl bg-white/5 border border-dashed border-white/10 text-center">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40">
+                            {reading.status === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-50/40">İşlem Devam Ediyor</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                <History className="w-10 h-10 text-purple-200/10" />
+              </div>
+              <h3 className="text-lg font-serif font-bold text-amber-50/40 mb-2">Henüz Bir Kehanet Yok</h3>
+              <p className="text-sm text-purple-200/20 max-w-[200px]">Geçmiş kehanetlerini burada görebilirsin.</p>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Reading Detail Modal */}
+      <AnimatePresence>
+        {selectedReading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-md p-4"
+            onClick={() => setSelectedReading(null)}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="w-full max-w-lg bg-zinc-900 rounded-t-[3rem] p-8 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-8" />
+              
+              <div className="flex items-center gap-4 mb-8">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                  {(() => {
+                    const Icon = TYPE_ICONS[selectedReading.type] || History;
+                    return <Icon className="w-8 h-8 text-amber-400" />;
+                  })()}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-serif font-bold text-amber-50">{selectedReading.title}</h2>
+                  <p className="text-xs text-purple-200/40 uppercase tracking-widest font-bold">{selectedReading.date}</p>
+                </div>
+              </div>
+
+              <div className="prose prose-invert max-w-none">
+                <p className="text-lg text-amber-100/90 leading-relaxed font-serif italic whitespace-pre-wrap">
+                  {selectedReading.content}
+                </p>
+              </div>
+
+              {selectedReading.cards && selectedReading.cards.length > 0 && (
+                <div className="mt-8">
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 mb-4">Seçilen Kartlar</h4>
+                  <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+                    {selectedReading.cards.map((card, idx) => (
+                      <div key={idx} className="flex-shrink-0 w-24 aspect-[2/3] rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-2xl">
+                        🎴
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-12 grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => handleShare(selectedReading)}
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-white/5 border border-white/10 text-sm font-bold uppercase tracking-widest hover:bg-white/10 transition-colors"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Paylaş
+                </button>
+                <button
+                  onClick={() => setSelectedReading(null)}
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-500 text-black text-sm font-bold uppercase tracking-widest hover:bg-amber-400 transition-colors"
+                >
+                  Kapat
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

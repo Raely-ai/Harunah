@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
+        "displayName": { "type": "string", "description": "User's full name." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "photoURL": { "type": "string", "format": "uri", "description": "URL to user's profile picture." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." }
+      },
+      "required": ["uid", "email"]
+    },
+    "FortuneReading": {
+      "title": "Fortune Reading",
+      "description": "Stores a single fortune reading result.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner of the reading." },
+        "type": { "type": "string", "enum": ["coffee", "tarot", "horoscope", "dream"], "description": "Type of reading." },
+        "content": { "type": "string", "description": "The generated reading text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the reading was generated." }
+      },
+      "required": ["uid", "type", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    },
+    "/readings/{readingId}": {
+      "schema": "FortuneReading",
+      "description": "Collection of all fortune readings."
+    }
+  }
+}
