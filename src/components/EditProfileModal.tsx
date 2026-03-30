@@ -14,9 +14,10 @@ interface EditProfileModalProps {
 
 export default function EditProfileModal({ user, onClose, onSave }: EditProfileModalProps) {
   const [nickname, setNickname] = useState(user.nickname || user.displayName || '');
-  const [bio, setBio] = useState(user.bio || '');
-  const [interests, setInterests] = useState(user.interests?.join(', ') || '');
-  const [photoURL, setPhotoURL] = useState(user.photos?.[0] || user.photoURL || '');
+  const [bio, setBio] = useState(user.social?.bio || user.bio || '');
+  const [interests, setInterests] = useState(user.social?.interests?.join(', ') || user.interests?.join(', ') || '');
+  const [gender, setGender] = useState(user.social?.gender || '');
+  const [photoURL, setPhotoURL] = useState(user.social?.photos?.[0] || user.photos?.[0] || user.photoURL || '');
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,38 +40,84 @@ export default function EditProfileModal({ user, onClose, onSave }: EditProfileM
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.log("File selected:", file.name, "Size:", file.size);
+
+    // Check file size (e.g., 2MB limit)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Fotoğraf çok büyük (maks 2MB).");
+      return;
+    }
+
     setIsSaving(true);
     try {
+      console.log("Starting upload...");
       const storageRef = ref(storage, `profiles/${user.uid}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
+      console.log("Upload completed, getting download URL...");
       const downloadURL = await getDownloadURL(storageRef);
       setPhotoURL(downloadURL);
+      console.log("Download URL obtained:", downloadURL);
       toast.success("Fotoğraf yüklendi.");
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error("Fotoğraf yüklenemedi.");
+    } catch (error: any) {
+      console.error('Upload error details:', error);
+      if (error.code === 'storage/retry-limit-exceeded') {
+        toast.error("Yükleme zaman aşımına uğradı. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.");
+      } else if (error.code === 'storage/unauthorized') {
+        toast.error("Fotoğraf yükleme yetkiniz yok.");
+      } else {
+        toast.error("Fotoğraf yüklenemedi: " + error.message);
+      }
     } finally {
+      console.log("Upload process finished.");
       setIsSaving(false);
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) {
+      console.log("Save attempted while saving, ignoring.");
+      return;
+    }
     setIsSaving(true);
+    console.log("Starting save...");
     try {
+      const updatedInterests = interests.split(',').map(i => i.trim()).filter(i => i !== '');
+      const profileCompleted = !!(gender && nickname && updatedInterests.length > 0);
+      
       const updates: Partial<UserProfile> = {
-        nickname: nickname,
-        bio: bio,
-        interests: interests.split(',').map(i => i.trim()).filter(i => i !== ''),
-        photos: [photoURL]
+        social: {
+          ...user.social,
+          nickname,
+          bio,
+          interests: updatedInterests,
+          photos: [photoURL],
+          gender: gender as 'erkek' | 'kadın',
+          profileCompleted,
+          updatedAt: new Date().toISOString(),
+          enabled: user.social?.enabled ?? true,
+          visible: user.social?.visible ?? true,
+          banned: user.social?.banned ?? false,
+          lookingFor: user.social?.lookingFor ?? 'aşk',
+          settings: user.social?.settings ?? {
+            whoCanMessage: 'everyone',
+            whoCanAddFriend: 'everyone',
+            notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true }
+          }
+        }
       };
+      
+      console.log("Updating Firestore with payload:", updates);
       await onSave(updates);
+      console.log("Firestore update successful.");
+      
       onClose();
       toast.success("Profil güncellendi.");
     } catch (error) {
       console.error('Save error:', error);
       toast.error("Profil güncellenemedi.");
     } finally {
+      console.log("Save process finished.");
       setIsSaving(false);
     }
   };
@@ -130,6 +177,27 @@ export default function EditProfileModal({ user, onClose, onSave }: EditProfileM
                   placeholder="Kullanıcı Adı"
                   required
                 />
+              </div>
+            </div>
+
+            {/* Gender */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Cinsiyet</label>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setGender('erkek')}
+                  className={`py-4 rounded-2xl border ${gender === 'erkek' ? 'bg-amber-500/20 border-amber-500 text-amber-500' : 'bg-white/5 border-white/10 text-amber-50'} transition-all`}
+                >
+                  Erkek
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGender('kadın')}
+                  className={`py-4 rounded-2xl border ${gender === 'kadın' ? 'bg-amber-500/20 border-amber-500 text-amber-500' : 'bg-white/5 border-white/10 text-amber-50'} transition-all`}
+                >
+                  Kadın
+                </button>
               </div>
             </div>
 

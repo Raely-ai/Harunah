@@ -1,43 +1,45 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Shield, Bell, MessageCircle, UserPlus, Users, Gift, Settings } from 'lucide-react';
-import { SocialProfile } from '../types';
+import { UserProfile } from '../types';
 import { db, handleFirestoreError } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 
 interface SocialSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  profile: SocialProfile;
-  onUpdate: (profile: SocialProfile) => void;
+  user: UserProfile;
+  onUpdate: (user: UserProfile) => void;
 }
 
-const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClose, profile, onUpdate }) => {
+const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClose, user, onUpdate }) => {
   const handleUpdateSetting = async (key: string, value: any) => {
     try {
-      const updatedSettings = { ...profile.settings };
+      const updatedSocial = { ...(user.social || { enabled: false, profileCompleted: false, nickname: '', gender: 'erkek', lookingFor: '', bio: '', photos: [], interests: [], visible: true, banned: false, settings: { whoCanMessage: 'everyone', whoCanAddFriend: 'everyone', notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true } } }) };
       
       if (key.includes('.')) {
         const [parent, child] = key.split('.');
-        (updatedSettings as any)[parent] = {
-          ...(updatedSettings as any)[parent],
+        (updatedSocial as any).settings[parent] = {
+          ...(updatedSocial as any).settings[parent],
           [child]: value
         };
       } else {
-        (updatedSettings as any)[key] = value;
+        (updatedSocial as any).settings[key] = value;
       }
 
-      const updatedProfile = { ...profile, settings: updatedSettings };
-      await updateDoc(doc(db, 'socialProfiles', profile.uid), {
-        settings: updatedSettings,
+      const updatedUser = { ...user, social: updatedSocial };
+      await updateDoc(doc(db, 'users', user.uid), {
+        social: updatedSocial,
         updatedAt: new Date().toISOString()
       });
       
-      onUpdate(updatedProfile);
+      onUpdate(updatedUser);
     } catch (error) {
-      handleFirestoreError(error, 'update' as any, `socialProfiles/${profile.uid}`);
+      handleFirestoreError(error, 'update' as any, `users/${user.uid}`);
     }
   };
+
+  const settings = user.social?.settings || { whoCanMessage: 'everyone', whoCanAddFriend: 'everyone', notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true } };
 
   return (
     <AnimatePresence>
@@ -63,7 +65,7 @@ const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClo
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">Sosyal Ayarlar</h2>
-                  <p className="text-sm text-slate-500">@{profile.nickname} için gizlilik ve bildirimler</p>
+                  <p className="text-sm text-slate-500">@{user.social?.nickname || user.displayName} için gizlilik ve bildirimler</p>
                 </div>
               </div>
               <button 
@@ -101,7 +103,7 @@ const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClo
                           key={option}
                           onClick={() => handleUpdateSetting('whoCanMessage', option)}
                           className={`py-2.5 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${
-                            profile.settings.whoCanMessage === option
+                            settings.whoCanMessage === option
                               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
                               : 'bg-white text-slate-400 border border-slate-100 hover:bg-slate-50'
                           }`}
@@ -130,7 +132,7 @@ const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClo
                           key={option}
                           onClick={() => handleUpdateSetting('whoCanAddFriend', option)}
                           className={`py-2.5 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${
-                            profile.settings.whoCanAddFriend === option
+                            settings.whoCanAddFriend === option
                               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
                               : 'bg-white text-slate-400 border border-slate-100 hover:bg-slate-50'
                           }`}
@@ -165,13 +167,13 @@ const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClo
                         <span className="text-sm font-medium text-slate-700">{item.label}</span>
                       </div>
                       <button
-                        onClick={() => handleUpdateSetting(`notifications.${item.id}`, !(profile.settings.notifications as any)[item.id])}
+                        onClick={() => handleUpdateSetting(`notifications.${item.id}`, !(settings.notifications as any)[item.id])}
                         className={`w-12 h-6 rounded-full transition-all relative ${
-                          (profile.settings.notifications as any)[item.id] ? 'bg-indigo-600' : 'bg-slate-200'
+                          (settings.notifications as any)[item.id] ? 'bg-indigo-600' : 'bg-slate-200'
                         }`}
                       >
                         <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${
-                          (profile.settings.notifications as any)[item.id] ? 'left-7' : 'left-1'
+                          (settings.notifications as any)[item.id] ? 'left-7' : 'left-1'
                         }`} />
                       </button>
                     </div>

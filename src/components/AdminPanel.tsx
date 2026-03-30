@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner';
 import { 
   UserProfile, AppConfig, Horoscope, FortuneType, FortuneReading,
-  SocialProfile, SocialTransaction, WithdrawalRequest, SocialReport,
+  SocialTransaction, WithdrawalRequest, SocialReport,
   ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
   SocialCommerceConfig
 } from '../types';
@@ -34,7 +34,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [viewingReportedUser, setViewingReportedUser] = useState<UserProfile | null>(null);
   
   // Social States
-  const [socialUsers, setSocialUsers] = useState<SocialProfile[]>([]);
+  const [socialUsers, setSocialUsers] = useState<any[]>([]);
   const [socialRooms, setSocialRooms] = useState<SocialRoom[]>([]);
   const [withdrawalRequests, setWithdrawalRequests] = useState<WithdrawalRequest[]>([]);
   const [socialGiftTransactions, setSocialGiftTransactions] = useState<SocialGiftTransaction[]>([]);
@@ -44,10 +44,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [moderationLogs, setModerationLogs] = useState<ModerationLog[]>([]);
   
   // Modal States
-  const [editingSocialProfile, setEditingSocialProfile] = useState<SocialProfile | null>(null);
-  const [editingSocialSettings, setEditingSocialSettings] = useState<SocialProfile | null>(null);
+  const [editingSocialProfile, setEditingSocialProfile] = useState<any | null>(null);
+  const [editingSocialSettings, setEditingSocialSettings] = useState<any | null>(null);
   const [editingPackage, setEditingPackage] = useState<HostingPackage | null>(null);
-  const [viewingHostingHistory, setViewingHostingHistory] = useState<SocialProfile | null>(null);
+  const [viewingHostingHistory, setViewingHostingHistory] = useState<any | null>(null);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -178,8 +178,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         unsubscribes.push(unsub);
       } else if (activeTab === 'social') {
         // Social Listeners
-        unsubscribes.push(onSnapshot(collection(db, 'socialProfiles'), (snapshot) => {
-          setSocialUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as SocialProfile)));
+        unsubscribes.push(onSnapshot(collection(db, 'users'), (snapshot) => {
+          setSocialUsers(snapshot.docs
+            .filter(doc => doc.data().social)
+            .map(doc => ({ uid: doc.id, ...doc.data().social } as any)));
           setLoading(false);
         }));
         unsubscribes.push(onSnapshot(collection(db, 'socialRooms'), (snapshot) => {
@@ -312,24 +314,30 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const handleUpdateSocialProfile = async (uid: string, updates: any) => {
     try {
-      await updateDoc(doc(db, 'socialProfiles', uid), {
-        ...updates,
-        updatedAt: new Date().toISOString()
+      const socialUpdates = Object.keys(updates).reduce((acc, key) => {
+        acc[`social.${key}`] = updates[key];
+        return acc;
+      }, {} as any);
+      await updateDoc(doc(db, 'users', uid), {
+        ...socialUpdates,
+        'social.updatedAt': new Date().toISOString()
       });
       toast.success("Sosyal profil güncellendi.");
       setEditingSocialProfile(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialProfiles/${uid}`);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     }
   };
 
   const handleDeleteSocialProfile = async (uid: string) => {
-    if (!window.confirm("Bu sosyal profili silmek istediğinize emin misiniz?")) return;
+    if (!window.confirm("Bu sosyal profili devre dışı bırakmak istediğinize emin misiniz?")) return;
     try {
-      await deleteDoc(doc(db, 'socialProfiles', uid));
-      toast.success("Sosyal profil silindi.");
+      await updateDoc(doc(db, 'users', uid), {
+        'social.enabled': false
+      });
+      toast.success("Sosyal profil devre dışı bırakıldı.");
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `socialProfiles/${uid}`);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     }
   };
 
@@ -383,7 +391,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       // Apply action to profile
       if (action === 'ban') {
-        await updateDoc(doc(db, 'socialProfiles', targetUid), { isBanned: true });
+        await updateDoc(doc(db, 'users', targetUid), { 'social.banned': true });
       }
 
       toast.success("Moderasyon işlemi uygulandı.");
@@ -2386,10 +2394,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <SocialSettingsModal
           isOpen={!!editingSocialSettings}
           onClose={() => setEditingSocialSettings(null)}
-          profile={editingSocialSettings}
-          onUpdate={(updatedProfile) => {
-            setSocialUsers(prev => prev.map(u => u.uid === updatedProfile.uid ? updatedProfile : u));
-            setEditingSocialSettings(updatedProfile);
+          user={editingSocialSettings}
+          onUpdate={(updatedUser) => {
+            setSocialUsers(prev => prev.map(u => u.uid === updatedUser.uid ? updatedUser : u));
+            setEditingSocialSettings(updatedUser);
             toast.success("Sosyal ayarlar güncellendi.");
           }}
         />

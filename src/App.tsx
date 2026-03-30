@@ -191,8 +191,28 @@ export default function App() {
           createdAt: new Date().toISOString(),
           isBanned: false,
           role: 'user',
-          socialEnabled: false,
-          socialProfileCompleted: false,
+          social: {
+            enabled: false,
+            profileCompleted: false,
+            nickname: user.displayName || "Gezgin",
+            gender: 'erkek',
+            lookingFor: 'arkadaş',
+            bio: '',
+            photos: [],
+            interests: [],
+            visible: true,
+            banned: false,
+            settings: {
+              whoCanMessage: 'everyone',
+              whoCanAddFriend: 'everyone',
+              notifications: {
+                messages: true,
+                friendRequests: true,
+                roomInvites: true,
+                gifts: true
+              }
+            }
+          },
           subscription: {
             status: 'none',
             type: 'none',

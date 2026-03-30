@@ -106,36 +106,35 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!currentUser.social?.gender) {
+      onNavigate('profile');
+      toast.error("Keşfet'i kullanmak için profilini tamamlamalısın.");
+      return;
+    }
     fetchInitialUsers();
   }, []);
 
   const fetchInitialUsers = async () => {
     setLoading(true);
     try {
-      // Query for social users
-      // Note: In a real app, we might need a composite index for these filters
       const usersRef = collection(db, "users");
       
-      // Basic filters
+      const userGender = currentUser.social?.gender === "kadın" ? "kadın" : "erkek";
+      const targetGender = userGender === "erkek" ? "kadın" : "erkek";
+
       let q = query(
         usersRef,
-        where("socialEnabled", "==", true),
-        where("socialProfileCompleted", "==", true),
-        where("socialVisible", "==", true),
-        limit(40) // Fetch more initially to distribute between sections
+        where("social.enabled", "==", true),
+        where("social.profileCompleted", "==", true),
+        where("social.visible", "==", true),
+        where("social.gender", "==", targetGender),
+        limit(50)
       );
-
-      // Gender filter (opposite gender)
-      if (currentUser.gender) {
-        const targetGender = currentUser.gender === "Erkek" ? "Kadın" : "Erkek";
-        q = query(q, where("gender", "==", targetGender));
-      }
 
       let snapshot;
       try {
@@ -144,15 +143,19 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
         handleFirestoreError(error, OperationType.LIST, "users");
         return;
       }
+      
       const allFetched = snapshot.docs
         .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-        .filter(u => u.uid !== currentUser.uid); // Filter self on client
+        .filter(u => u.uid !== currentUser.uid && u.social?.banned !== true);
+
+      console.log(`Fetched: ${snapshot.docs.length} kullanıcı.`);
+      console.log(`Filtre sonrası kalan: ${allFetched.length} kullanıcı.`);
 
       // Distribute users
       // 1. Featured (those with photos or just first 5)
       setFeaturedUsers(allFetched.slice(0, 8));
       
-      // 2. Compatible (calculate on client for now, or just pick some)
+      // 2. Compatible
       const compatible = allFetched
         .slice(8, 14)
         .sort((a, b) => {
@@ -169,7 +172,7 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
         setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
       }
       
-      if (snapshot.docs.length < 40) {
+      if (snapshot.docs.length < 50) {
         setHasMore(false);
       }
 
@@ -186,19 +189,19 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
     setLoadingMore(true);
     try {
       const usersRef = collection(db, "users");
+      
+      const userGender = currentUser.social?.gender === "kadın" ? "kadın" : "erkek";
+      const targetGender = userGender === "erkek" ? "kadın" : "erkek";
+
       let q = query(
         usersRef,
-        where("socialEnabled", "==", true),
-        where("socialProfileCompleted", "==", true),
-        where("socialVisible", "==", true),
+        where("social.enabled", "==", true),
+        where("social.profileCompleted", "==", true),
+        where("social.visible", "==", true),
+        where("social.gender", "==", targetGender),
         startAfter(lastDoc),
         limit(20)
       );
-
-      if (currentUser.gender) {
-        const targetGender = currentUser.gender === "Erkek" ? "Kadın" : "Erkek";
-        q = query(q, where("gender", "==", targetGender));
-      }
 
       let snapshot;
       try {
@@ -209,7 +212,10 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
       }
       const newUsers = snapshot.docs
         .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-        .filter(u => u.uid !== currentUser.uid);
+        .filter(u => u.uid !== currentUser.uid && u.social?.banned !== true);
+
+      console.log(`Fetched more: ${snapshot.docs.length} kullanıcı.`);
+      console.log(`Filtre sonrası kalan: ${newUsers.length} kullanıcı.`);
 
       setUsers(prev => [...prev, ...newUsers]);
       
@@ -412,303 +418,45 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
         </div>
       )}
       </div>
-
-      {/* User Profile Preview Modal */}
-      <AnimatePresence>
-        {selectedUser && (
-          <UserProfilePreview 
-            user={selectedUser} 
-            currentUser={currentUser}
-            onClose={() => setSelectedUser(null)} 
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
 
-function UserCard({ user, currentUser, onClick }: { user: UserProfile, currentUser: UserProfile, onClick: () => void }) {
+function UserCard({ user, currentUser }: { user: UserProfile, currentUser: UserProfile }) {
   const scores = calculateCompatibility(currentUser, user);
   
   return (
-    <motion.button
-      whileTap={{ scale: 0.98 }}
-      onClick={onClick}
-      className="relative group aspect-[3/4] rounded-3xl overflow-hidden bg-white border border-slate-100 shadow-sm"
-    >
+    <div className="relative group aspect-[3/4] rounded-3xl overflow-hidden bg-white border border-slate-100 shadow-sm">
       <img 
-        src={user.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+        src={user.social?.photos?.[0] || user.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
         alt={user.nickname}
-        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+        className="w-full h-full object-cover"
         referrerPolicy="no-referrer"
       />
       
       {/* Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-4">
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-4">
         <div className="space-y-1.5 text-left">
           <div className="flex items-center gap-2">
-            <h3 className="font-bold text-lg text-white truncate">{user.nickname}, {user.age}</h3>
+            <h3 className="font-bold text-lg text-white truncate">{user.social?.nickname || user.nickname || user.displayName}, {user.age || 0}</h3>
             {user.subscription?.status === 'active' && (
               <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
             )}
           </div>
           
-          <div className="flex flex-wrap gap-1.5">
-            <span className="px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-[10px] font-bold text-white border border-white/20">
-              {user.lookingFor === 'aşk' ? '❤️ Aşk' : user.lookingFor === 'dostluk' ? '🤝 Dostluk' : '💬 Sohbet'}
-            </span>
+          <p className="text-xs text-white/80 line-clamp-2">{user.social?.bio || user.bio || "Bio yok."}</p>
+
+          <div className="flex flex-wrap gap-1.5 mt-2">
             <span className="px-2 py-0.5 rounded-full bg-indigo-500/40 backdrop-blur-md text-[10px] font-bold text-white border border-white/20">
               %{scores.understanding} Uyum
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-[10px] font-bold text-white border border-white/20">
+              {user.zodiacSign || "Burç yok"}
             </span>
           </div>
         </div>
       </div>
-    </motion.button>
-  );
-}
-
-function UserProfilePreview({ user, currentUser, onClose }: { user: UserProfile, currentUser: UserProfile, onClose: () => void }) {
-  const scores = calculateCompatibility(currentUser, user);
-  const [showMessageModal, setShowMessageModal] = useState(false);
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const handleLike = async () => {
-    try {
-      await addDoc(collection(db, "swipes"), {
-        fromUserId: currentUser.uid,
-        toUserId: user.uid,
-        type: 'like',
-        createdAt: serverTimestamp()
-      });
-      toast.success("Beğenildi! Karşılık gelirse eşleşeceksiniz.");
-      onClose();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "swipes");
-    }
-  };
-
-  const handleSuperLike = async () => {
-    try {
-      await addDoc(collection(db, "interactionRequests"), {
-        fromUserId: currentUser.uid,
-        toUserId: user.uid,
-        type: 'super_like',
-        status: 'pending',
-        createdAt: serverTimestamp()
-      });
-      toast.success("Süper Like gönderildi! ✨");
-      onClose();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "interactionRequests");
-    }
-  };
-
-  const handleSendMessageRequest = async () => {
-    if (!message.trim()) return;
-    setSending(true);
-    try {
-      await addDoc(collection(db, "interactionRequests"), {
-        fromUserId: currentUser.uid,
-        toUserId: user.uid,
-        type: 'message_request',
-        messagePreview: message.trim(),
-        status: 'pending',
-        createdAt: serverTimestamp()
-      });
-      toast.success("Mesaj isteği gönderildi! 👋");
-      setShowMessageModal(false);
-      onClose();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "interactionRequests");
-    } finally {
-      setSending(false);
-    }
-  };
-  
-  return (
-    <>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6"
-      >
-        <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 25, stiffness: 200 }}
-          className="w-full max-w-lg bg-white rounded-t-[40px] sm:rounded-[40px] overflow-hidden flex flex-col max-h-[90vh] border border-slate-100 shadow-2xl"
-        >
-          {/* Top Image Section */}
-          <div className="relative h-[40vh] flex-shrink-0">
-            <img 
-              src={user.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-              alt={user.nickname}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent" />
-            
-            <button 
-              onClick={onClose}
-              className="absolute top-6 right-6 p-2 rounded-full bg-white/40 backdrop-blur-md border border-white/10 text-slate-900"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            
-            <div className="absolute bottom-6 left-8 right-8">
-              <div className="flex items-center gap-3">
-                <h2 className="text-3xl font-serif font-bold text-slate-900">{user.nickname}, {user.age}</h2>
-                {user.subscription?.status === 'active' && (
-                  <div className="px-3 py-1 rounded-full bg-amber-400 text-white text-[10px] font-black uppercase tracking-wider">
-                    PREMIUM
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-slate-500 mt-1">
-                <MapPin className="w-4 h-4" />
-                <span className="text-sm">Yakınlarda • {user.zodiacSign} Burcu</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Content Section */}
-          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8 no-scrollbar">
-            {/* Compatibility Scores */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-center space-y-1">
-                <Heart className="w-5 h-5 text-rose-500 mx-auto mb-1" />
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Aşk</p>
-                <p className="text-xl font-serif font-bold text-rose-600">%{scores.love}</p>
-              </div>
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-center space-y-1">
-                <UserPlus className="w-5 h-5 text-indigo-500 mx-auto mb-1" />
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Dostluk</p>
-                <p className="text-xl font-serif font-bold text-indigo-600">%{scores.friendship}</p>
-              </div>
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-center space-y-1">
-                <Sparkles className="w-5 h-5 text-amber-500 mx-auto mb-1" />
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Uyum</p>
-                <p className="text-xl font-serif font-bold text-amber-600">%{scores.understanding}</p>
-              </div>
-            </div>
-
-            {/* Bio */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Hakkında</h3>
-              <p className="text-slate-600 leading-relaxed italic">
-                "{user.bio || "Henüz bir biyografi eklenmemiş."}"
-              </p>
-            </div>
-
-            {/* Interests */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">İlgi Alanları</h3>
-              <div className="flex flex-wrap gap-2">
-                {user.interests?.map((interest, idx) => (
-                  <span 
-                    key={idx}
-                    className="px-4 py-2 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-600 font-medium"
-                  >
-                    {interest}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Details */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-1">
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Element</p>
-                <p className="text-sm font-medium text-slate-900">{user.element || "Bilinmiyor"}</p>
-              </div>
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-1">
-                <p className="text-[10px] text-slate-400 uppercase font-bold">Yönetici Gezegen</p>
-                <p className="text-sm font-medium text-slate-900">{user.rulingPlanet || "Bilinmiyor"}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="p-8 bg-white border-t border-slate-100 flex gap-4">
-            <button 
-              onClick={() => setShowMessageModal(true)}
-              className="flex-1 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              <MessageCircle className="w-5 h-5 text-indigo-500" />
-              Mesaj
-            </button>
-            <button 
-              onClick={handleLike}
-              className="flex-1 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center gap-2 font-bold shadow-lg shadow-indigo-600/20"
-            >
-              <Heart className="w-5 h-5 fill-white" />
-              Beğen
-            </button>
-            <button 
-              onClick={handleSuperLike}
-              className="w-14 h-14 rounded-2xl bg-amber-400 flex items-center justify-center shadow-lg shadow-amber-400/20"
-            >
-              <Zap className="w-6 h-6 text-white fill-white" />
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-
-      {/* Message Request Modal */}
-      <AnimatePresence>
-        {showMessageModal && (
-          <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-md bg-white rounded-[32px] border border-slate-100 p-8 space-y-6 shadow-2xl"
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-slate-900">Mesaj İsteği Gönder</h3>
-                <button onClick={() => setShowMessageModal(false)} className="p-2 rounded-full hover:bg-slate-50">
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <img 
-                    src={user.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`}
-                    alt={user.nickname}
-                    className="w-12 h-12 rounded-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div>
-                    <p className="font-bold text-slate-900">{user.nickname}</p>
-                    <p className="text-xs text-slate-400">Mesaj isteği gönderiliyor</p>
-                  </div>
-                </div>
-                <textarea 
-                  autoFocus
-                  rows={4}
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-slate-900 outline-none focus:border-indigo-500/50"
-                  placeholder="Mesajını buraya yaz..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                />
-              </div>
-
-              <button 
-                onClick={handleSendMessageRequest}
-                disabled={sending || !message.trim()}
-                className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {sending ? 'Gönderiliyor...' : 'Gönder'}
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-    </>
+    </div>
   );
 }
 

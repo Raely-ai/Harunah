@@ -42,18 +42,18 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    lookingFor: initialData?.lookingFor || "",
-    nickname: initialData?.nickname || "",
+    lookingFor: initialData?.social?.lookingFor || initialData?.lookingFor || "",
+    nickname: initialData?.social?.nickname || initialData?.nickname || "",
     birthDate: initialData?.birthDate || "",
-    gender: initialData?.gender || "",
-    interests: initialData?.interests || [] as string[],
-    photos: initialData?.photos || [] as string[],
-    bio: initialData?.bio || ""
+    gender: initialData?.social?.gender || initialData?.gender || "",
+    interests: initialData?.social?.interests || initialData?.interests || [] as string[],
+    photos: initialData?.social?.photos || initialData?.photos || [] as string[],
+    bio: initialData?.social?.bio || initialData?.bio || ""
   });
 
   const totalSteps = 8;
 
-  const updateFirestore = async (data: Partial<typeof formData> & any) => {
+  const updateFirestore = async (data: any) => {
     if (!auth.currentUser) return;
     setLoading(true);
     try {
@@ -75,8 +75,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
     if (step === 5 && formData.interests.length < 5) return toast.error("En az 5 ilgi alanı seçmelisiniz.");
 
     // Save progress at each step
-    if (step === 1) await updateFirestore({ lookingFor: formData.lookingFor });
-    if (step === 2) await updateFirestore({ nickname: formData.nickname });
+    if (step === 1) await updateFirestore({ "social.lookingFor": formData.lookingFor });
+    if (step === 2) await updateFirestore({ "social.nickname": formData.nickname });
     if (step === 3) {
       const mysticProfile = calculateMysticProfile(formData.birthDate);
       await updateFirestore({ 
@@ -84,26 +84,27 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         ...mysticProfile 
       });
     }
-    if (step === 4) await updateFirestore({ gender: formData.gender });
-    if (step === 5) await updateFirestore({ interests: formData.interests });
+    if (step === 4) await updateFirestore({ "social.gender": formData.gender });
+    if (step === 5) await updateFirestore({ "social.interests": formData.interests });
     if (step === 6) {
       // Handle default photo if none provided
       let finalPhotos = formData.photos;
       if (finalPhotos.length === 0) {
         finalPhotos = [formData.gender === 'erkek' ? DEFAULT_AVATARS.erkek : DEFAULT_AVATARS.kadın];
       }
-      await updateFirestore({ photos: finalPhotos });
+      await updateFirestore({ "social.photos": finalPhotos });
     }
-    if (step === 7) await updateFirestore({ bio: formData.bio });
+    if (step === 7) await updateFirestore({ "social.bio": formData.bio });
 
     if (step < totalSteps) {
       setStep(step + 1);
     } else {
       // Final step: Complete onboarding
       await updateFirestore({
-        socialEnabled: true,
-        socialProfileCompleted: true,
-        socialVisible: true
+        "social.enabled": true,
+        "social.profileCompleted": true,
+        "social.visible": true,
+        "social.banned": false
       });
       onComplete();
     }

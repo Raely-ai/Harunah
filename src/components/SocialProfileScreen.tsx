@@ -40,7 +40,7 @@ export default function SocialProfileScreen({ currentUser, onNavigate, onEdit }:
             <div className="relative">
               <div className="w-32 h-32 rounded-full overflow-hidden bg-slate-100 border-4 border-white shadow-xl shadow-slate-200/50">
                 <img 
-                  src={currentUser.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.uid}`} 
+                  src={currentUser.social?.photos?.[0] || currentUser.photos?.[0] || currentUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.uid}`} 
                   alt="Profile"
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -55,9 +55,9 @@ export default function SocialProfileScreen({ currentUser, onNavigate, onEdit }:
             
             <div>
               <h2 className="text-2xl font-bold text-slate-900">
-                {currentUser.nickname || currentUser.displayName}, {age}
+                {currentUser.social?.nickname || currentUser.nickname || currentUser.displayName}, {age}
               </h2>
-              <p className="text-sm text-slate-500 mt-1">{currentUser.bio || "Henüz bir bio eklenmemiş."}</p>
+              <p className="text-sm text-slate-500 mt-1">{currentUser.social?.bio || currentUser.bio || "Henüz bir bio eklenmemiş."}</p>
             </div>
           </div>
 
@@ -92,13 +92,13 @@ export default function SocialProfileScreen({ currentUser, onNavigate, onEdit }:
               <SettingItem 
                 icon={<ImageIcon className="w-5 h-5 text-indigo-500" />} 
                 title="Fotoğrafları Düzenle" 
-                subtitle={`${currentUser.photos?.length || 0}/5 Fotoğraf`}
+                subtitle={`${currentUser.social?.photos?.length || currentUser.photos?.length || 0}/5 Fotoğraf`}
                 onClick={onEdit}
               />
               <SettingItem 
                 icon={<Heart className="w-5 h-5 text-rose-500" />} 
                 title="İlgi Alanları" 
-                subtitle={currentUser.interests?.length ? `${currentUser.interests.length} ilgi alanı seçili` : 'Ekle'}
+                subtitle={currentUser.social?.interests?.length || currentUser.interests?.length ? `${currentUser.social?.interests?.length || currentUser.interests?.length} ilgi alanı seçili` : 'Ekle'}
                 onClick={onEdit}
               />
               <SettingItem 

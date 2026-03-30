@@ -47,7 +47,7 @@ export interface UserProfile {
   isBanned?: boolean;
   role?: 'user' | 'admin';
   
-  // Social Fields
+  // Social Fields (Deprecated, use 'social' object)
   socialEnabled?: boolean;
   socialProfileCompleted?: boolean;
   socialVisible?: boolean;
@@ -56,6 +56,33 @@ export interface UserProfile {
   interests?: string[];
   photos?: string[];
   bio?: string;
+  socialBan?: boolean;
+  
+  // New Social Structure
+  social?: {
+    enabled: boolean;
+    profileCompleted: boolean;
+    nickname: string;
+    gender: 'erkek' | 'kadın';
+    lookingFor: string;
+    bio: string;
+    photos: string[];
+    interests: string[];
+    visible: boolean;
+    banned: boolean;
+    updatedAt?: string;
+    settings: {
+      whoCanMessage: 'everyone' | 'friends' | 'nobody';
+      whoCanAddFriend: 'everyone' | 'nobody';
+      notifications: {
+        messages: boolean;
+        friendRequests: boolean;
+        roomInvites: boolean;
+        gifts: boolean;
+      };
+    };
+  };
+
   zodiacSign?: string;
   element?: string;
   rulingPlanet?: string;
@@ -68,7 +95,6 @@ export interface UserProfile {
   };
   dailySwipeCount?: number;
   lastSwipeDate?: string;
-  socialBan?: boolean;
   
   // Social Wallet Fields
   superLikeCount?: number;
@@ -159,54 +185,6 @@ export interface Horoscope {
   sign: string;
   content: string;
   date: string;
-}
-
-export interface SocialProfile {
-  uid: string;
-  nickname: string;
-  age: number;
-  gender: string;
-  birthDate: string;
-  birthTime?: string;
-  birthPlace?: string;
-  vibe: string;
-  socialPurpose: 'friendship' | 'chat' | 'networking' | 'dating';
-  bio?: string;
-  photoURL?: string;
-  region: string;
-  createdAt: string;
-  updatedAt: string;
-  isCompleted: boolean;
-  onboardingStep?: number;
-  completeness: number;
-  blockedUids?: string[];
-  settings: {
-    whoCanMessage: 'everyone' | 'friends' | 'nobody';
-    whoCanAddFriend: 'everyone' | 'nobody';
-    notifications: {
-      messages: boolean;
-      friendRequests: boolean;
-      roomInvites: boolean;
-      gifts: boolean;
-    };
-  };
-  lastActiveAt: string;
-  isBanned?: boolean;
-  hosting?: {
-    freeTrialUntil?: string;
-    donateEnabled?: boolean;
-    activePackage?: {
-      type: 'daily' | 'weekly' | 'monthly' | 'yearly';
-      expiresAt: string;
-      purchasedAt: string;
-    };
-    packageHistory?: {
-      type: string;
-      purchasedAt: string;
-      expiresAt: string;
-    }[];
-  };
-  withdrawableBalance: number;
 }
 
 export interface SocialTransaction {
