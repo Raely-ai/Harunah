@@ -2,8 +2,6 @@ import { GoogleGenAI } from "@google/genai";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 export interface PromptData {
   name: string;
   birthDate: string;
@@ -53,9 +51,10 @@ export const generateFortune = async (data: PromptData) => {
   }
 
   try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: [{ parts: [{ text: prompt }] }],
       config: {
         systemInstruction: "Sen 'Ahlas' isminde, çok derin ve mistik bir kahinsin. Kullanıcının verdiği bilgilere göre ona özel, etkileyici ve gerçekçi bir fal yorumu yapmalısın. Dilin gizemli, şiirsel ama anlaşılır olmalı. Yorumun en az 300 kelime olmalı.",
       },

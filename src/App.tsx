@@ -25,12 +25,16 @@ import SettingsView from "./components/SettingsView";
 import EditProfileModal from "./components/EditProfileModal";
 import DeleteAccountModal from "./components/DeleteAccountModal";
 import HoroscopeScreen from "./components/HoroscopeScreen";
-import SocialWelcomeScreen from "./components/SocialWelcomeScreen";
-import SocialOnboarding from "./components/SocialOnboarding";
-import SocialHub from "./components/SocialHub";
+import SocialMainScreen from "./components/SocialMainScreen";
+import SocialIntroScreen from "./components/SocialIntroScreen";
+import SocialOnboardingFlow from "./components/SocialOnboardingFlow";
+import SocialDiscoverScreen from "./components/SocialDiscoverScreen";
+import SocialMessagesScreen from "./components/SocialMessagesScreen";
+import SocialProfileScreen from "./components/SocialProfileScreen";
+import SocialWalletScreen from "./components/SocialWalletScreen";
 import { WalletScreen } from "./components/WalletScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
-import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope, SocialProfile } from "./types";
+import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope } from "./types";
 import { generateFortune } from "./services/geminiService";
 
 export default function App() {
@@ -48,13 +52,30 @@ export default function App() {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [horoscopes, setHoroscopes] = useState<Record<string, Horoscope>>({});
-  const [isSocialWelcomeDismissed, setIsSocialWelcomeDismissed] = useState(false);
-  const [socialProfile, setSocialProfile] = useState<SocialProfile | null>(null);
   
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
   // Fetch Global Config
   useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDoc(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. ");
+          toast.error("Bağlantı Hatası", {
+            description: "Sunucuya bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin veya reklam engelleyicinizi kapatın."
+          });
+        } else if (error instanceof Error && error.message.includes('Could not reach Cloud Firestore backend')) {
+          console.error("Could not reach Cloud Firestore backend.");
+          toast.error("Bağlantı Hatası", {
+            description: "Sunucuya bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin veya reklam engelleyicinizi kapatın."
+          });
+        }
+      }
+    }
+    testConnection();
+
     const configRef = doc(db, "config", "global");
     const unsubscribe = onSnapshot(configRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -63,13 +84,12 @@ export default function App() {
         // Provide a default config if not found in Firestore yet
         const defaultConfig: AppConfig = {
           prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
-          icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '📺' },
-          dailyMessagePrompt: "Günün mesajını oluştur.",
+          icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
+          dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
           adRewardAmount: 5,
           maxDailyAds: 5,
           subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-          packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 },
-          hostPackagePrices: { daily: 300, weekly: 1200, monthly: 3000 }
+          packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
         };
         setAppConfig(defaultConfig);
       }
@@ -78,13 +98,12 @@ export default function App() {
       // Fallback on error too
       setAppConfig({
         prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
-        icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '📺' },
-        dailyMessagePrompt: "Günün mesajını oluştur.",
+        icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
+        dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
         adRewardAmount: 5,
         maxDailyAds: 5,
         subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-        packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 },
-        hostPackagePrices: { daily: 300, weekly: 1200, monthly: 3000 }
+        packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
       });
     });
     return () => unsubscribe();
@@ -145,17 +164,6 @@ export default function App() {
         const data = snapshot.data();
         const profile = { uid: snapshot.id, ...data } as UserProfile;
         
-        // Migration: Merge adCredits into credits if adCredits exists
-        if ('adCredits' in (profile as any) && (profile as any).adCredits > 0) {
-          const mergedCredits = (profile.credits || 0) + (profile as any).adCredits;
-          profile.credits = mergedCredits;
-          // Update firestore
-          await updateDoc(userRef, {
-            credits: mergedCredits,
-            adCredits: deleteField()
-          });
-        }
-
         if (profile.isBanned) {
           setUserProfile(profile);
           // We don't sign out immediately to show the banned screen
@@ -169,8 +177,9 @@ export default function App() {
           uid: user.uid,
           email: user.email || "",
           displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-          photoURL: "https://api.dicebear.com/7.x/avataaars/svg?seed=AhlasDefault", // Fixed default avatar for everyone
-          credits: 100, // Welcome gift
+          photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=AhlasDefault", // Use Google photo if available, else default
+          credits: 0,
+          adCredits: 50,
           dailyAdCount: 0,
           lastAdDate: new Date().toISOString(),
           horoscope: 'Koç', // Default horoscope
@@ -182,29 +191,20 @@ export default function App() {
           createdAt: new Date().toISOString(),
           isBanned: false,
           role: 'user',
+          socialEnabled: false,
+          socialProfileCompleted: false,
           subscription: {
             status: 'none',
             type: 'none',
             dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
           }
         };
-        setDoc(userRef, initialProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`));
+        setDoc(doc(db, "users", user.uid), initialProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`));
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}`));
 
-    // Social Profile Sync
-    const socialRef = doc(db, "socialProfiles", user.uid);
-    const unsubscribeSocial = onSnapshot(socialRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setSocialProfile(snapshot.data() as SocialProfile);
-      } else {
-        setSocialProfile(null);
-      }
-    }, (err) => handleFirestoreError(err, OperationType.GET, `socialProfiles/${user.uid}`));
-
     return () => {
       unsubscribe();
-      unsubscribeSocial();
     };
   }, [user]);
 
@@ -281,8 +281,27 @@ export default function App() {
     if (!userProfile || !appConfig) return;
 
     const price = appConfig.prices[type as keyof typeof appConfig.prices] || 0;
-    const isAdvanced = ['water', 'ebced', 'yildizname', 'havas'].includes(type);
+    const isSubscribed = userProfile.subscription?.status === 'active';
     const isAdEligible = ['coffee', 'tarot'].includes(type);
+
+    if (isSubscribed) {
+      const subLimits = appConfig.subscriptionLimits;
+      const subUsed = userProfile.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 };
+      const limit = ['coffee', 'tarot'].includes(type) ? subLimits[type as 'coffee' | 'tarot'] : subLimits.advanced;
+      const used = ['coffee', 'tarot'].includes(type) ? subUsed[type as 'coffee' | 'tarot'] : subUsed.advanced;
+
+      if (used >= limit) {
+        toast.error(`Günlük abonelik limitinize ulaştınız (${limit}).`, {
+          description: "Diğer bakiyelerinizi kullanabilir veya yarın tekrar deneyebilirsiniz."
+        });
+        // Don't return, let them use credits if they want? 
+        // Actually, usually subscription means "free up to limit". 
+        // If limit reached, they should use credits.
+      } else {
+        setActiveFortune(type);
+        return;
+      }
+    }
 
     // Reset daily ad readings if needed
     const today = new Date().toISOString().split('T')[0];
@@ -293,25 +312,25 @@ export default function App() {
       adUsage.lastResetDate = today;
     }
 
-    if (isAdvanced) {
-      if (userProfile.credits < price) {
-        toast.error("Bakiyen yetersiz!", {
-          description: "Bu işlem için kredi gereklidir."
-        });
+    // Check Ad Credits first for Coffee/Tarot
+    if (isAdEligible) {
+      const adLimit = 2; // User specified 2 coffee, 2 tarot limit for ad credits
+      const used = adUsage[type as 'coffee' | 'tarot'];
+      
+      if (userProfile.adCredits >= price && used < adLimit) {
+        setActiveFortune(type);
         return;
       }
-    } else if (isAdEligible) {
-      if (userProfile.credits < price) {
-        toast.error("Yetersiz bakiye!", {
-          description: "Lütfen kredi yükleyin veya reklam izleyerek kredi kazanın."
-        });
-        return;
-      }
-    } else {
-      if (userProfile.credits < price) {
-        toast.error("Yetersiz bakiye!");
-        return;
-      }
+    }
+
+    // Check Main Credits
+    if (userProfile.credits < price) {
+      toast.error("Bakiyen yetersiz!", {
+        description: isAdEligible 
+          ? "Reklam izleyerek kredi kazanabilir veya bakiye yükleyebilirsin."
+          : "Lütfen bakiye yükleyin."
+      });
+      return;
     }
 
     setActiveFortune(type);
@@ -322,18 +341,73 @@ export default function App() {
 
     const type = data.type as FortuneType;
     const price = appConfig.prices[type as keyof typeof appConfig.prices] || 0;
+    const isAdEligible = ['coffee', 'tarot'].includes(type);
+    const isSubscribed = userProfile.subscription?.status === 'active';
 
     let newCredits = userProfile.credits;
+    let newAdCredits = userProfile.adCredits || 0;
+    let balanceType: 'main' | 'ad' | 'subscription' = 'main';
+    let creditsUsed = price;
 
-    if (newCredits >= price) {
-      newCredits -= price;
-    } else {
-      toast.error("Yetersiz bakiye!");
-      return;
+    const today = new Date().toISOString().split('T')[0];
+    const adUsage = { ...(userProfile.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: today }) };
+    if (adUsage.lastResetDate !== today) {
+      adUsage.coffee = 0;
+      adUsage.tarot = 0;
+      adUsage.lastResetDate = today;
+    }
+
+    const updates: any = {};
+
+    // Logic Priority: 1. Subscription, 2. Ad Credits (if eligible & under limit), 3. Main Credits
+    if (isSubscribed) {
+      const subLimits = appConfig.subscriptionLimits;
+      const subUsed = { ...(userProfile.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 }) };
+      const limit = ['coffee', 'tarot'].includes(type) ? subLimits[type as 'coffee' | 'tarot'] : subLimits.advanced;
+      const used = ['coffee', 'tarot'].includes(type) ? subUsed[type as 'coffee' | 'tarot'] : subUsed.advanced;
+
+      if (used < limit) {
+        balanceType = 'subscription';
+        creditsUsed = 0;
+        if (['coffee', 'tarot'].includes(type)) {
+          subUsed[type as 'coffee' | 'tarot']++;
+        } else {
+          subUsed.advanced++;
+        }
+        updates.subscription = {
+          ...userProfile.subscription!,
+          dailyReadingsUsed: subUsed
+        };
+      }
+    }
+
+    if (balanceType === 'main' && isAdEligible) {
+      const adLimit = 2;
+      const used = adUsage[type as 'coffee' | 'tarot'];
+      
+      if (newAdCredits >= price && used < adLimit) {
+        balanceType = 'ad';
+        newAdCredits -= price;
+        adUsage[type as 'coffee' | 'tarot']++;
+        updates.adCredits = newAdCredits;
+        updates.dailyAdReadingsUsed = adUsage;
+      }
+    }
+
+    if (balanceType === 'main') {
+      if (newCredits >= price) {
+        newCredits -= price;
+        updates.credits = newCredits;
+      } else {
+        toast.error("Yetersiz bakiye!", {
+          description: "Lütfen bakiye yükleyin veya reklam izleyerek kredi kazanın."
+        });
+        return;
+      }
     }
 
     const readingId = Math.random().toString(36).substr(2, 9);
-    const newReading: any = {
+    const newReading: FortuneReading = {
       id: readingId,
       userId: user?.uid || "",
       type: data.type,
@@ -341,7 +415,9 @@ export default function App() {
       content: 'Kehanetin hazırlanıyor...',
       date: new Date().toISOString(),
       status: 'waiting',
-      questions: data.questions ? data.questions.map((q: any) => typeof q === 'string' ? q : q.text).filter(Boolean) : []
+      questions: data.questions ? data.questions.map((q: any) => typeof q === 'string' ? q : q.text).filter(Boolean) : [],
+      creditsUsed,
+      balanceType
     };
 
     if (data.cards) newReading.cards = data.cards;
@@ -351,10 +427,8 @@ export default function App() {
       // Save reading to Firestore
       await setDoc(doc(db, "readings", readingId), newReading);
 
-      // Deduct credits in Firestore
-      await updateDoc(doc(db, "users", userProfile.uid), {
-        credits: newCredits
-      });
+      // Update user profile in Firestore
+      await updateDoc(doc(db, "users", userProfile.uid), updates);
 
       setActiveFortune(null);
       setActiveTab('history');
@@ -702,20 +776,16 @@ export default function App() {
                         loading: 'Reklam izleniyor...',
                         success: () => {
                           const reward = appConfig?.adRewardAmount || 1;
-                          const newCredits = userProfile.credits + reward;
-                          setUserProfile(prev => ({
-                            ...prev,
-                            credits: newCredits,
-                            dailyAdCount: prev.dailyAdCount + 1
-                          }));
+                          const newAdCredits = (userProfile.adCredits || 0) + reward;
+                          const newAdCount = userProfile.dailyAdCount + 1;
                           
                           // Update Firestore
                           updateDoc(doc(db, "users", user.uid), {
-                            credits: newCredits,
-                            dailyAdCount: userProfile.dailyAdCount + 1
+                            adCredits: newAdCredits,
+                            dailyAdCount: newAdCount
                           });
 
-                          return `Tebrikler! ${reward} Ana Bakiye kazandın.`;
+                          return `Tebrikler! ${reward} Enerji Kredisi kazandın.`;
                         },
                         error: 'Reklam yüklenemedi.'
                       }
@@ -748,77 +818,72 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'social' && !socialProfile && !isSocialWelcomeDismissed && (
-            <SocialWelcomeScreen 
-              onContinue={(choice) => {
-                setIsSocialWelcomeDismissed(true);
-                const choiceLabel = choice === 'social' ? 'Sosyal' : choice === 'chat' ? 'Sohbet' : 'Keşfet';
-                toast.success(`Sosyal modül ${choiceLabel} moduyla açılıyor...`);
-              }}
-              onBack={() => handleNavigate('home')}
-            />
+          {activeTab === 'social-intro' && (
+            <motion.div
+              key="social-intro"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] bg-white"
+            >
+              <SocialIntroScreen 
+                onBack={() => handleNavigate('home')}
+                onContinue={async () => {
+                  if (userProfile?.socialProfileCompleted) {
+                    handleNavigate('social-main');
+                  } else {
+                    handleNavigate('social-onboarding');
+                  }
+                }}
+              />
+            </motion.div>
           )}
 
-          {activeTab === 'social' && (!socialProfile || !socialProfile.isCompleted) && isSocialWelcomeDismissed && (
-            <SocialOnboarding 
-              initialStep={socialProfile?.onboardingStep && socialProfile.onboardingStep > 1 ? socialProfile.onboardingStep - 1 : 1}
-              onComplete={async (profileData) => {
-                if (!user) return;
-                try {
-                  const finalProfile: SocialProfile = {
-                    uid: user.uid,
-                    nickname: profileData.nickname!,
-                    age: profileData.age!,
-                    gender: profileData.gender!,
-                    birthDate: profileData.birthDate!,
-                    birthTime: profileData.birthTime || '',
-                    birthPlace: profileData.birthPlace || '',
-                    vibe: profileData.vibe!,
-                    socialPurpose: profileData.socialPurpose!,
-                    bio: profileData.bio!,
-                    photoURL: profileData.photoURL || '',
-                    region: profileData.region || 'Türkiye',
-                    createdAt: profileData.createdAt || new Date().toISOString(),
-                    isCompleted: true,
-                    onboardingStep: 7,
-                    completeness: 100,
-                    lastActiveAt: new Date().toISOString(),
-                    withdrawableBalance: 0
-                  };
-                  await setDoc(doc(db, "socialProfiles", user.uid), finalProfile);
-                  setSocialProfile(finalProfile);
-                  toast.success("Profilin başarıyla oluşturuldu!");
-                } catch (err) {
-                  console.error("Social profile save error:", err);
-                  toast.error("Profil kaydedilirken bir hata oluştu.");
-                }
-              }}
-              onCancel={() => setIsSocialWelcomeDismissed(false)}
-            />
+          {activeTab === 'social-onboarding' && (
+            <motion.div
+              key="social-onboarding"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] bg-white"
+            >
+              <SocialOnboardingFlow 
+                initialData={userProfile}
+                onBack={() => handleNavigate('social-intro')}
+                onComplete={() => handleNavigate('social-main')}
+              />
+            </motion.div>
           )}
 
-          {activeTab === 'social' && socialProfile?.isCompleted && (
-            <SocialHub 
-              userProfile={userProfile}
-              socialProfile={socialProfile} 
-              onReturnToFortune={() => handleNavigate('home')} 
-              onUpdateSocialProfile={(updatedProfile) => setSocialProfile(updatedProfile)}
-            />
+          {activeTab === 'social-main' && userProfile && (
+            <motion.div
+              key="social-main"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] bg-white"
+            >
+              <SocialMainScreen 
+                currentUser={userProfile}
+                onBack={() => handleNavigate('home')}
+                onEdit={() => setIsEditProfileOpen(true)}
+              />
+            </motion.div>
           )}
         </AnimatePresence>
 
-        {activeTab !== 'social' && (
-          <footer className="mt-20 text-center pb-20">
-            <p className="text-xs text-purple-200/20 font-medium uppercase tracking-widest">
-              © 2026 Falcı Ahlas • Tüm Hakları Saklıdır
-            </p>
-          </footer>
-        )}
+        <footer className="mt-20 text-center pb-20">
+          <p className="text-xs text-purple-200/20 font-medium uppercase tracking-widest">
+            © 2026 Falcı Ahlas • Tüm Hakları Saklıdır
+          </p>
+        </footer>
       </div>
 
-      {activeTab !== 'social' && (
-        <BottomNav activeTab={activeTab} onTabChange={handleNavigate} />
-      )}
+      <BottomNav 
+        activeTab={activeTab} 
+        onTabChange={handleNavigate} 
+        className={['social-intro', 'social-onboarding', 'social-main', 'social-match', 'social-messages', 'social-profile', 'social-wallet'].includes(activeTab) ? 'hidden' : ''}
+      />
 
       <AnimatePresence>
         {activeFortune && (

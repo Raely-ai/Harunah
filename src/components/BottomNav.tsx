@@ -12,19 +12,19 @@ import { AppTab } from "../types";
 interface BottomNavProps {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
+  className?: string;
 }
 
-export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
+export default function BottomNav({ activeTab, onTabChange, className = "" }: BottomNavProps) {
   const tabs = [
     { id: 'home' as AppTab, icon: Home, label: 'Oracle' },
     { id: 'history' as AppTab, icon: History, label: 'Geçmiş' },
-    { id: 'social' as AppTab, icon: Users, label: 'Sosyal' },
     { id: 'wallet' as AppTab, icon: Wallet, label: 'Cüzdan' },
     { id: 'profile' as AppTab, icon: User, label: 'Profil' },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 px-6 pb-8 pointer-events-none">
+    <div className={`fixed bottom-0 left-0 right-0 z-50 px-6 pb-8 pointer-events-none ${className}`}>
       <div className="max-w-md mx-auto pointer-events-auto">
         <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-2 flex items-center justify-between shadow-2xl shadow-purple-900/20">
           {tabs.map((tab) => {

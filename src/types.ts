@@ -2,7 +2,7 @@ export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' 
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
-export type AppTab = 'home' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social';
+export type AppTab = 'home' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-main' | 'social-onboarding' | 'social-match' | 'social-messages' | 'social-profile' | 'social-wallet';
 
 export type ReadingStatus = 'waiting' | 'interpreting' | 'completed';
 
@@ -19,6 +19,8 @@ export interface FortuneReading {
   isFavorite?: boolean;
   isPriority?: boolean;
   userId: string;
+  creditsUsed?: number;
+  balanceType?: 'main' | 'ad' | 'subscription';
 }
 
 export interface UserProfile {
@@ -34,6 +36,7 @@ export interface UserProfile {
   horoscope?: string;
   createdAt: string;
   credits: number;
+  adCredits: number;
   dailyAdCount: number;
   lastAdDate: string;
   dailyAdReadingsUsed?: {
@@ -43,6 +46,39 @@ export interface UserProfile {
   };
   isBanned?: boolean;
   role?: 'user' | 'admin';
+  
+  // Social Fields
+  socialEnabled?: boolean;
+  socialProfileCompleted?: boolean;
+  socialVisible?: boolean;
+  nickname?: string;
+  lookingFor?: string;
+  interests?: string[];
+  photos?: string[];
+  bio?: string;
+  zodiacSign?: string;
+  element?: string;
+  rulingPlanet?: string;
+  friendlySign?: string;
+  enemySign?: string;
+  age?: number;
+  location?: {
+    city: string;
+    country: string;
+  };
+  dailySwipeCount?: number;
+  lastSwipeDate?: string;
+  socialBan?: boolean;
+  
+  // Social Wallet Fields
+  superLikeCount?: number;
+  analysisCount?: number;
+  extraSwipeQuota?: number;
+  discoverRefreshCount?: number;
+  boostExpiresAt?: string;
+  socialSubscriptionType?: 'none' | 'daily' | 'weekly' | 'monthly';
+  socialSubscriptionExpireAt?: string;
+  
   subscription?: {
     status: 'active' | 'inactive' | 'expired' | 'none';
     type: 'none' | 'daily' | 'weekly' | 'monthly';
@@ -111,7 +147,7 @@ export interface AppConfig {
     };
   };
   packagePrices: Record<string, number>;
-  hostPackagePrices: {
+  hostPackagePrices?: {
     daily: number;
     weekly: number;
     monthly: number;
@@ -125,24 +161,6 @@ export interface Horoscope {
   date: string;
 }
 
-export interface GlobalNotification {
-  id?: string;
-  title: string;
-  message: string;
-  sentAt: string;
-}
-
-export interface SocialSettings {
-  whoCanMessage: 'everyone' | 'friends' | 'nobody';
-  whoCanAddFriend: 'everyone' | 'nobody';
-  notifications: {
-    messages: boolean;
-    friendRequests: boolean;
-    roomInvites: boolean;
-    gifts: boolean;
-  };
-}
-
 export interface SocialProfile {
   uid: string;
   nickname: string;
@@ -152,23 +170,33 @@ export interface SocialProfile {
   birthTime?: string;
   birthPlace?: string;
   vibe: string;
-  socialPurpose: string;
-  bio: string;
+  socialPurpose: 'friendship' | 'chat' | 'networking' | 'dating';
+  bio?: string;
   photoURL?: string;
   region: string;
   createdAt: string;
+  updatedAt: string;
   isCompleted: boolean;
-  onboardingStep: number;
+  onboardingStep?: number;
   completeness: number;
   blockedUids?: string[];
-  settings?: SocialSettings;
+  settings: {
+    whoCanMessage: 'everyone' | 'friends' | 'nobody';
+    whoCanAddFriend: 'everyone' | 'nobody';
+    notifications: {
+      messages: boolean;
+      friendRequests: boolean;
+      roomInvites: boolean;
+      gifts: boolean;
+    };
+  };
   lastActiveAt: string;
   isBanned?: boolean;
   hosting?: {
-    freeTrialUntil: string;
+    freeTrialUntil?: string;
     donateEnabled?: boolean;
     activePackage?: {
-      type: 'daily' | 'weekly' | 'monthly';
+      type: 'daily' | 'weekly' | 'monthly' | 'yearly';
       expiresAt: string;
       purchasedAt: string;
     };
@@ -179,54 +207,24 @@ export interface SocialProfile {
     }[];
   };
   withdrawableBalance: number;
-  totalEarnings?: number;
 }
-
-export interface Gift {
-  id: string;
-  name: string;
-  price: number;
-  icon: string;
-  description: string;
-}
-
-export interface SocialGiftTransaction {
-  id: string;
-  senderId: string;
-  receiverId: string;
-  hostId: string;
-  roomId: string;
-  giftId: string;
-  giftName: string;
-  giftValue: number;
-  receiverShare: number;
-  hostShare: number;
-  platformShare: number;
-  timestamp: string;
-}
-
-export type SocialTransactionType = 'gift_sent' | 'gift_received' | 'host_package_purchase' | 'withdrawal' | 'room_earning' | 'top_up';
 
 export interface SocialTransaction {
   id: string;
   uid: string;
-  type: SocialTransactionType;
+  type: 'gift_sent' | 'gift_received' | 'host_package_purchase' | 'withdrawal' | 'room_earning' | 'top_up';
   amount: number;
   balanceType: 'main' | 'withdrawable';
   description: string;
   timestamp: string;
-  metadata?: {
-    fromUid?: string;
-    toUid?: string;
-    roomId?: string;
-    packageType?: string;
-    withdrawalId?: string;
-  };
+  metadata?: any;
 }
 
 export interface WithdrawalRequest {
   id: string;
   uid: string;
+  userEmail?: string;
+  userName?: string;
   amount: number;
   status: 'pending' | 'approved' | 'rejected' | 'completed';
   iban?: string;
@@ -236,22 +234,6 @@ export interface WithdrawalRequest {
   processedAt?: string;
   rejectionReason?: string;
   adminNotes?: string;
-}
-
-export interface Match {
-  id: string;
-  uids: string[];
-  createdAt: string;
-  lastMessageAt?: string;
-  lastMessageText?: string;
-}
-
-export interface SwipeAction {
-  id: string;
-  fromUid: string;
-  toUid: string;
-  type: 'like' | 'pass';
-  timestamp: string;
 }
 
 export interface SocialReport {
@@ -270,6 +252,7 @@ export interface SocialReport {
 export interface ModerationLog {
   id: string;
   adminId: string;
+  adminEmail?: string;
   targetUid: string;
   action: 'warn' | 'mute' | 'ban' | 'unban' | 'unmute' | 'dismiss_report';
   reason: string;
@@ -277,98 +260,92 @@ export interface ModerationLog {
   reportId?: string;
 }
 
-export type SocialRoomRole = 'host' | 'speaker' | 'listener';
-
 export interface SocialRoom {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   type: string;
   maxMembers: number;
-  maxSpeakers: number;
-  isPrivate: boolean;
+  maxSpeakers?: number;
+  isPrivate?: boolean;
   password?: string;
-  isDonationEnabled: boolean;
+  isDonationEnabled?: boolean;
   hostUid: string;
   status: 'active' | 'closed';
   createdAt: string;
   closedAt?: string;
   memberCount: number;
-  activeSpeakerCount: number;
+  activeSpeakerCount?: number;
   tags?: string[];
 }
 
-export interface SocialRoomMember {
-  id: string; // roomId_uid
-  roomId: string;
-  uid: string;
-  role: SocialRoomRole;
-  joinedAt: string;
-  isMuted: boolean;
-  nickname: string;
-  photoURL: string;
+export interface HostingPackage {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  duration: 'daily' | 'weekly' | 'monthly';
+  features: string[];
+  isActive: boolean;
 }
 
-export interface SocialChat {
+export interface SocialGiftTransaction {
   id: string;
-  uids: string[];
-  type: 'match' | 'friend' | 'room';
-  createdAt: string;
-  lastMessageAt: string;
-  lastMessageText: string;
-  lastMessageSenderId: string;
-  unreadCount: Record<string, number>;
-  metadata?: {
-    matchId?: string;
-    roomId?: string;
-    friendshipId?: string;
+  senderUid: string;
+  receiverUid: string;
+  giftId: string;
+  giftName: string;
+  amount: number;
+  timestamp: string;
+}
+
+export interface SocialCommerceConfig {
+  boostPackages: CommercePackage[];
+  superLikePackages: CommercePackage[];
+  analysisPackages: CommercePackage[];
+  extraSwipePackages: CommercePackage[];
+  discoverRefreshPackages: CommercePackage[];
+  subscriptions: SocialSubscriptionPackage[];
+}
+
+export interface CommercePackage {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  value: number; // generic value
+  durationHours?: number; // for boost
+  count?: number; // for counts
+}
+
+export interface SocialSubscriptionPackage {
+  id: string;
+  type: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  name: string;
+  price: number;
+  durationDays: number;
+  features: {
+    superLikes: number;
+    analyses: number;
+    dailySwipeLimit: number;
+    boostDuration: number;
   };
 }
 
-export interface SocialMessage {
-  id: string;
-  chatId: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-  readBy: string[];
+export interface CompatibilityResult {
+  loveScore: number;
+  friendScore: number;
+  logicScore: number;
+  dominantType?: 'love' | 'friendship' | 'balanced';
+  comment?: string;
 }
 
-export interface SocialNotification {
+export interface Transaction {
   id: string;
   userId: string;
-  type: 'new_match' | 'new_friend_request' | 'new_message' | 'room_invite' | 'gift_received' | 'withdrawal_result' | 'host_package_expiry';
-  title: string;
-  message: string;
-  isRead: boolean;
-  createdAt: string;
-  data?: {
-    senderId?: string;
-    senderName?: string;
-    senderPhoto?: string;
-    matchId?: string;
-    roomId?: string;
-    giftId?: string;
-    withdrawalId?: string;
-    status?: 'approved' | 'rejected';
-    packageType?: string;
-    roomName?: string;
-  };
-  link?: string;
-}
-
-export interface FriendshipRequest {
-  id: string;
-  fromUid: string;
-  toUid: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  timestamp: string;
-  message?: string;
-}
-
-export interface Friendship {
-  id: string;
-  uids: string[];
-  status: 'active' | 'blocked';
-  createdAt: string;
+  type: 'purchase' | 'spend';
+  source: 'boost' | 'super_like' | 'analysis' | 'extra_swipe' | 'discover_refresh' | 'subscription' | 'fortune';
+  amount: number;
+  quantity?: number;
+  createdAt: any;
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, Heart, Briefcase, Star, Loader2 } from "lucide-react";
 import { DailyMessage, AppConfig } from "../types";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const MESSAGES: { text: string; category: 'love' | 'career' | 'general' }[] = [
   { text: "Ruhun, evrenin sonsuz bilgeliğiyle konuşuyor. Bugün sessizliği dinle, cevaplar orada saklı.", category: 'general' },
@@ -14,9 +14,10 @@ const MESSAGES: { text: string; category: 'love' | 'career' | 'general' }[] = [
 
 interface DailyMessageCardProps {
   config: AppConfig | null;
+  compact?: boolean;
 }
 
-export default function DailyMessageCard({ config }: DailyMessageCardProps) {
+export default function DailyMessageCard({ config, compact }: DailyMessageCardProps) {
   const [message, setMessage] = useState<DailyMessage | null>(null);
   const [showOverlay, setShowOverlay] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -63,17 +64,20 @@ export default function DailyMessageCard({ config }: DailyMessageCardProps) {
       let category: 'love' | 'career' | 'general' = 'general';
 
       if (config?.dailyMessagePrompt) {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+        if (!process.env.GEMINI_API_KEY) {
+          throw new Error("Gemini API key is missing");
+        }
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: config.dailyMessagePrompt,
+          contents: [{ parts: [{ text: config.dailyMessagePrompt }] }],
           config: {
             responseMimeType: "application/json",
             responseSchema: {
-              type: "object",
+              type: Type.OBJECT,
               properties: {
-                text: { type: "string" },
-                category: { type: "string", enum: ["love", "career", "general"] }
+                text: { type: Type.STRING },
+                category: { type: Type.STRING, enum: ["love", "career", "general"] }
               },
               required: ["text", "category"]
             }
@@ -108,6 +112,43 @@ export default function DailyMessageCard({ config }: DailyMessageCardProps) {
   };
 
   if (!message) return null;
+
+  if (compact) {
+    return (
+      <motion.div
+        whileHover={{ y: -2 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={handleReveal}
+        className={`relative h-full p-5 rounded-[2rem] border transition-all duration-700 cursor-pointer overflow-hidden flex flex-col justify-between ${
+          message.revealed 
+            ? "border-amber-500/20 bg-gradient-to-br from-amber-900/20 to-transparent backdrop-blur-xl" 
+            : "border-purple-500/10 bg-black/40 hover:border-purple-500/30"
+        }`}
+      >
+        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Sparkles className="w-12 h-12 text-amber-400" />
+        </div>
+        
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
+            <Sparkles className="w-5 h-5 text-amber-400" />
+          </div>
+          <h4 className="text-xs font-serif font-bold text-amber-50">Günün Mesajı</h4>
+        </div>
+
+        {message.revealed ? (
+          <p className="text-[10px] text-amber-200/60 leading-relaxed line-clamp-3 italic">
+            "{message.text}"
+          </p>
+        ) : (
+          <div className="flex items-center gap-2 text-amber-400/60">
+            <div className="w-1 h-1 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Dokun ve Gör</span>
+          </div>
+        )}
+      </motion.div>
+    );
+  }
 
   return (
     <section className="px-2">

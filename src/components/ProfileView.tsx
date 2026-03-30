@@ -32,76 +32,105 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
   const userSignName = SIGNS.find(s => s.id === user.horoscope)?.name;
 
   return (
-    <div className="w-full max-w-2xl mx-auto pt-8 px-4 pb-24">
-      {/* Profile Header */}
+    <div className="w-full max-w-2xl mx-auto pt-8 px-4 pb-24 relative">
+      {/* Background Animations - Same as OracleHub for consistency */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
+        <motion.div
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.05, 0.1, 0.05],
+          }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          className="absolute -top-20 -left-20 w-96 h-96 bg-purple-600/20 rounded-full blur-[100px]"
+        />
+        <motion.div
+          animate={{
+            scale: [1, 1.3, 1],
+            opacity: [0.05, 0.08, 0.05],
+          }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="absolute top-1/2 -right-20 w-80 h-80 bg-amber-600/10 rounded-full blur-[100px]"
+        />
+      </div>
+
+      {/* Profile Header - Aligned with OracleHub */}
       <div className="flex flex-col items-center mb-10">
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="relative mb-6"
-        >
-          <div className="w-28 h-28 rounded-[2rem] bg-gradient-to-br from-amber-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl shadow-purple-500/10">
-            {user.photoURL ? (
-              <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <User className="w-12 h-12 text-amber-400/60" />
+        <div className="p-6 w-full rounded-[2.5rem] bg-gradient-to-br from-white/5 to-transparent border border-white/10 backdrop-blur-2xl shadow-2xl flex flex-col items-center">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative mb-6"
+          >
+            <div className="w-28 h-28 rounded-[2rem] bg-gradient-to-br from-amber-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center overflow-hidden shadow-2xl shadow-purple-500/10">
+              {user.photoURL ? (
+                <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <User className="w-12 h-12 text-amber-400/60" />
+              )}
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onEdit}
+              className="absolute -bottom-2 -right-2 w-10 h-10 rounded-xl bg-amber-500 text-black flex items-center justify-center shadow-lg border-4 border-[#050505]"
+            >
+              <User className="w-5 h-5" />
+            </motion.button>
+          </motion.div>
+
+          <div className="text-center mb-6">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-200/40">Mistik Profilin</p>
+              {user.subscription && user.subscription.status === 'active' && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[8px] font-black uppercase tracking-widest border border-amber-500/20">Premium</span>
+              )}
+            </div>
+            <h2 className="text-3xl font-serif font-bold text-amber-50 leading-tight">{user.displayName}</h2>
+            <p className="text-purple-200/40 font-medium text-sm mt-1">{user.email}</p>
+          </div>
+
+          <div className="flex gap-3">
+            {user.birthDate && (
+              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
+                <Calendar className="w-4 h-4 text-amber-400/60" />
+                <span>{new Date(user.birthDate).toLocaleDateString('tr-TR')}</span>
+              </div>
+            )}
+            {userSignName && (
+              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
+                <Star className="w-4 h-4 text-amber-400/60" />
+                <span>{userSignName}</span>
+              </div>
             )}
           </div>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={onEdit}
-            className="absolute -bottom-2 -right-2 w-10 h-10 rounded-xl bg-amber-500 text-black flex items-center justify-center shadow-lg border-4 border-[#050505]"
-          >
-            <User className="w-5 h-5" />
-          </motion.button>
-        </motion.div>
-
-        <h2 className="text-3xl font-serif font-bold text-amber-50 mb-1">{user.displayName}</h2>
-        <p className="text-purple-200/40 font-medium mb-6">{user.email}</p>
-
-        <div className="flex gap-3">
-          {user.birthDate && (
-            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
-              <Calendar className="w-4 h-4 text-amber-400/60" />
-              <span>{new Date(user.birthDate).toLocaleDateString('tr-TR')}</span>
-            </div>
-          )}
-          {userSignName && (
-            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
-              <Star className="w-4 h-4 text-amber-400/60" />
-              <span>{userSignName}</span>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Balance & Subscription Summary */}
       <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="p-5 rounded-3xl bg-gradient-to-br from-white/5 to-transparent border border-white/10">
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-white/5 to-transparent border border-white/10 backdrop-blur-xl">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
               <Wallet className="w-4 h-4" />
             </div>
-            <span className="text-xs font-bold text-purple-200/40 uppercase tracking-widest">Bakiyem</span>
+            <span className="text-[10px] font-black text-purple-200/40 uppercase tracking-widest">Ana Jeton</span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-2xl font-bold text-amber-50">{user.credits}</span>
-            <span className="text-xs text-purple-200/40">Kredi</span>
+            <span className="text-[10px] font-bold text-amber-200/40 uppercase">Jeton</span>
           </div>
         </div>
 
-        <div className="p-5 rounded-3xl bg-gradient-to-br from-white/5 to-transparent border border-white/10">
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-white/5 to-transparent border border-white/10 backdrop-blur-xl">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-              <ShieldCheck className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+              <Zap className="w-4 h-4" />
             </div>
-            <span className="text-xs font-bold text-purple-200/40 uppercase tracking-widest">Abonelik</span>
+            <span className="text-[10px] font-black text-purple-200/40 uppercase tracking-widest">Enerji</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-lg font-bold text-amber-50 capitalize">
-              {user.subscription?.status === 'active' ? user.subscription.type : 'Standart'}
-            </span>
+            <span className="text-2xl font-bold text-amber-50">{user.adCredits}</span>
+            <span className="text-[10px] font-bold text-blue-200/40 uppercase">Enerji</span>
           </div>
         </div>
       </div>

@@ -16,6 +16,14 @@
         "adCredits": { "type": "integer", "description": "Credits earned from ads" },
         "dailyAdCount": { "type": "integer", "description": "Ads watched today" },
         "lastAdDate": { "type": "string", "format": "date" },
+        "dailyAdReadingsUsed": {
+          "type": "object",
+          "properties": {
+            "coffee": { "type": "integer", "default": 0 },
+            "tarot": { "type": "integer", "default": 0 },
+            "lastResetDate": { "type": "string", "format": "date-time" }
+          }
+        },
         "isBanned": { "type": "boolean", "default": false },
         "role": { "type": "string", "enum": ["user", "admin"], "default": "user" },
         "subscription": {
@@ -119,268 +127,68 @@
       },
       "required": ["type", "content"]
     },
-    "SocialProfile": {
-      "title": "Social Profile",
-      "description": "User profile for the Ahlas Social module.",
+    "Chat": {
+      "title": "Chat Session",
+      "description": "A conversation between two users.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "nickname": { "type": "string" },
-        "age": { "type": "integer" },
-        "gender": { "type": "string" },
-        "birthDate": { "type": "string", "format": "date" },
-        "birthTime": { "type": "string" },
-        "birthPlace": { "type": "string" },
-        "vibe": { "type": "string" },
-        "socialPurpose": { "type": "string", "enum": ["friendship", "chat", "networking", "dating"] },
-        "bio": { "type": "string" },
-        "photoURL": { "type": "string" },
-        "region": { "type": "string" },
+        "id": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
         "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "isCompleted": { "type": "boolean" },
-        "onboardingStep": { "type": "integer" },
-        "completeness": { "type": "integer" },
-        "blockedUids": { "type": "array", "items": { "type": "string" } },
-        "settings": {
-          "type": "object",
-          "properties": {
-            "whoCanMessage": { "type": "string", "enum": ["everyone", "friends", "nobody"], "default": "everyone" },
-            "whoCanAddFriend": { "type": "string", "enum": ["everyone", "nobody"], "default": "everyone" },
-            "notifications": {
-              "type": "object",
-              "properties": {
-                "messages": { "type": "boolean", "default": true },
-                "friendRequests": { "type": "boolean", "default": true },
-                "roomInvites": { "type": "boolean", "default": true },
-                "gifts": { "type": "boolean", "default": true }
-              }
-            }
-          }
-        },
-        "lastActiveAt": { "type": "string", "format": "date-time" },
-        "isBanned": { "type": "boolean" },
-        "hosting": {
-          "type": "object",
-          "properties": {
-            "freeTrialUntil": { "type": "string", "format": "date-time" },
-            "activePackage": {
-              "type": "object",
-              "properties": {
-                "type": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
-                "expiresAt": { "type": "string", "format": "date-time" },
-                "purchasedAt": { "type": "string", "format": "date-time" }
-              }
-            },
-            "packageHistory": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "type": { "type": "string" },
-                  "purchasedAt": { "type": "string", "format": "date-time" },
-                  "expiresAt": { "type": "string", "format": "date-time" }
-                }
-              }
-            }
-          }
-        },
-        "withdrawableBalance": { "type": "integer", "default": 0 }
-      },
-      "required": ["uid", "nickname", "age", "gender", "birthDate", "vibe", "socialPurpose", "region", "createdAt", "isCompleted", "lastActiveAt", "withdrawableBalance"]
-    },
-    "SocialTransaction": {
-      "title": "Social Transaction",
-      "description": "Records a financial transaction within the social module.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "uid": { "type": "string" },
-        "type": { "type": "string", "enum": ["gift_sent", "gift_received", "host_package_purchase", "withdrawal", "room_earning", "top_up"] },
-        "amount": { "type": "integer" },
-        "balanceType": { "type": "string", "enum": ["main", "withdrawable"] },
-        "description": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "metadata": { "type": "object" }
-      },
-      "required": ["id", "uid", "type", "amount", "balanceType", "description", "timestamp"]
-    },
-    "WithdrawalRequest": {
-      "title": "Withdrawal Request",
-      "description": "A request by a user to withdraw their earnings.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "uid": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "userName": { "type": "string" },
-        "amount": { "type": "integer" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "completed"] },
-        "iban": { "type": "string" },
-        "accountHolder": { "type": "string" },
-        "bankName": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "processedAt": { "type": "string", "format": "date-time" },
-        "rejectionReason": { "type": "string" },
-        "adminNotes": { "type": "string" }
-      },
-      "required": ["id", "uid", "amount", "status", "createdAt"]
-    },
-    "SwipeAction": {
-      "title": "Swipe Action",
-      "description": "Records a user's swipe action on another profile.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "fromUid": { "type": "string" },
-        "toUid": { "type": "string" },
-        "type": { "type": "string", "enum": ["like", "pass"] },
-        "timestamp": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "fromUid", "toUid", "type", "timestamp"]
-    },
-    "SocialReport": {
-      "title": "Social Report",
-      "description": "Records a report against a social profile.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "fromUid": { "type": "string" },
-        "toUid": { "type": "string" },
-        "reason": { "type": "string" },
-        "description": { "type": "string" },
-        "context": { "type": "string", "enum": ["explore", "profile", "chat", "room"] },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["pending", "investigating", "resolved", "dismissed"] },
-        "adminNotes": { "type": "string" },
-        "actionTaken": { "type": "string", "enum": ["none", "warned", "muted", "banned"] }
-      },
-      "required": ["id", "fromUid", "toUid", "reason", "context", "timestamp", "status"]
-    },
-    "ModerationLog": {
-      "title": "Moderation Log",
-      "description": "Records actions taken by admins against users.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "adminId": { "type": "string" },
-        "targetUid": { "type": "string" },
-        "action": { "type": "string", "enum": ["warn", "mute", "ban", "unban", "unmute", "dismiss_report"] },
-        "reason": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "reportId": { "type": "string" }
-      },
-      "required": ["id", "adminId", "targetUid", "action", "reason", "timestamp"]
-    },
-    "Match": {
-      "title": "Match",
-      "description": "A mutual like between two users",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "uids": { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string", "format": "date-time" },
+        "lastMessage": { "type": "string" },
         "lastMessageAt": { "type": "string", "format": "date-time" },
-        "lastMessageText": { "type": "string" }
-      },
-      "required": ["id", "uids", "createdAt"]
+        "status": { "type": "string", "enum": ["active", "archived"] }
+      }
     },
-    "SocialChat": {
-      "title": "Social Chat",
-      "description": "Metadata for a conversation between users.",
+    "Message": {
+      "title": "Chat Message",
+      "description": "A single message within a chat.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "uids": { "type": "array", "items": { "type": "string" } },
-        "type": { "type": "string", "enum": ["match", "friend", "room"] },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "lastMessageAt": { "type": "string", "format": "date-time" },
-        "lastMessageText": { "type": "string" },
-        "lastMessageSenderId": { "type": "string" },
-        "unreadCount": { "type": "object" },
-        "metadata": { "type": "object" }
-      },
-      "required": ["id", "uids", "type", "createdAt", "lastMessageAt"]
-    },
-    "SocialMessage": {
-      "title": "Social Message",
-      "description": "A single message within a social chat.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
         "chatId": { "type": "string" },
         "senderId": { "type": "string" },
         "text": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "readBy": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["id", "chatId", "senderId", "text", "timestamp"]
-    },
-    "FriendshipRequest": {
-      "title": "Friendship Request",
-      "description": "A request to become friends or start a chat.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "fromUid": { "type": "string" },
-        "toUid": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "message": { "type": "string" }
-      },
-      "required": ["id", "fromUid", "toUid", "status", "timestamp"]
-    },
-    "Friendship": {
-      "title": "Friendship",
-      "description": "A mutual friendship between two users.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "uids": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["active", "blocked"] },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "uids", "status", "createdAt"]
-    },
-    "SocialRoom": {
-      "title": "Social Room",
-      "description": "A social chat room for multiple users.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "type": { "type": "string" },
-        "maxMembers": { "type": "integer" },
-        "maxSpeakers": { "type": "integer" },
-        "isPrivate": { "type": "boolean" },
-        "password": { "type": "string" },
-        "isDonationEnabled": { "type": "boolean" },
-        "hostUid": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "closed"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "closedAt": { "type": "string", "format": "date-time" },
-        "memberCount": { "type": "integer" },
-        "activeSpeakerCount": { "type": "integer" },
-        "tags": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["id", "name", "type", "maxMembers", "hostUid", "status", "createdAt"]
+        "seen": { "type": "boolean", "default": false },
+        "type": { "type": "string", "enum": ["text", "system"] }
+      }
     },
-    "SocialRoomMember": {
-      "title": "Social Room Member",
-      "description": "A member of a social room.",
+    "InteractionRequest": {
+      "title": "Interaction Request",
+      "description": "A request for a message or super like.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "roomId": { "type": "string" },
-        "uid": { "type": "string" },
-        "role": { "type": "string", "enum": ["host", "speaker", "listener"] },
-        "joinedAt": { "type": "string", "format": "date-time" },
-        "isMuted": { "type": "boolean" },
-        "nickname": { "type": "string" },
-        "photoURL": { "type": "string" }
-      },
-      "required": ["id", "roomId", "uid", "role", "joinedAt"]
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "type": { "type": "string", "enum": ["message_request", "super_like"] },
+        "messagePreview": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Swipe": {
+      "title": "User Swipe",
+      "description": "A swipe action (like, pass, super_like).",
+      "type": "object",
+      "properties": {
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "type": { "type": "string", "enum": ["like", "pass", "super_like"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Report": {
+      "title": "User Report",
+      "description": "A report against a user for inappropriate behavior.",
+      "type": "object",
+      "properties": {
+        "reporterUserId": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "resolved"] }
+      }
     }
   },
   "firestore": {
@@ -400,57 +208,33 @@
       "schema": "Reading",
       "description": "Fortune readings"
     },
-    "/socialProfiles/{uid}": {
-      "schema": "SocialProfile",
-      "description": "Social profiles for Ahlas Social"
+    "/horoscopes/{horoscopeId}": {
+      "schema": "Horoscope",
+      "description": "Daily horoscopes"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Global notifications"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Active chat sessions"
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Individual chat messages"
+    },
+    "/interactionRequests/{requestId}": {
+      "schema": "InteractionRequest",
+      "description": "Pending message and super like requests"
     },
     "/swipes/{swipeId}": {
-      "schema": "SwipeAction",
-      "description": "User swipe actions"
+      "schema": "Swipe",
+      "description": "User swipe history"
     },
-    "/socialReports/{reportId}": {
-      "schema": "SocialReport",
-      "description": "User reports for social profiles"
-    },
-    "/matches/{matchId}": {
-      "schema": "Match",
-      "description": "Mutual likes between users"
-    },
-    "/socialChats/{chatId}": {
-      "schema": "SocialChat",
-      "description": "Metadata for social conversations"
-    },
-    "/socialMessages/{messageId}": {
-      "schema": "SocialMessage",
-      "description": "Individual messages in social chats"
-    },
-    "/friendshipRequests/{requestId}": {
-      "schema": "FriendshipRequest",
-      "description": "Friendship and chat requests"
-    },
-    "/friendships/{friendshipId}": {
-      "schema": "Friendship",
-      "description": "Mutual friendships"
-    },
-    "/socialRooms/{roomId}": {
-      "schema": "SocialRoom",
-      "description": "Active and closed social rooms."
-    },
-    "/socialRoomMembers/{memberId}": {
-      "schema": "SocialRoomMember",
-      "description": "Members currently in a room."
-    },
-    "/socialTransactions/{transactionId}": {
-      "schema": "SocialTransaction",
-      "description": "Financial transactions in the social module"
-    },
-    "/withdrawalRequests/{requestId}": {
-      "schema": "WithdrawalRequest",
-      "description": "User requests to withdraw social earnings"
-    },
-    "/moderationLogs/{logId}": {
-      "schema": "ModerationLog",
-      "description": "Logs of moderation actions taken by admins"
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "User reports"
     }
   }
 }

@@ -8,13 +8,17 @@ import {
   Star, Trash2, Ban, CheckCircle2, AlertCircle, History,
   ImageIcon, DollarSign, Zap, Clock, Sparkles, Plus,
   User, MapPin, Heart, MessageCircle, Globe, Flag, ShieldAlert, Gavel,
-  Shield
+  Shield, Eye, EyeOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { UserProfile, AppConfig, Horoscope, FortuneType, FortuneReading, SocialProfile, SocialRoom } from '../types';
+import { 
+  UserProfile, AppConfig, Horoscope, FortuneType, FortuneReading,
+  SocialProfile, SocialTransaction, WithdrawalRequest, SocialReport,
+  ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
+  SocialCommerceConfig
+} from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
-import { SocialSettingsModal } from './SocialSettingsModal';
-import { createSocialNotification } from '../services/socialNotificationService';
+import SocialSettingsModal from './SocialSettingsModal';
 
 interface Prompt {
   type: string;
@@ -22,28 +26,36 @@ interface Prompt {
 }
 
 const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'prompts' | 'users' | 'config' | 'notifications' | 'horoscopes' | 'social'>('prompts');
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [socialSubTab, setSocialSubTab] = useState<'users' | 'rooms' | 'withdrawals' | 'gifts' | 'reports' | 'logs' | 'hosts' | 'packages' | 'transactions'>('users');
+  const [activeTab, setActiveTab] = useState<'prompts' | 'users' | 'config' | 'notifications' | 'horoscopes' | 'social' | 'reports'>('prompts');
+  const [socialSubTab, setSocialSubTab] = useState<'users' | 'rooms' | 'withdrawals' | 'gifts' | 'reports' | 'hosts' | 'packages' | 'transactions' | 'logs'>('users');
+  const [socialCommerce, setSocialCommerce] = useState<SocialCommerceConfig | null>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [editingReport, setEditingReport] = useState<any | null>(null);
+  const [viewingReportedUser, setViewingReportedUser] = useState<UserProfile | null>(null);
+  
+  // Social States
   const [socialUsers, setSocialUsers] = useState<SocialProfile[]>([]);
   const [socialRooms, setSocialRooms] = useState<SocialRoom[]>([]);
-  const [socialReports, setSocialReports] = useState<any[]>([]);
-  const [moderationLogs, setModerationLogs] = useState<any[]>([]);
-  const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([]);
-  const [giftTransactions, setGiftTransactions] = useState<any[]>([]);
-  const [socialTransactions, setSocialTransactions] = useState<any[]>([]);
-  const [hostingPackages, setHostingPackages] = useState<any[]>([]);
-  const [socialSearchQuery, setSocialSearchQuery] = useState('');
+  const [withdrawalRequests, setWithdrawalRequests] = useState<WithdrawalRequest[]>([]);
+  const [socialGiftTransactions, setSocialGiftTransactions] = useState<SocialGiftTransaction[]>([]);
+  const [socialReports, setSocialReports] = useState<SocialReport[]>([]);
+  const [hostingPackages, setHostingPackages] = useState<HostingPackage[]>([]);
+  const [socialTransactions, setSocialTransactions] = useState<SocialTransaction[]>([]);
+  const [moderationLogs, setModerationLogs] = useState<ModerationLog[]>([]);
+  
+  // Modal States
   const [editingSocialProfile, setEditingSocialProfile] = useState<SocialProfile | null>(null);
   const [editingSocialSettings, setEditingSocialSettings] = useState<SocialProfile | null>(null);
+  const [editingPackage, setEditingPackage] = useState<HostingPackage | null>(null);
   const [viewingHostingHistory, setViewingHostingHistory] = useState<SocialProfile | null>(null);
-  const [editingPackage, setEditingPackage] = useState<any | null>(null);
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [horoscopes, setHoroscopes] = useState<Horoscope[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [socialSearchQuery, setSocialSearchQuery] = useState('');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [userReadings, setUserReadings] = useState<FortuneReading[]>([]);
   const [showReadings, setShowReadings] = useState(false);
@@ -54,9 +66,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setSaving('all_horoscopes');
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const model = ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: "Tüm burçlar (Koç, Boğa, İkizler, Yengeç, Aslan, Başak, Terazi, Akrep, Yay, Oğlak, Kova, Balık) için bugünün (tarih: " + new Date().toLocaleDateString('tr-TR') + ") günlük burç yorumlarını Türkçe olarak hazırla. Her burç için kısa, öz ve etkileyici cümleler kullan (maksimum 100 kelime). Yanıtı JSON formatında ver: { 'Koç': '...', 'Boğa': '...', ... }",
+        contents: [{ parts: [{ text: "Tüm burçlar (Koç, Boğa, İkizler, Yengeç, Aslan, Başak, Terazi, Akrep, Yay, Oğlak, Kova, Balık) için bugünün (tarih: " + new Date().toLocaleDateString('tr-TR') + ") günlük burç yorumlarını Türkçe olarak hazırla. Her burç için kısa, öz ve etkileyici cümleler kullan (maksimum 100 kelime). Yanıtı JSON formatında ver: { 'Koç': '...', 'Boğa': '...', ... }" }] }],
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -78,8 +90,6 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           }
         }
       });
-
-      const response = await model;
       const data = JSON.parse(response.text);
 
       const batch = [];
@@ -101,12 +111,12 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   useEffect(() => {
-    let unsubscribe: () => void = () => {};
+    const unsubscribes: (() => void)[] = [];
 
     const setupListeners = () => {
       setLoading(true);
       if (activeTab === 'prompts') {
-        unsubscribe = onSnapshot(collection(db, 'prompts'), (snapshot) => {
+        const unsub = onSnapshot(collection(db, 'prompts'), (snapshot) => {
           const fetchedPrompts: Prompt[] = [];
           snapshot.forEach((doc) => {
             fetchedPrompts.push({ type: doc.id, content: doc.data().content });
@@ -119,8 +129,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setPrompts(finalPrompts);
           setLoading(false);
         }, (error) => handleFirestoreError(error, OperationType.LIST, 'prompts'));
+        unsubscribes.push(unsub);
       } else if (activeTab === 'users') {
-        unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+        const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
           const fetchedUsers: UserProfile[] = [];
           snapshot.forEach((doc) => {
             fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
@@ -128,16 +139,16 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setUsers(fetchedUsers);
           setLoading(false);
         }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
+        unsubscribes.push(unsub);
       } else if (activeTab === 'config') {
-        unsubscribe = onSnapshot(doc(db, 'config', 'global'), (docSnap) => {
+        const unsub = onSnapshot(doc(db, 'config', 'global'), (docSnap) => {
           if (docSnap.exists()) {
             setConfig(docSnap.data() as AppConfig);
           } else {
-            // Default config
             const defaultConfig: AppConfig = {
               prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
               icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '📺' },
-              dailyMessagePrompt: "Günün mesajını oluştur.",
+              dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
               adRewardAmount: 5,
               maxDailyAds: 5,
               subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
@@ -148,8 +159,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           }
           setLoading(false);
         }, (error) => handleFirestoreError(error, OperationType.GET, 'config/global'));
+        unsubscribes.push(unsub);
       } else if (activeTab === 'horoscopes') {
-        unsubscribe = onSnapshot(collection(db, 'horoscopes'), (snapshot) => {
+        const unsub = onSnapshot(collection(db, 'horoscopes'), (snapshot) => {
           const fetchedHoroscopes: Horoscope[] = [];
           snapshot.forEach((doc) => {
             fetchedHoroscopes.push({ id: doc.id, ...doc.data() } as Horoscope);
@@ -157,103 +169,57 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setHoroscopes(fetchedHoroscopes);
           setLoading(false);
 
-          // Auto-generate if missing for today
           const today = new Date().toISOString().split('T')[0];
           const isUpToDate = fetchedHoroscopes.some(h => h.date?.includes(today));
           if (fetchedHoroscopes.length > 0 && !isUpToDate) {
             handleGenerateAllHoroscopes();
           }
         }, (error) => handleFirestoreError(error, OperationType.LIST, 'horoscopes'));
+        unsubscribes.push(unsub);
       } else if (activeTab === 'social') {
-        const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-          const fetchedUsers: UserProfile[] = [];
-          snapshot.forEach((doc) => {
-            fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
-          });
-          setUsers(fetchedUsers);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
-
-        const unsubProfiles = onSnapshot(collection(db, 'socialProfiles'), (snapshot) => {
-          const fetchedSocialUsers: SocialProfile[] = [];
-          snapshot.forEach((doc) => {
-            fetchedSocialUsers.push({ ...doc.data() } as SocialProfile);
-          });
-          setSocialUsers(fetchedSocialUsers);
+        // Social Listeners
+        unsubscribes.push(onSnapshot(collection(db, 'socialProfiles'), (snapshot) => {
+          setSocialUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as SocialProfile)));
           setLoading(false);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'socialProfiles'));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'socialRooms'), (snapshot) => {
+          setSocialRooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialRoom)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'withdrawalRequests'), (snapshot) => {
+          setWithdrawalRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WithdrawalRequest)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'socialGiftTransactions'), (snapshot) => {
+          setSocialGiftTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialGiftTransaction)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'socialReports'), (snapshot) => {
+          setSocialReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialReport)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'hostingPackages'), (snapshot) => {
+          setHostingPackages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HostingPackage)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'socialTransactions'), (snapshot) => {
+          setSocialTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialTransaction)));
+        }));
+        unsubscribes.push(onSnapshot(collection(db, 'moderationLogs'), (snapshot) => {
+          setModerationLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ModerationLog)));
+        }));
+      }
 
-        const unsubRooms = onSnapshot(collection(db, 'socialRooms'), (snapshot) => {
-          const fetchedRooms: SocialRoom[] = [];
-          snapshot.forEach((doc) => {
-            fetchedRooms.push({ id: doc.id, ...doc.data() } as SocialRoom);
-          });
-          setSocialRooms(fetchedRooms);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'socialRooms'));
+      if (activeTab === 'reports') {
+        unsubscribes.push(onSnapshot(query(collection(db, 'reports'), orderBy('createdAt', 'desc')), (snapshot) => {
+          setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }));
+      }
 
-        const unsubWithdrawals = onSnapshot(collection(db, 'withdrawalRequests'), (snapshot) => {
-          const fetchedRequests: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedRequests.push({ id: doc.id, ...doc.data() });
-          });
-          setWithdrawalRequests(fetchedRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'withdrawalRequests'));
-
-        const unsubGifts = onSnapshot(collection(db, 'socialGiftTransactions'), (snapshot) => {
-          const fetchedGifts: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedGifts.push({ id: doc.id, ...doc.data() });
-          });
-          setGiftTransactions(fetchedGifts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'socialGiftTransactions'));
-
-        const unsubReports = onSnapshot(collection(db, 'socialReports'), (snapshot) => {
-          const fetchedReports: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedReports.push({ id: doc.id, ...doc.data() });
-          });
-          setSocialReports(fetchedReports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'socialReports'));
-
-        const unsubLogs = onSnapshot(collection(db, 'moderationLogs'), (snapshot) => {
-          const fetchedLogs: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedLogs.push({ id: doc.id, ...doc.data() });
-          });
-          setModerationLogs(fetchedLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'moderationLogs'));
-
-        const unsubTransactions = onSnapshot(collection(db, 'socialTransactions'), (snapshot) => {
-          const fetchedTransactions: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedTransactions.push({ id: doc.id, ...doc.data() });
-          });
-          setSocialTransactions(fetchedTransactions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'socialTransactions'));
-
-        const unsubPackages = onSnapshot(collection(db, 'hostingPackages'), (snapshot) => {
-          const fetchedPackages: any[] = [];
-          snapshot.forEach((doc) => {
-            fetchedPackages.push({ id: doc.id, ...doc.data() });
-          });
-          setHostingPackages(fetchedPackages);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'hostingPackages'));
-
-        unsubscribe = () => {
-          unsubUsers();
-          unsubProfiles();
-          unsubRooms();
-          unsubWithdrawals();
-          unsubGifts();
-          unsubReports();
-          unsubLogs();
-          unsubTransactions();
-          unsubPackages();
-        };
+      if (activeTab === 'config') {
+        unsubscribes.push(onSnapshot(doc(db, 'config', 'socialCommerce'), (doc) => {
+          if (doc.exists()) setSocialCommerce(doc.data() as SocialCommerceConfig);
+        }));
       }
     };
 
     setupListeners();
-    return () => unsubscribe();
+    return () => unsubscribes.forEach(unsub => unsub());
   }, [activeTab]);
 
   const handleSavePrompt = async (type: string, content: string) => {
@@ -266,6 +232,19 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       toast.success(`${type} promptu güncellendi.`);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `prompts/${type}`);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleSaveSocialCommerce = async () => {
+    if (!socialCommerce) return;
+    setSaving('socialCommerce');
+    try {
+      await setDoc(doc(db, 'config', 'socialCommerce'), socialCommerce);
+      toast.success("Sosyal ticaret ayarları kaydedildi.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'config/socialCommerce');
     } finally {
       setSaving(null);
     }
@@ -331,6 +310,125 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
+  const handleUpdateSocialProfile = async (uid: string, updates: any) => {
+    try {
+      await updateDoc(doc(db, 'socialProfiles', uid), {
+        ...updates,
+        updatedAt: new Date().toISOString()
+      });
+      toast.success("Sosyal profil güncellendi.");
+      setEditingSocialProfile(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `socialProfiles/${uid}`);
+    }
+  };
+
+  const handleDeleteSocialProfile = async (uid: string) => {
+    if (!window.confirm("Bu sosyal profili silmek istediğinize emin misiniz?")) return;
+    try {
+      await deleteDoc(doc(db, 'socialProfiles', uid));
+      toast.success("Sosyal profil silindi.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `socialProfiles/${uid}`);
+    }
+  };
+
+  const handleCloseRoom = async (roomId: string) => {
+    try {
+      await updateDoc(doc(db, 'socialRooms', roomId), {
+        status: 'closed',
+        closedAt: new Date().toISOString()
+      });
+      toast.success("Oda kapatıldı.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `socialRooms/${roomId}`);
+    }
+  };
+
+  const handleUpdateWithdrawalStatus = async (requestId: string, status: 'approved' | 'rejected' | 'completed', reason?: string) => {
+    try {
+      await updateDoc(doc(db, 'withdrawalRequests', requestId), {
+        status,
+        processedAt: new Date().toISOString(),
+        rejectionReason: reason || ''
+      });
+      toast.success(`Para çekme talebi ${status === 'approved' ? 'onaylandı' : 'reddedildi'}.`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `withdrawalRequests/${requestId}`);
+    }
+  };
+
+  const handleModerationAction = async (reportId: string, targetUid: string, action: 'warn' | 'mute' | 'ban', reason: string) => {
+    try {
+      const adminId = auth.currentUser?.uid;
+      if (!adminId) return;
+
+      // Log the action
+      await addDoc(collection(db, 'moderationLogs'), {
+        adminId,
+        adminEmail: auth.currentUser?.email || '',
+        targetUid,
+        action,
+        reason,
+        reportId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Update report status
+      await updateDoc(doc(db, 'socialReports', reportId), {
+        status: 'resolved',
+        actionTaken: action,
+        adminNotes: reason
+      });
+
+      // Apply action to profile
+      if (action === 'ban') {
+        await updateDoc(doc(db, 'socialProfiles', targetUid), { isBanned: true });
+      }
+
+      toast.success("Moderasyon işlemi uygulandı.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'moderationLogs');
+    }
+  };
+
+  const handleUpdateReportStatus = async (reportId: string, status: 'investigating' | 'resolved' | 'dismissed') => {
+    try {
+      await updateDoc(doc(db, 'socialReports', reportId), { status });
+      toast.success("Rapor durumu güncellendi.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `socialReports/${reportId}`);
+    }
+  };
+
+  const handleSavePackage = async (pkg: HostingPackage) => {
+    setSaving('package');
+    try {
+      if (pkg.id) {
+        await updateDoc(doc(db, 'hostingPackages', pkg.id), pkg as any);
+      } else {
+        const newDoc = doc(collection(db, 'hostingPackages'));
+        await setDoc(newDoc, { ...pkg, id: newDoc.id });
+      }
+      toast.success("Paket kaydedildi.");
+      setEditingPackage(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'hostingPackages');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    if (!window.confirm("Bu paketi silmek istediğinize emin misiniz?")) return;
+    try {
+      await deleteDoc(doc(db, 'hostingPackages', id));
+      toast.success("Paket silindi.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `hostingPackages/${id}`);
+    }
+  };
+
   const fetchUserReadings = (uid: string) => {
     if (readingsUnsubscribe) readingsUnsubscribe();
     
@@ -367,180 +465,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     u.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredSocialUsers = socialUsers.filter(s => 
-    s.nickname?.toLowerCase().includes(socialSearchQuery.toLowerCase()) ||
-    s.region?.toLowerCase().includes(socialSearchQuery.toLowerCase())
+  const filteredSocialUsers = socialUsers.filter(u => 
+    u.nickname?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
+    u.region?.toLowerCase().includes(socialSearchQuery.toLowerCase())
   );
-
-  const handleDeleteSocialProfile = async (uid: string) => {
-    if (!window.confirm('Bu sosyal profili silmek istediğinize emin misiniz?')) return;
-    try {
-      await setDoc(doc(db, 'socialProfiles', uid), { isCompleted: false }, { merge: true });
-      toast.success("Sosyal profil devre dışı bırakıldı.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialProfiles/${uid}`);
-    }
-  };
-
-  const handleUpdateSocialProfile = async (uid: string, updates: Partial<SocialProfile>) => {
-    try {
-      await updateDoc(doc(db, 'socialProfiles', uid), updates);
-      toast.success("Sosyal profil güncellendi.");
-      setEditingSocialProfile(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialProfiles/${uid}`);
-    }
-  };
-
-  const handleCloseRoom = async (roomId: string) => {
-    if (!window.confirm('Bu odayı kapatmak istediğinize emin misiniz?')) return;
-    try {
-      await updateDoc(doc(db, 'socialRooms', roomId), {
-        status: 'closed',
-        closedAt: new Date().toISOString()
-      });
-      toast.success("Oda kapatıldı.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialRooms/${roomId}`);
-    }
-  };
-
-  const handleUpdateWithdrawalStatus = async (requestId: string, status: 'approved' | 'rejected') => {
-    if (!window.confirm(`Bu talebi ${status === 'approved' ? 'onaylamak' : 'reddetmek'} istediğinize emin misiniz?`)) return;
-    try {
-      const request = withdrawalRequests.find(r => r.id === requestId);
-      if (!request) return;
-
-      await updateDoc(doc(db, 'withdrawalRequests', requestId), {
-        status,
-        updatedAt: new Date().toISOString()
-      });
-
-      // Send notification to user
-      await createSocialNotification(
-        request.uid,
-        'withdrawal_result',
-        status === 'approved' ? 'Para Çekme Onaylandı!' : 'Para Çekme Reddedildi',
-        status === 'approved' 
-          ? `${request.amount} kredi tutarındaki çekim talebiniz onaylandı.`
-          : `${request.amount} kredi tutarındaki çekim talebiniz reddedildi.`,
-        {
-          withdrawalId: requestId,
-          status: status
-        },
-        '/social/balance'
-      );
-
-      // If rejected, refund the balance
-      if (status === 'rejected') {
-        const socialProfileRef = doc(db, 'socialProfiles', request.uid);
-        const socialProfileSnap = await getDoc(socialProfileRef);
-        if (socialProfileSnap.exists()) {
-          const currentBalance = socialProfileSnap.data().withdrawableBalance || 0;
-          await updateDoc(socialProfileRef, {
-            withdrawableBalance: currentBalance + request.amount
-          });
-
-          // Create a refund transaction
-          await addDoc(collection(db, 'socialTransactions'), {
-            uid: request.uid,
-            type: 'refund',
-            amount: request.amount,
-            description: 'Reddedilen çekim talebi iadesi',
-            createdAt: new Date().toISOString(),
-            balanceType: 'withdrawable'
-          });
-        }
-      }
-
-      toast.success(`Talep ${status === 'approved' ? 'onaylandı' : 'reddedildi'}.`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `withdrawalRequests/${requestId}`);
-    }
-  };
-
-  const handleUpdateReportStatus = async (reportId: string, status: 'resolved' | 'dismissed', actionTaken?: string, adminNotes?: string) => {
-    try {
-      await updateDoc(doc(db, 'socialReports', reportId), {
-        status,
-        actionTaken,
-        adminNotes,
-        resolvedAt: new Date().toISOString()
-      });
-      toast.success("Şikayet durumu güncellendi.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialReports/${reportId}`);
-    }
-  };
-
-  const handleModerationAction = async (targetUid: string, action: 'ban' | 'mute' | 'warn', reason: string, reportId?: string) => {
-    if (!window.confirm(`Bu kullanıcıya ${action} işlemi uygulamak istediğinize emin misiniz?`)) return;
-    try {
-      // 1. Log the action
-      await addDoc(collection(db, 'moderationLogs'), {
-        targetUid,
-        action,
-        reason,
-        adminEmail: auth.currentUser?.email,
-        timestamp: new Date().toISOString(),
-        reportId
-      });
-
-      // 2. Perform the action
-      if (action === 'ban') {
-        await updateDoc(doc(db, 'users', targetUid), { isBanned: true });
-      } else if (action === 'mute') {
-        const mutedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-        await updateDoc(doc(db, 'socialProfiles', targetUid), { 
-          isMuted: true, 
-          mutedUntil 
-        });
-      }
-
-      // 3. Update report if linked
-      if (reportId) {
-        await updateDoc(doc(db, 'socialReports', reportId), {
-          status: 'resolved',
-          actionTaken: action,
-          adminNotes: reason,
-          resolvedAt: new Date().toISOString()
-        });
-      }
-
-      toast.success(`İşlem başarıyla uygulandı: ${action}`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'moderationLogs');
-    }
-  };
-
-  const handleSavePackage = async (pkg: any) => {
-    try {
-      if (pkg.id) {
-        await updateDoc(doc(db, 'hostingPackages', pkg.id), pkg);
-        toast.success("Paket güncellendi");
-      } else {
-        const newRef = doc(collection(db, 'hostingPackages'));
-        const newPkg = { ...pkg, id: newRef.id, createdAt: new Date().toISOString() };
-        await setDoc(newRef, newPkg);
-        toast.success("Paket oluşturuldu");
-      }
-      setEditingPackage(null);
-    } catch (error) {
-      console.error("Error saving package:", error);
-      toast.error("Paket kaydedilemedi");
-    }
-  };
-
-  const handleDeletePackage = async (id: string) => {
-    if (!window.confirm("Bu paketi silmek istediğinize emin misiniz?")) return;
-    try {
-      await deleteDoc(doc(db, 'hostingPackages', id));
-      toast.success("Paket silindi");
-    } catch (error) {
-      console.error("Error deleting package:", error);
-      toast.error("Paket silinemedi");
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col overflow-hidden">
@@ -565,8 +493,8 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           {[
             { id: 'prompts', icon: MessageSquare, label: 'Promptlar' },
             { id: 'users', icon: Users, label: 'Kullanıcılar' },
-            { id: 'social', icon: Users, label: 'Sosyal' },
             { id: 'config', icon: Settings, label: 'Ayarlar' },
+            { id: 'reports', icon: ShieldAlert, label: 'Raporlar' },
             { id: 'notifications', icon: Bell, label: 'Bildirim' },
             { id: 'horoscopes', icon: Star, label: 'Burçlar' }
           ].map(tab => (
@@ -704,11 +632,6 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <div className="flex items-center gap-2">
                           <h4 className="font-bold text-amber-50">{u.displayName || 'İsimsiz'}</h4>
                           {u.isBanned && <Ban className="w-3 h-3 text-red-500" />}
-                          {socialUsers.some(s => s.uid === u.uid) && (
-                            <div className="px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-900 text-[8px] font-bold uppercase tracking-widest">
-                              Sosyal
-                            </div>
-                          )}
                         </div>
                         <p className="text-xs text-purple-200/40">{u.email}</p>
                         <p className="text-[10px] text-purple-200/20 mt-1">Kayıt: {u.createdAt ? new Date(u.createdAt).toLocaleDateString('tr-TR') : 'Tarih Yok'}</p>
@@ -717,11 +640,17 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     
                     <div className="flex items-center gap-2">
                       <div className="text-right hidden sm:block mr-4">
-                        <div className="flex items-center gap-1 text-amber-400 text-xs font-bold">
-                          <CreditCard className="w-3 h-3" />
-                          <span>{u.credits} Kredi</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex items-center gap-1 text-amber-400 text-xs font-bold">
+                            <CreditCard className="w-3 h-3" />
+                            <span>{u.credits} Ana</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-purple-400 text-[10px] font-bold">
+                            <Zap className="w-3 h-3" />
+                            <span>{u.adCredits || 0} Reklam</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 text-purple-400 text-[10px] font-medium uppercase tracking-tighter">
+                        <div className="flex items-center gap-1 text-purple-200/40 text-[10px] font-medium uppercase tracking-tighter mt-1">
                           <ShieldCheck className="w-3 h-3" />
                           <span>{u.subscription?.status === 'active' ? u.subscription.type : 'Standart'}</span>
                         </div>
@@ -995,6 +924,299 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Social Commerce Settings */}
+            {socialCommerce && (
+              <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-8">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <DollarSign className="w-6 h-6 text-pink-500" />
+                    <h3 className="text-lg font-bold text-amber-50">Sosyal Özellik Fiyatları</h3>
+                  </div>
+                  <button 
+                    onClick={handleSaveSocialCommerce}
+                    disabled={saving === 'socialCommerce'}
+                    className="flex items-center gap-2 px-6 py-2 rounded-xl bg-amber-500 text-black font-bold text-xs uppercase tracking-widest hover:bg-amber-400 transition-all disabled:opacity-50"
+                  >
+                    {saving === 'socialCommerce' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Kaydet
+                  </button>
+                </div>
+
+                <div className="space-y-8">
+                  {/* Packages */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Boost Packages */}
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
+                        <Zap className="w-3 h-3" /> Boost Paketleri
+                      </h4>
+                      <div className="space-y-3">
+                        {socialCommerce.boostPackages.map((pkg, idx) => (
+                          <div key={`boost-${idx}`} className="grid grid-cols-3 gap-2">
+                            <input 
+                              type="text"
+                              value={pkg.name}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.boostPackages];
+                                newPkgs[idx].name = e.target.value;
+                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                            <input 
+                              type="number"
+                              value={pkg.price}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.boostPackages];
+                                newPkgs[idx].price = parseInt(e.target.value) || 0;
+                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                              placeholder="Fiyat"
+                            />
+                            <input 
+                              type="number"
+                              value={pkg.durationHours}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.boostPackages];
+                                newPkgs[idx].durationHours = parseInt(e.target.value) || 0;
+                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                              placeholder="Saat"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Super Like Packages */}
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
+                        <Heart className="w-3 h-3" /> Super Like Paketleri
+                      </h4>
+                      <div className="space-y-3">
+                        {socialCommerce.superLikePackages.map((pkg, idx) => (
+                          <div key={`sl-${idx}`} className="grid grid-cols-3 gap-2">
+                            <input 
+                              type="text"
+                              value={pkg.name}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.superLikePackages];
+                                newPkgs[idx].name = e.target.value;
+                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                            <input 
+                              type="number"
+                              value={pkg.price}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.superLikePackages];
+                                newPkgs[idx].price = parseInt(e.target.value) || 0;
+                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                            <input 
+                              type="number"
+                              value={pkg.count}
+                              onChange={(e) => {
+                                const newPkgs = [...socialCommerce.superLikePackages];
+                                newPkgs[idx].count = parseInt(e.target.value) || 0;
+                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
+                              }}
+                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Subscriptions */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
+                      <Star className="w-3 h-3" /> Abonelik Planları
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {socialCommerce.subscriptions.map((sub, idx) => (
+                        <div key={`sub-${idx}`} className="bg-black/40 border border-white/10 rounded-2xl p-4 space-y-3">
+                          <input 
+                            type="text"
+                            value={sub.name}
+                            onChange={(e) => {
+                              const newSubs = [...socialCommerce.subscriptions];
+                              newSubs[idx].name = e.target.value;
+                              setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-amber-50 font-bold"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[8px] text-purple-200/40 uppercase">Fiyat</label>
+                              <input 
+                                type="number"
+                                value={sub.price}
+                                onChange={(e) => {
+                                  const newSubs = [...socialCommerce.subscriptions];
+                                  newSubs[idx].price = parseInt(e.target.value) || 0;
+                                  setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[8px] text-purple-200/40 uppercase">Gün</label>
+                              <input 
+                                type="number"
+                                value={sub.durationDays}
+                                onChange={(e) => {
+                                  const newSubs = [...socialCommerce.subscriptions];
+                                  newSubs[idx].durationDays = parseInt(e.target.value) || 0;
+                                  setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'reports' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-serif font-bold text-amber-50">Kullanıcı Raporları</h2>
+                <p className="text-xs text-purple-200/40">Sosyal modül şikayet yönetimi</p>
+              </div>
+              <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
+                <span className="block text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Açık Rapor</span>
+                <span className="text-xl font-bold text-red-500">{reports.filter(r => r.status === 'open').length}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {reports.length === 0 ? (
+                <div className="text-center py-20 text-purple-200/20 italic">Henüz rapor bulunmuyor.</div>
+              ) : (
+                reports.map((report) => (
+                  <motion.div
+                    key={report.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                          report.status === 'open' ? 'bg-red-500/10 text-red-500' :
+                          report.status === 'reviewing' ? 'bg-amber-500/10 text-amber-500' :
+                          'bg-emerald-500/10 text-emerald-500'
+                        }`}>
+                          <ShieldAlert className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Sebep:</span>
+                            <span className="text-sm font-bold text-amber-50">{report.reason}</span>
+                          </div>
+                          <p className="text-xs text-purple-200/60 mt-1">{report.details}</p>
+                          <div className="flex items-center gap-4 mt-2">
+                            <div className="text-[10px] text-purple-200/40">
+                              <span className="font-bold uppercase tracking-widest">Raporlayan:</span> {report.reporterUserId}
+                            </div>
+                            <div className="text-[10px] text-purple-200/40">
+                              <span className="font-bold uppercase tracking-widest">Hedef:</span> {report.targetUserId}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right space-y-2">
+                        <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                          report.status === 'open' ? 'bg-red-500/20 text-red-500' :
+                          report.status === 'reviewing' ? 'bg-amber-500/20 text-amber-500' :
+                          'bg-emerald-500/20 text-emerald-400'
+                        }`}>
+                          {report.status === 'open' ? 'Açık' : report.status === 'reviewing' ? 'İnceleniyor' : 'Kapatıldı'}
+                        </span>
+                        <p className="text-[10px] text-purple-200/20">{new Date(report.createdAt).toLocaleString('tr-TR')}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-4 border-t border-white/5">
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const userDoc = await getDoc(doc(db, 'users', report.targetUserId));
+                            if (userDoc.exists()) {
+                              setViewingReportedUser({ uid: userDoc.id, ...userDoc.data() } as UserProfile);
+                            } else {
+                              toast.error("Kullanıcı bulunamadı.");
+                            }
+                          } catch (e) {
+                            toast.error("Kullanıcı verisi çekilemedi.");
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-white/5 text-purple-200/60 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        Profili İncele
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'reports', report.id), { status: 'reviewing' });
+                            toast.success("Rapor inceleniyor olarak işaretlendi.");
+                          } catch (e) {
+                            toast.error("Hata oluştu.");
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-500 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-500/20 transition-all"
+                      >
+                        İncelemeye Al
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'reports', report.id), { status: 'closed' });
+                            toast.success("Rapor kapatıldı.");
+                          } catch (e) {
+                            toast.error("Hata oluştu.");
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
+                      >
+                        Kapat
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          if (window.confirm("Kullanıcıyı sosyal modülden yasaklamak istediğinize emin misiniz?")) {
+                            try {
+                              await updateDoc(doc(db, 'users', report.targetUserId), { socialBan: true });
+                              await updateDoc(doc(db, 'reports', report.id), { status: 'closed', actionTaken: 'banned' });
+                              toast.success("Kullanıcı yasaklandı ve rapor kapatıldı.");
+                            } catch (e) {
+                              toast.error("Hata oluştu.");
+                            }
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500/20 transition-all"
+                      >
+                        Yasakla & Kapat
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -1435,23 +1657,23 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {giftTransactions
+                      {socialGiftTransactions
                         .filter(gift => 
-                          gift.senderId?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
-                          gift.receiverId?.toLowerCase().includes(socialSearchQuery.toLowerCase()) ||
+                          gift.senderUid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
+                          gift.receiverUid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) ||
                           gift.giftName?.toLowerCase().includes(socialSearchQuery.toLowerCase())
                         )
                         .map((gift) => (
                         <tr key={gift.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.senderId}</td>
-                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.receiverId}</td>
+                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.senderUid}</td>
+                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.receiverUid}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
-                              <span className="text-lg">{gift.giftIcon || '🎁'}</span>
+                              <span className="text-lg">🎁</span>
                               <span className="text-xs text-white font-bold">{gift.giftName}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-xs font-bold text-amber-500">{gift.giftValue?.toLocaleString('tr-TR') || 0}</td>
+                          <td className="px-6 py-4 text-xs font-bold text-amber-500">{gift.amount?.toLocaleString('tr-TR') || 0}</td>
                           <td className="px-6 py-4 text-[10px] text-zinc-600">{gift.timestamp ? new Date(gift.timestamp).toLocaleString('tr-TR') : 'Tarih Yok'}</td>
                         </tr>
                       ))}
@@ -1522,25 +1744,25 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         {report.status === 'pending' && (
                           <div className="flex items-center gap-2 pt-2">
                             <button 
-                              onClick={() => handleModerationAction(report.toUid, 'warn', 'Uyarı verildi', report.id)}
+                              onClick={() => handleModerationAction(report.id, report.toUid, 'warn', 'Uyarı verildi')}
                               className="flex-1 py-2 rounded-xl bg-white/5 text-amber-500 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-500 hover:text-black transition-all"
                             >
                               Uyar
                             </button>
                             <button 
-                              onClick={() => handleModerationAction(report.toUid, 'mute', '24 saat susturuldu', report.id)}
+                              onClick={() => handleModerationAction(report.id, report.toUid, 'mute', '24 saat susturuldu')}
                               className="flex-1 py-2 rounded-xl bg-white/5 text-orange-500 text-[10px] font-bold uppercase tracking-widest hover:bg-orange-500 hover:text-black transition-all"
                             >
                               Sustur (24s)
                             </button>
                             <button 
-                              onClick={() => handleModerationAction(report.toUid, 'ban', 'Kalıcı olarak yasaklandı', report.id)}
+                              onClick={() => handleModerationAction(report.id, report.toUid, 'ban', 'Kalıcı olarak yasaklandı')}
                               className="flex-1 py-2 rounded-xl bg-white/5 text-red-500 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
                             >
                               Yasakla
                             </button>
                             <button 
-                              onClick={() => handleUpdateReportStatus(report.id, 'dismissed', 'Reddedildi', 'Gerekli görülmedi')}
+                              onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
                               className="px-4 py-2 rounded-xl bg-white/5 text-white/40 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
                             >
                               Reddet
@@ -1612,7 +1834,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               <div className="space-y-4">
                 <div className="flex justify-end">
                   <button 
-                    onClick={() => setEditingPackage({ name: '', price: 0, duration: 30, features: [] })}
+                    onClick={() => setEditingPackage({ id: '', name: '', description: '', price: 0, duration: 'monthly', features: [], isActive: true })}
                     className="px-4 py-2 rounded-xl bg-amber-500 text-black text-xs font-bold flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" /> Yeni Paket
@@ -1680,11 +1902,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{tx.uid}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest ${
-                              tx.type === 'earn' ? 'bg-emerald-500/10 text-emerald-500' :
-                              tx.type === 'spend' ? 'bg-red-500/10 text-red-500' :
+                              ['gift_received', 'room_earning', 'top_up'].includes(tx.type) ? 'bg-emerald-500/10 text-emerald-500' :
+                              ['gift_sent', 'withdrawal', 'host_package_purchase'].includes(tx.type) ? 'bg-red-500/10 text-red-500' :
                               'bg-amber-500/10 text-amber-500'
                             }`}>
-                              {tx.type}
+                              {['gift_received', 'room_earning', 'top_up'].includes(tx.type) ? 'Kazanç' : 'Harcama'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-xs font-bold text-white">{tx.amount?.toLocaleString('tr-TR') || 0}</td>
@@ -2033,13 +2255,16 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Süre (Gün)</label>
-                      <input 
-                        type="number"
+                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Süre</label>
+                      <select 
                         value={editingPackage.duration}
-                        onChange={(e) => setEditingPackage({ ...editingPackage, duration: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => setEditingPackage({ ...editingPackage, duration: e.target.value as 'daily' | 'weekly' | 'monthly' })}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      />
+                      >
+                        <option value="daily">Günlük</option>
+                        <option value="weekly">Haftalık</option>
+                        <option value="monthly">Aylık</option>
+                      </select>
                     </div>
                   </div>
 
@@ -2208,39 +2433,75 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2 col-span-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Ana Kredi</label>
-                      <input 
-                        type="number"
-                        value={editingUser.credits}
-                        onChange={(e) => setEditingUser({ ...editingUser, credits: parseInt(e.target.value) || 0 })}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      />
-                    </div>
-                  </div>
-
-                  {socialUsers.some(s => s.uid === editingUser.uid) && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Sosyal Çekilebilir Bakiye</label>
-                      <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Ana Kredi</label>
                         <input 
                           type="number"
-                          value={socialUsers.find(s => s.uid === editingUser.uid)?.withdrawableBalance || 0}
-                          onChange={async (e) => {
-                            const newVal = parseInt(e.target.value) || 0;
-                            try {
-                              await updateDoc(doc(db, 'socialProfiles', editingUser.uid), { withdrawableBalance: newVal });
-                              toast.success("Sosyal bakiye güncellendi.");
-                            } catch (err) {
-                              toast.error("Sosyal bakiye güncellenemedi.");
-                            }
-                          }}
+                          value={editingUser.credits}
+                          onChange={(e) => setEditingUser({ ...editingUser, credits: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Enerji Kredisi</label>
+                        <input 
+                          type="number"
+                          value={editingUser.adCredits || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, adCredits: parseInt(e.target.value) || 0 })}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
                         />
                       </div>
                     </div>
-                  )}
+
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+                      <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest">Günlük Reklamlı Fal Limitleri</h5>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Kahve (Kullanılan)</label>
+                          <input 
+                            type="number"
+                            value={editingUser.dailyAdReadingsUsed?.coffee || 0}
+                            onChange={(e) => setEditingUser({ 
+                              ...editingUser, 
+                              dailyAdReadingsUsed: { 
+                                coffee: parseInt(e.target.value) || 0,
+                                tarot: editingUser.dailyAdReadingsUsed?.tarot || 0,
+                                lastResetDate: editingUser.dailyAdReadingsUsed?.lastResetDate || new Date().toISOString()
+                              } 
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Tarot (Kullanılan)</label>
+                          <input 
+                            type="number"
+                            value={editingUser.dailyAdReadingsUsed?.tarot || 0}
+                            onChange={(e) => setEditingUser({ 
+                              ...editingUser, 
+                              dailyAdReadingsUsed: { 
+                                coffee: editingUser.dailyAdReadingsUsed?.coffee || 0,
+                                tarot: parseInt(e.target.value) || 0,
+                                lastResetDate: editingUser.dailyAdReadingsUsed?.lastResetDate || new Date().toISOString()
+                              } 
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setEditingUser({
+                          ...editingUser,
+                          dailyAdReadingsUsed: { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() }
+                        })}
+                        className="w-full py-2 rounded-xl bg-white/5 text-[10px] font-bold text-purple-200/60 hover:bg-white/10 transition-all uppercase tracking-widest"
+                      >
+                        Limitleri Sıfırla
+                      </button>
+                    </div>
+
+
 
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Abonelik Tipi</label>
@@ -2292,12 +2553,142 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     </button>
                   </div>
 
+                  {/* Social Profile Info Section */}
+                  <div className="pt-6 border-t border-white/10 space-y-6">
+                    <div className="flex items-center gap-2">
+                      <Heart className="w-5 h-5 text-pink-500" />
+                      <h3 className="text-lg font-serif font-bold text-amber-50">Sosyal Profil Bilgileri</h3>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+                        <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Sosyal Durum</span>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${editingUser.socialEnabled ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-sm text-amber-50">{editingUser.socialEnabled ? 'Aktif' : 'Pasif'}</span>
+                        </div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+                        <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Görünürlük</span>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${editingUser.socialVisible ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                          <span className="text-sm text-amber-50">{editingUser.socialVisible ? 'Görünür' : 'Gizli'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Nickname</label>
+                          <input 
+                            type="text"
+                            value={editingUser.nickname || ''}
+                            onChange={(e) => setEditingUser({ ...editingUser, nickname: e.target.value })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yaş</label>
+                          <input 
+                            type="number"
+                            value={editingUser.age || 0}
+                            onChange={(e) => setEditingUser({ ...editingUser, age: parseInt(e.target.value) || 0 })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Bio</label>
+                        <textarea 
+                          value={editingUser.bio || ''}
+                          onChange={(e) => setEditingUser({ ...editingUser, bio: e.target.value })}
+                          className="w-full h-24 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 resize-none"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => setEditingUser({ ...editingUser, socialEnabled: !editingUser.socialEnabled })}
+                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                            editingUser.socialEnabled 
+                              ? 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20' 
+                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          {editingUser.socialEnabled ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                          {editingUser.socialEnabled ? 'Sosyal Profili Kapat' : 'Sosyal Profili Aç'}
+                        </button>
+                        <button 
+                          onClick={() => setEditingUser({ ...editingUser, socialVisible: !editingUser.socialVisible })}
+                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                            editingUser.socialVisible 
+                              ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 hover:bg-amber-500/20' 
+                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          {editingUser.socialVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {editingUser.socialVisible ? 'Profil Gizle' : 'Profil Göster'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => setEditingUser({ ...editingUser, socialBan: !editingUser.socialBan })}
+                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                            editingUser.socialBan 
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20' 
+                              : 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20'
+                          }`}
+                        >
+                          <Ban className="w-4 h-4" />
+                          {editingUser.socialBan ? 'Sosyal Ban Kaldır' : 'Sosyal Banla'}
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if (window.confirm("Sosyal verileri tamamen silmek istediğinize emin misiniz?")) {
+                              setEditingUser({
+                                ...editingUser,
+                                socialEnabled: false,
+                                socialProfileCompleted: false,
+                                socialVisible: false,
+                                nickname: '',
+                                bio: '',
+                                photos: [],
+                                interests: [],
+                                age: 0,
+                                lookingFor: 'friendship'
+                              });
+                            }
+                          }}
+                          className="flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-red-500/20 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Sosyal Verileri Sil
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   <button
                     onClick={() => {
                       const updates: any = {
                         credits: editingUser.credits || 0,
+                        adCredits: editingUser.adCredits || 0,
+                        dailyAdReadingsUsed: editingUser.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() },
                         role: editingUser.role || 'user',
-                        isBanned: editingUser.isBanned || false
+                        isBanned: editingUser.isBanned || false,
+                        socialEnabled: editingUser.socialEnabled || false,
+                        socialProfileCompleted: editingUser.socialProfileCompleted || false,
+                        socialVisible: editingUser.socialVisible || false,
+                        nickname: editingUser.nickname || '',
+                        bio: editingUser.bio || '',
+                        photos: editingUser.photos || [],
+                        interests: editingUser.interests || [],
+                        age: editingUser.age || 0,
+                        lookingFor: editingUser.lookingFor || 'friendship',
+                        socialBan: editingUser.socialBan || false
                       };
                       
                       if (editingUser.subscription) {
@@ -2355,10 +2746,33 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   userReadings.map(reading => (
                     <div key={reading.id} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">{reading.type} Falı</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">{reading.type} Falı</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
+                            reading.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                            reading.status === 'interpreting' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-amber-500/20 text-amber-400'
+                          }`}>
+                            {reading.status === 'completed' ? 'Tamamlandı' : reading.status === 'interpreting' ? 'Yorumlanıyor' : 'Bekliyor'}
+                          </span>
+                        </div>
                         <span className="text-[10px] text-purple-200/40">{reading.date ? new Date(reading.date).toLocaleString('tr-TR') : 'Tarih Yok'}</span>
                       </div>
-                      <p className="text-sm text-purple-100 line-clamp-3">{reading.content}</p>
+                      <div className="flex items-center gap-3 text-[10px] text-purple-200/40">
+                        {reading.balanceType && (
+                          <div className="flex items-center gap-1">
+                            <CreditCard className="w-3 h-3" />
+                            <span>{reading.balanceType === 'main' ? 'Ana Jeton' : reading.balanceType === 'ad' ? 'Enerji Kredisi' : 'Abonelik'}</span>
+                          </div>
+                        )}
+                        {reading.creditsUsed !== undefined && (
+                          <div className="flex items-center gap-1">
+                            <DollarSign className="w-3 h-3" />
+                            <span>{reading.creditsUsed} Kredi</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-purple-100 line-clamp-3">{reading.content || 'Yorum henüz hazır değil.'}</p>
                     </div>
                   ))
                 )}

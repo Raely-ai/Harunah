@@ -317,48 +317,7 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
                   <button
                     disabled={isProcessing}
                     onClick={() => {
-                      if (isSubscribed) {
-                        // Check daily limit
-                        const dailyLimit = config.subscriptionLimits.coffee;
-                        const used = userProfile.subscription?.dailyReadingsUsed.coffee || 0;
-                        
-                        if (used >= dailyLimit) {
-                          toast.error(`Günlük limitinize ulaştınız (${dailyLimit}). Yarın tekrar deneyebilirsiniz.`);
-                          return;
-                        }
-
-                        setIsProcessing(true);
-                        
-                        // Increment daily usage
-                        onUpdateProfile({ 
-                          subscription: { 
-                            ...userProfile.subscription!, 
-                            dailyReadingsUsed: {
-                              ...userProfile.subscription!.dailyReadingsUsed,
-                              coffee: used + 1
-                            }
-                          } 
-                        });
-
-                        setTimeout(() => {
-                          toast.success("Hemen yorumcu bulundu! Falın öncelik sırasına alındı.");
-                          onComplete(formData);
-                        }, 1500);
-                        return;
-                      }
-
-                      const totalCredits = userProfile.credits;
-                      if (totalCredits < price) {
-                        toast.error("Yetersiz bakiye! Lütfen kredi yükleyin.");
-                        return;
-                      }
-
                       setIsProcessing(true);
-                      
-                      let newCredits = userProfile.credits - price;
-                      
-                      onUpdateProfile({ credits: newCredits });
-                      
                       setTimeout(() => {
                         toast.success("Hemen yorumcu bulundu! Falın öncelik sırasına alındı.");
                         onComplete(formData);

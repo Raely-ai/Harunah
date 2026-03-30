@@ -26,7 +26,9 @@ service cloud.firestore {
                data.uid == userId &&
                isValidEmail(data.email) &&
                (data.get('displayName', '') is string) &&
-               (data.get('photoURL', '') is string);
+               (data.get('photoURL', '') is string) &&
+               (data.get('socialEnabled', false) is bool) &&
+               (data.get('socialProfileCompleted', false) is bool);
       }
 
       allow read: if isOwner(userId);

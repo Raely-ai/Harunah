@@ -12,7 +12,8 @@ import {
   ArrowUpRight,
   History,
   ChevronRight,
-  Star
+  Star,
+  Coins
 } from "lucide-react";
 import { UserProfile, FortuneType, FortuneReading, AppTab, AppConfig } from "../types";
 import DailyMessageCard from "./DailyMessageCard";
@@ -29,12 +30,12 @@ interface OracleHubProps {
 
 export default function OracleHub({ user, userProfile, history, onSelectFortune, onNavigate, config, horoscope }: OracleHubProps) {
   const CATEGORIES = [
-    { id: 'coffee' as FortuneType, title: 'Kahve Falı', icon: Coffee, color: 'from-amber-500/20 to-amber-700/20', iconColor: 'text-amber-400', configIcon: config?.icons?.coffee },
-    { id: 'tarot' as FortuneType, title: 'Tarot', icon: CreditCard, color: 'from-purple-500/20 to-purple-700/20', iconColor: 'text-purple-400', configIcon: config?.icons?.tarot },
-    { id: 'water' as FortuneType, title: 'Su Falı', icon: Droplets, color: 'from-blue-500/20 to-blue-700/20', iconColor: 'text-blue-400', configIcon: config?.icons?.water },
-    { id: 'ebced' as FortuneType, title: 'Ebced Aşk Falı', icon: Heart, color: 'from-red-500/20 to-red-700/20', iconColor: 'text-red-400', configIcon: config?.icons?.ebced },
-    { id: 'yildizname' as FortuneType, title: 'Yıldızname', icon: Star, color: 'from-indigo-500/20 to-indigo-700/20', iconColor: 'text-indigo-400', configIcon: config?.icons?.yildizname },
-    { id: 'havas' as FortuneType, title: 'İlmi Havas', icon: Zap, color: 'from-emerald-500/20 to-emerald-700/20', iconColor: 'text-emerald-400', configIcon: config?.icons?.havas },
+    { id: 'coffee' as FortuneType, title: 'Kahve Falı', icon: Coffee, color: 'from-amber-500/10 via-amber-500/5 to-transparent', iconColor: 'text-amber-600', configIcon: config?.icons?.coffee },
+    { id: 'tarot' as FortuneType, title: 'Tarot', icon: CreditCard, color: 'from-purple-500/10 via-purple-500/5 to-transparent', iconColor: 'text-purple-600', configIcon: config?.icons?.tarot },
+    { id: 'water' as FortuneType, title: 'Su Falı', icon: Droplets, color: 'from-cyan-500/10 via-cyan-500/5 to-transparent', iconColor: 'text-cyan-600', configIcon: config?.icons?.water },
+    { id: 'ebced' as FortuneType, title: 'Ebced Aşk Falı', icon: Heart, color: 'from-rose-500/10 via-rose-500/5 to-transparent', iconColor: 'text-rose-600', configIcon: config?.icons?.ebced },
+    { id: 'yildizname' as FortuneType, title: 'Yıldızname', icon: Star, color: 'from-indigo-500/10 via-indigo-500/5 to-transparent', iconColor: 'text-indigo-600', configIcon: config?.icons?.yildizname },
+    { id: 'havas' as FortuneType, title: 'İlmi Havas', icon: Zap, color: 'from-emerald-500/10 via-emerald-500/5 to-transparent', iconColor: 'text-emerald-600', configIcon: config?.icons?.havas },
   ];
 
   const SIGNS = [
@@ -62,210 +63,208 @@ export default function OracleHub({ user, userProfile, history, onSelectFortune,
       return <span className="text-3xl">{cat.configIcon}</span>;
     }
     const Icon = cat.icon;
-    return <Icon className="w-8 h-8" />;
+    return <Icon className="w-9 h-9" />;
   };
 
   const renderBalanceIcon = (type: 'main' | 'ad') => {
     const icon = type === 'main' ? config?.icons?.mainBalance : config?.icons?.adBalance;
     if (icon) {
       if (icon.startsWith('http')) {
-        return <img src={icon} alt={type} className="w-3 h-3 object-contain" />;
+        return <img src={icon} alt={type} className="w-5 h-5 object-contain" />;
       }
-      return <span className="text-xs">{icon}</span>;
+      return <span className="text-base">{icon}</span>;
     }
-    return type === 'main' ? <CreditCard className="w-3 h-3 text-amber-400" /> : <Sparkles className="w-3 h-3 text-blue-400" />;
+    return type === 'main' ? <Coins className="w-5 h-5 text-amber-500" /> : <Zap className="w-5 h-5 text-blue-500" />;
   };
   return (
-    <div className="relative space-y-10 pb-32 pr-1">
-      {/* Background Animations */}
+    <div className="relative space-y-8 pb-40 pr-1 min-h-screen bg-[#050505]">
+      {/* Background Animations - Dark & Mystical */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        {[...Array(15)].map((_, i) => (
-          <motion.div
-            key={`heart-${i}`}
-            initial={{ 
-              opacity: 0,
-              y: "110vh",
-              x: `${Math.random() * 100}vw`,
-              scale: Math.random() * 0.5 + 0.5
-            }}
-            animate={{ 
-              opacity: [0, 0.3, 0],
-              y: "-10vh",
-              x: `${(Math.random() * 100) + (Math.sin(i) * 10)}vw`
-            }}
-            transition={{ 
-              duration: 15 + Math.random() * 10,
-              repeat: Infinity,
-              delay: i * 2,
-              ease: "linear"
-            }}
-            className="absolute"
-          >
-            <Heart className="w-4 h-4 text-red-500/10 fill-red-500/5" />
-          </motion.div>
-        ))}
-        {[...Array(20)].map((_, i) => (
-          <motion.div
-            key={`snow-${i}`}
-            initial={{ 
-              opacity: 0,
-              y: "-10vh",
-              x: `${Math.random() * 100}vw`,
-              scale: Math.random() * 0.3 + 0.2
-            }}
-            animate={{ 
-              opacity: [0, 0.4, 0],
-              y: "110vh",
-              x: `${(Math.random() * 100) + (Math.cos(i) * 5)}vw`
-            }}
-            transition={{ 
-              duration: 10 + Math.random() * 15,
-              repeat: Infinity,
-              delay: i * 1,
-              ease: "linear"
-            }}
-            className="absolute"
-          >
-            <div className="w-2 h-2 bg-white/10 rounded-full blur-[1px]" />
-          </motion.div>
-        ))}
+        <motion.div
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-purple-900/20 rounded-full blur-[100px]"
+        />
+        <motion.div
+          animate={{
+            scale: [1, 1.1, 1],
+            opacity: [0.2, 0.4, 0.2],
+          }}
+          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-1/4 -right-40 w-[400px] h-[400px] bg-amber-900/10 rounded-full blur-[100px]"
+        />
       </div>
 
-      {/* Premium Greeting & Stats - Redesigned for Stability */}
-      <section className="relative z-10 px-2">
-        <div className="p-6 rounded-[2.5rem] bg-gradient-to-br from-white/5 to-transparent border border-white/10 backdrop-blur-2xl shadow-2xl">
-          <div className="flex items-center justify-between mb-8">
+      {/* 1. Header: Balances & Name */}
+      <section className="relative z-10 px-4 pt-6">
+        <div className="p-6 rounded-[2.5rem] bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <motion.button
+              <motion.div 
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => onNavigate('profile')}
-                className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center overflow-hidden group"
+                className="relative cursor-pointer"
               >
-                {user.photoURL ? (
-                  <img src={user.photoURL} alt={user.displayName || ""} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-                ) : (
-                  <User className="w-8 h-8 text-amber-400/60" />
-                )}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </motion.button>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-200/40">Mistik Rehberin</p>
-                  {userProfile.subscription && userProfile.subscription.type !== 'none' && (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[8px] font-black uppercase tracking-widest border border-amber-500/20">Premium</span>
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-900/40 to-amber-900/20 border border-white/10 flex items-center justify-center overflow-hidden shadow-sm group">
+                  {userProfile.photoURL ? (
+                    <img src={userProfile.photoURL} alt={userProfile.displayName || ""} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
+                  ) : (
+                    <User className="w-8 h-8 text-purple-400" />
                   )}
                 </div>
-                <h2 className="text-lg font-serif font-bold text-amber-50 leading-tight">
-                  {(userProfile.displayName || user.displayName || user.email?.split('@')[0]).slice(0, 9)}
+              </motion.div>
+              
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 mb-1">Hoş Geldin</p>
+                <h2 className="text-xl font-serif font-bold text-amber-50 leading-tight truncate max-w-[140px]">
+                  {userProfile.displayName || user.displayName || user.email?.split('@')[0]}
                 </h2>
               </div>
             </div>
-            
+
             <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => onNavigate('wallet')}
-              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-amber-400 hover:bg-amber-500/10 transition-colors"
+              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-amber-400 hover:bg-white/10 transition-colors shadow-sm"
             >
               <Wallet className="w-5 h-5" />
             </motion.button>
           </div>
 
-          <div className="grid grid-cols-1 gap-3">
-            <div className="p-4 rounded-2xl bg-black/60 border border-white/10 flex flex-col items-center justify-center text-center">
-              <p className="text-[8px] font-black uppercase tracking-[0.2em] text-purple-200/30 mb-1">Ana Bakiye</p>
+          {/* Balance Row */}
+          <div className="grid grid-cols-2 gap-3 mt-6 pt-6 border-t border-white/10">
+            <div className="flex flex-col items-center justify-center p-4 rounded-3xl bg-white/5 border border-white/5 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 mb-2">Ana Jeton</p>
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center">
                   {renderBalanceIcon('main')}
                 </div>
                 <span className="text-xl font-bold text-amber-50">{userProfile.credits}</span>
+              </div>
+            </div>
+            <div className="flex flex-col items-center justify-center p-4 rounded-3xl bg-white/5 border border-white/5 relative group shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 mb-2">Enerji Kredisi</p>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                  {renderBalanceIcon('ad')}
+                </div>
+                <span className="text-xl font-bold text-amber-50">{userProfile.adCredits}</span>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={(e) => { e.stopPropagation(); onNavigate('wallet'); }}
+                  className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 hover:bg-blue-500/30 transition-colors shadow-sm"
+                >
+                  <span className="text-sm font-bold">+</span>
+                </motion.button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Daily Horoscope Card */}
-      <section>
-        <div className="flex items-center justify-between mb-4 px-2">
-          <div className="flex items-center gap-2">
-            <Moon className="w-4 h-4 text-blue-400" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-purple-200/40">Günün Gökyüzü</h3>
-          </div>
-          <button 
-            onClick={() => onNavigate('horoscopes')}
-            className="text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            Tüm Burçlar
-          </button>
-        </div>
+      {/* 2. ANA SOSYAL KART (EN ÖNEMLİ) */}
+      <section className="px-4">
         <motion.div
-          whileHover={{ y: -4 }}
+          whileHover={{ scale: 1.02, y: -4 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => onNavigate('horoscopes')}
-          className="relative p-6 rounded-[2rem] border border-blue-500/20 bg-gradient-to-br from-blue-900/10 to-transparent backdrop-blur-xl overflow-hidden group cursor-pointer"
+          onClick={() => {
+            if (userProfile.socialProfileCompleted) {
+              onNavigate('social-main');
+            } else {
+              onNavigate('social-intro');
+            }
+          }}
+          className="relative p-8 rounded-[2.5rem] overflow-hidden group cursor-pointer shadow-[0_20px_40px_rgba(0,0,0,0.3)] bg-gradient-to-br from-purple-900/80 to-indigo-900/80 border border-purple-500/30"
         >
-          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Moon className="w-24 h-24 text-blue-400" />
-          </div>
-          <div className="relative z-10 flex items-center gap-6">
-            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center text-4xl border border-blue-500/20">
-              {userSignData.symbol}
-            </div>
+          {/* Animated Glow Elements */}
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay" />
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            className="absolute -top-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl"
+          />
+          
+          <div className="relative z-10 flex flex-col items-center text-center space-y-5">
+            <motion.div 
+              animate={{ y: [0, -5, 0] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-amber-400 border border-white/20 shadow-inner"
+            >
+              <Sparkles className="w-8 h-8" />
+            </motion.div>
+            
             <div>
-              <h4 className="text-xl font-serif font-bold text-blue-50 mb-1">{userSignData.name} Burcu</h4>
-              <p className="text-sm text-purple-200/60 leading-relaxed max-w-[200px] line-clamp-3">
-                {horoscope ? horoscope.content : "Burcun için bugünün kehanetini keşfet..."}
+              <h3 className="text-3xl font-serif font-bold text-amber-50 mb-2 tracking-tight">Sosyal Alan</h3>
+              <p className="text-purple-200/80 font-medium text-sm max-w-[240px] mx-auto leading-relaxed">
+                Enerjine en uygun insanlarla tanış.
               </p>
             </div>
-            <div className="ml-auto">
-              <ChevronRight className="w-6 h-6 text-blue-400/40" />
-            </div>
+            
+            <button className="mt-2 px-8 py-3.5 rounded-full bg-amber-500 text-black font-bold text-sm shadow-[0_8px_20px_rgba(245,158,11,0.2)] hover:shadow-[0_8px_25px_rgba(245,158,11,0.3)] hover:scale-105 transition-all">
+              Sosyal Alana Gir
+            </button>
           </div>
         </motion.div>
       </section>
 
-      {/* Message for You Today */}
-      <DailyMessageCard config={config} />
+      {/* 3. Günün Mesajı */}
+      <section className="px-4">
+        <DailyMessageCard config={config} />
+      </section>
 
-      {/* Fortune Categories Grid */}
-      <section>
-        <div className="flex items-center gap-2 mb-6 px-2">
+      {/* 4. Kehanet Kapıları */}
+      <section className="px-4">
+        <div className="flex items-center gap-2 mb-4 px-2">
           <Sparkles className="w-4 h-4 text-amber-400" />
-          <h3 className="text-xs font-bold uppercase tracking-widest text-purple-200/40">Ana Sayfa</h3>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-purple-200/40">Kehanet Kapıları</h3>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {CATEGORIES.map((cat) => {
-            const Icon = cat.icon;
             const price = config?.prices[cat.id as keyof typeof config.prices] || 0;
             const isAdEligible = ['coffee', 'tarot'].includes(cat.id);
             
             return (
               <motion.button
                 key={cat.id}
-                whileHover={{ scale: 1.02, y: -4 }}
+                whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => onSelectFortune(cat.id)}
-                className={`relative p-6 rounded-[2rem] border border-white/5 bg-black/40 backdrop-blur-xl flex flex-col items-center text-center group overflow-hidden`}
+                className="relative rounded-[2rem] border border-white/10 bg-white/5 p-5 group overflow-hidden shadow-sm hover:shadow-md transition-all"
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${cat.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-                <div className={`p-4 rounded-2xl bg-white/5 mb-4 group-hover:scale-110 transition-transform duration-500 ${cat.iconColor}`}>
-                  {renderIcon(cat)}
+                
+                <div className="relative z-10 flex items-center">
+                  <div className={`w-14 h-14 rounded-2xl bg-black/40 flex items-center justify-center group-hover:scale-110 transition-transform duration-500 ${cat.iconColor} border border-white/5`}>
+                    {renderIcon(cat)}
+                  </div>
+                  
+                  <div className="flex-1 ml-4 text-left">
+                    <h4 className="text-lg font-serif font-bold text-amber-50 group-hover:text-amber-400 transition-colors">
+                      {cat.title}
+                    </h4>
+                    <p className="text-[10px] text-purple-200/40 font-medium uppercase tracking-widest mt-1">
+                      {cat.id === 'coffee' ? 'Fincandaki Sırlar' : 
+                       cat.id === 'tarot' ? 'Kartların Bilgeliği' :
+                       cat.id === 'water' ? 'Suyun Fısıltısı' :
+                       cat.id === 'ebced' ? 'İlahi Hesaplama' :
+                       cat.id === 'yildizname' ? 'Burçların Kaderi' : 'Gizli İlimler'}
+                    </p>
+                  </div>
                 </div>
-                <h4 className="text-sm font-serif font-bold text-amber-50 group-hover:text-white transition-colors mb-2">{cat.title}</h4>
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 group-hover:border-amber-500/30 transition-colors">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-black text-amber-400">{price}</span>
-                    {renderBalanceIcon('main')}
+                
+                <div className="relative z-10 flex items-center gap-2 mt-4 pt-4 border-t border-white/5">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 font-bold text-xs">
+                    {price} {renderBalanceIcon('main')}
                   </div>
                   {isAdEligible && (
-                    <div className="flex items-center gap-2 pl-2 border-l border-white/10">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] font-black text-blue-400">{price}</span>
-                        {renderBalanceIcon('ad')}
-                      </div>
-                      <span className="text-[8px] font-bold text-blue-400 uppercase">Reklam</span>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 font-bold text-xs">
+                      {price} {renderBalanceIcon('ad')}
                     </div>
                   )}
                 </div>
@@ -275,47 +274,84 @@ export default function OracleHub({ user, userProfile, history, onSelectFortune,
         </div>
       </section>
 
-      {/* Recent Readings Preview */}
-      <section>
+      {/* 5. Son Kehanetlerin */}
+      <section className="px-4">
         <div className="flex items-center justify-between mb-4 px-2">
           <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-purple-400" />
+            <History className="w-4 h-4 text-amber-400" />
             <h3 className="text-xs font-bold uppercase tracking-widest text-purple-200/40">Son Kehanetlerin</h3>
           </div>
           <button 
             onClick={() => onNavigate('history')}
-            className="text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
+            className="text-[10px] font-bold uppercase tracking-widest text-amber-500 hover:text-amber-400 transition-colors"
           >
-            Tümünü Gör
+            Hepsi
           </button>
         </div>
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
           {history.length > 0 ? (
             history.slice(0, 2).map((reading) => (
               <motion.div
                 key={reading.id}
-                whileHover={{ x: 4 }}
+                whileHover={{ y: -2, scale: 1.02 }}
                 onClick={() => reading.status === 'completed' && onNavigate('history')}
-                className="p-4 rounded-2xl border border-white/5 bg-white/5 flex items-center gap-4 group cursor-pointer"
+                className="p-4 rounded-[1.5rem] border border-white/10 bg-white/5 flex items-center gap-3 cursor-pointer shadow-sm hover:shadow-md transition-all"
               >
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                   reading.type === 'coffee' ? 'bg-amber-500/10 text-amber-400' : 'bg-purple-500/10 text-purple-400'
                 }`}>
-                  {reading.type === 'coffee' ? <Coffee className="w-6 h-6" /> : <CreditCard className="w-6 h-6" />}
+                  {reading.type === 'coffee' ? <Coffee className="w-5 h-5" /> : <CreditCard className="w-5 h-5" />}
                 </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-bold text-amber-50">{reading.title}</h4>
-                  <p className="text-[10px] text-purple-200/40 uppercase tracking-widest">{reading.date}</p>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-bold text-amber-50 truncate">{reading.title}</h4>
+                  <p className="text-[9px] text-purple-200/40 uppercase tracking-widest truncate mt-0.5">{reading.date}</p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-purple-200/20 group-hover:text-purple-400 transition-colors" />
               </motion.div>
             ))
           ) : (
-            <div className="p-8 text-center rounded-2xl border border-dashed border-white/5">
-              <p className="text-xs text-purple-200/20">Henüz bir kehanet kaydın yok.</p>
+            <div className="col-span-2 p-6 text-center rounded-[1.5rem] border border-dashed border-white/10 bg-white/5">
+              <p className="text-xs text-purple-200/40 font-medium">Henüz bir kehanet kaydın yok.</p>
             </div>
           )}
         </div>
+      </section>
+
+      {/* 6. Burç Alanı */}
+      <section className="px-4">
+        <div className="flex items-center justify-between mb-4 px-2">
+          <div className="flex items-center gap-2">
+            <Moon className="w-4 h-4 text-blue-400" />
+            <h3 className="text-xs font-bold uppercase tracking-widest text-purple-200/40">Günün Gökyüzü</h3>
+          </div>
+          <button 
+            onClick={() => onNavigate('horoscopes')}
+            className="text-[10px] font-bold uppercase tracking-widest text-blue-500 hover:text-blue-400 transition-colors"
+          >
+            Tüm Burçlar
+          </button>
+        </div>
+        <motion.div
+          whileHover={{ y: -4, scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
+          onClick={() => onNavigate('horoscopes')}
+          className="relative p-6 rounded-[2.5rem] border border-blue-500/20 bg-gradient-to-br from-blue-900/20 to-black overflow-hidden cursor-pointer shadow-sm hover:shadow-md transition-all"
+        >
+          <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+            <Moon className="w-32 h-32 text-blue-500" />
+          </div>
+          <div className="relative z-10 flex items-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-black/40 flex items-center justify-center text-4xl border border-blue-500/20 shadow-sm text-blue-400">
+              {userSignData.symbol}
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-serif font-bold text-amber-50 mb-1">{userSignData.name} Burcu</h4>
+              <p className="text-xs text-purple-200/60 leading-relaxed line-clamp-2">
+                {horoscope ? horoscope.content : "Yıldızların bugün senin için ne fısıldadığını öğren..."}
+              </p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-blue-400/50" />
+          </div>
+        </motion.div>
       </section>
     </div>
   );

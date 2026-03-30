@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Calendar, Star, Camera, Check, Loader2 } from 'lucide-react';
+import { X, User, Calendar, Star, Camera, Check, Loader2, MapPin, FileText } from 'lucide-react';
 import { UserProfile } from '../types';
+import { storage, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { toast } from 'sonner';
 
 interface EditProfileModalProps {
   user: UserProfile;
@@ -10,11 +13,12 @@ interface EditProfileModalProps {
 }
 
 export default function EditProfileModal({ user, onClose, onSave }: EditProfileModalProps) {
-  const [displayName, setDisplayName] = useState(user.displayName);
-  const [birthDate, setBirthDate] = useState(user.birthDate || '');
-  const [horoscope, setHoroscope] = useState(user.horoscope || '');
-  const [photoURL, setPhotoURL] = useState(user.photoURL || '');
+  const [nickname, setNickname] = useState(user.nickname || user.displayName || '');
+  const [bio, setBio] = useState(user.bio || '');
+  const [interests, setInterests] = useState(user.interests?.join(', ') || '');
+  const [photoURL, setPhotoURL] = useState(user.photos?.[0] || user.photoURL || '');
   const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const zodiacSigns = [
     { id: 'Koç', name: 'Koç' },
@@ -31,14 +35,41 @@ export default function EditProfileModal({ user, onClose, onSave }: EditProfileM
     { id: 'Balık', name: 'Balık' },
   ];
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsSaving(true);
+    try {
+      const storageRef = ref(storage, `profiles/${user.uid}/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+      setPhotoURL(downloadURL);
+      toast.success("Fotoğraf yüklendi.");
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error("Fotoğraf yüklenemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await onSave({ displayName, birthDate, horoscope, photoURL });
+      const updates: Partial<UserProfile> = {
+        nickname: nickname,
+        bio: bio,
+        interests: interests.split(',').map(i => i.trim()).filter(i => i !== ''),
+        photos: [photoURL]
+      };
+      await onSave(updates);
       onClose();
+      toast.success("Profil güncellendi.");
     } catch (error) {
       console.error('Save error:', error);
+      toast.error("Profil güncellenemedi.");
     } finally {
       setIsSaving(false);
     }
@@ -76,64 +107,59 @@ export default function EditProfileModal({ user, onClose, onSave }: EditProfileM
                     <User className="w-10 h-10 text-purple-200/20" />
                   )}
                 </div>
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer">
+                <div 
+                  className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   <Camera className="w-6 h-6 text-white" />
                 </div>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
               </div>
-              <input 
-                type="text" 
-                placeholder="Fotoğraf URL (Opsiyonel)" 
-                value={photoURL}
-                onChange={(e) => setPhotoURL(e.target.value)}
-                className="mt-4 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-purple-200/60 focus:outline-none focus:border-amber-500/50 transition-colors"
-              />
             </div>
 
-            {/* Name */}
+            {/* Nickname */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Kullanıcı Adı</label>
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
                 <input 
                   type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
-                  placeholder="Adınız"
+                  placeholder="Kullanıcı Adı"
                   required
                 />
               </div>
             </div>
 
-            {/* Birth Date */}
+            {/* Bio */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Doğum Tarihi</label>
+              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Bio</label>
               <div className="relative">
-                <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
-                <input 
-                  type="date"
-                  value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
+                <FileText className="absolute left-4 top-6 w-5 h-5 text-purple-200/20" />
+                <textarea 
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  placeholder="Kendinden bahset"
+                  rows={3}
                 />
               </div>
             </div>
 
-            {/* Zodiac */}
+            {/* Interests */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Burç</label>
+              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">İlgi Alanları (Virgülle ayır)</label>
               <div className="relative">
                 <Star className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
-                <select 
-                  value={horoscope}
-                  onChange={(e) => setHoroscope(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors appearance-none"
-                >
-                  <option value="">Seçiniz</option>
-                  {zodiacSigns.map(sign => (
-                    <option key={sign.id} value={sign.id}>{sign.name}</option>
-                  ))}
-                </select>
+                <input 
+                  type="text"
+                  value={interests}
+                  onChange={(e) => setInterests(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  placeholder="Müzik, Spor, Seyahat"
+                />
               </div>
             </div>
 
