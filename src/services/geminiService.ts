@@ -11,6 +11,7 @@ export interface PromptData {
   extraInfo?: string;
   type: string;
   cards?: string[]; // For Tarot
+  images?: string[]; // For Coffee/Water
   questions?: string[]; // For multiple questions
 }
 
@@ -20,19 +21,37 @@ const DEFAULT_PROMPTS: Record<string, string> = {
   water: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Soruları: {soruları}. Ek bilgi: {ekbilgi}. Lütfen bu su falını yorumla.",
   ebced: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Soruları: {soruları}. Ek bilgi: {ekbilgi}. Lütfen bu ebced falını yorumla.",
   yildizname: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Soruları: {soruları}. Ek bilgi: {ekbilgi}. Lütfen bu yıldızname falını yorumla.",
-  havas: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Soruları: {soruları}. Ek bilgi: {ekbilgi}. Lütfen bu havas falını yorumla."
+  havas: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Soruları: {soruları}. Ek bilgi: {ekbilgi}. Lütfen bu havas falını yorumla.",
+  dream: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. İlişki durumu: {iliskidurumu}, İş durumu: {isdurumu}. Gördüğü rüya: {ekbilgi}. Lütfen bu rüyayı yorumla.",
+  horoscope: "Kullanıcı {isim}, {dogumtarihi} doğumlu, {cinsiyet}. Burcu: {ekbilgi}. Lütfen bu burç için günlük yorum yap."
 };
 
-export const generateFortune = async (data: PromptData) => {
+export interface FortuneResult {
+  text: string;
+  promptSource: "admin" | "default";
+  promptId: string;
+}
+
+export const generateFortune = async (data: PromptData): Promise<FortuneResult> => {
   let template = DEFAULT_PROMPTS[data.type] || DEFAULT_PROMPTS.tarot;
+  let promptSource: "admin" | "default" = "default";
+  let promptId = "default_" + data.type;
+
+  console.log(`[Fortune] Attempting to fetch prompt for type: ${data.type}`);
 
   try {
     const promptDoc = await getDoc(doc(db, "prompts", data.type));
     if (promptDoc.exists()) {
       template = promptDoc.data().content;
+      promptSource = "admin";
+      promptId = data.type;
+      console.log(`[Fortune] Admin prompt found for ${data.type}. Using custom template.`);
+    } else {
+      console.warn(`[Fortune] No admin prompt found for ${data.type}. Falling back to DEFAULT_PROMPTS.`);
     }
   } catch (error) {
-    console.warn("Could not fetch prompt from Firestore, using default:", error);
+    console.error(`[Fortune] Error fetching prompt for ${data.type} from Firestore:`, error);
+    console.log(`[Fortune] Falling back to DEFAULT_PROMPTS due to fetch error.`);
   }
 
   // Replace placeholders
@@ -50,6 +69,14 @@ export const generateFortune = async (data: PromptData) => {
     prompt = prompt.replace(/{kartlar}/g, data.cards.join(", "));
   }
 
+  console.log(`[Fortune] Final Prompt Metadata:`, {
+    type: data.type,
+    docId: data.type,
+    promptSource,
+    promptId,
+    templateLength: template.length
+  });
+
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
     const response = await ai.models.generateContent({
@@ -60,10 +87,18 @@ export const generateFortune = async (data: PromptData) => {
       },
     });
 
-    return response.text;
+    if (!response.text) {
+      throw new Error("AI returned empty content");
+    }
+
+    return {
+      text: response.text,
+      promptSource,
+      promptId
+    };
   } catch (error) {
     console.error("Gemini Error:", error);
-    throw new Error("Kehanet alınırken bir hata oluştu.");
+    throw new Error(error instanceof Error ? error.message : "Kehanet alınırken bir hata oluştu.");
   }
 };
 

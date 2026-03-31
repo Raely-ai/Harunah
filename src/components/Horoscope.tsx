@@ -33,7 +33,7 @@ export default function Horoscope({ onClose }: HoroscopeProps) {
     setLoading(true);
     try {
       const result = await getDailyHoroscope(sign);
-      setReading(result);
+      setReading(result.text);
     } catch (error) {
       console.error("Error getting horoscope reading:", error);
       setReading("Yıldızlar bugün sessiz. Birazdan tekrar bak.");

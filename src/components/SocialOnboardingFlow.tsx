@@ -1,4 +1,9 @@
-import React, { useState, useEffect } from "react";
+import { uploadPhoto } from "../lib/uploadService";
+import { toast } from "sonner";
+import { doc, updateDoc } from "firebase/firestore";
+import { db, auth } from "../lib/firebase";
+import { calculateMysticProfile } from "../lib/mysticProfileHelper";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Heart, 
@@ -14,10 +19,6 @@ import {
   X,
   Plus
 } from "lucide-react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
-import { calculateMysticProfile } from "../lib/mysticProfileHelper";
-import { toast } from "sonner";
 
 interface SocialOnboardingFlowProps {
   onComplete: () => void;
@@ -41,6 +42,8 @@ const DEFAULT_AVATARS = {
 export default function SocialOnboardingFlow({ onComplete, onBack, initialData }: SocialOnboardingFlowProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     lookingFor: initialData?.social?.lookingFor || initialData?.lookingFor || "",
     nickname: initialData?.social?.nickname || initialData?.nickname || "",
@@ -52,6 +55,23 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
   });
 
   const totalSteps = 8;
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !auth.currentUser) return;
+
+    setIsUploading(true);
+    try {
+      const downloadURL = await uploadPhoto(file, auth.currentUser.uid);
+      setFormData({ ...formData, photos: [downloadURL] });
+      toast.success("Fotoğraf yüklendi.");
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast.error("Fotoğraf yüklenemedi.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const updateFirestore = async (data: any) => {
     if (!auth.currentUser) return;
@@ -100,8 +120,9 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
       setStep(step + 1);
     } else {
       // Final step: Complete onboarding
+      const hasCustomPhoto = formData.photos.length > 0 && !Object.values(DEFAULT_AVATARS).includes(formData.photos[0]);
       await updateFirestore({
-        "social.enabled": true,
+        "social.enabled": hasCustomPhoto,
         "social.profileCompleted": true,
         "social.visible": true,
         "social.banned": false
@@ -259,22 +280,22 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
             </div>
             <div className="flex justify-center">
               <div className="relative">
-                <div className="w-48 h-48 rounded-[3rem] bg-white border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden group shadow-sm">
+                <div 
+                  className="w-48 h-48 rounded-[3rem] bg-white border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden group shadow-sm cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   {formData.photos.length > 0 ? (
                     <img src={formData.photos[0]} alt="Profil" className="w-full h-full object-cover" />
                   ) : (
                     <Camera className="w-12 h-12 text-slate-200 group-hover:text-slate-300 transition-colors" />
                   )}
+                  {isUploading && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                    </div>
+                  )}
                 </div>
-                <button 
-                  onClick={() => {
-                    const url = prompt("Fotoğraf URL'si girin (Demo için):");
-                    if (url) setFormData({ ...formData, photos: [url] });
-                  }}
-                  className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white p-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition-all"
-                >
-                  <Plus className="w-6 h-6" />
-                </button>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
               </div>
             </div>
           </div>

@@ -34,7 +34,17 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
-      setError(err.message || "Giriş yapılamadı.");
+      let errorMessage = "Giriş yapılamadı.";
+      
+      if (err.code === 'auth/operation-not-allowed') {
+        errorMessage = "E-posta ile giriş şu anda aktif değil. Lütfen Google ile giriş yapmayı deneyin.";
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        errorMessage = "E-posta adresi veya şifre hatalı.";
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMessage = "Çok fazla başarısız deneme. Lütfen daha sonra tekrar deneyin.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

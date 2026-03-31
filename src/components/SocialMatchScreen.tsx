@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Heart, 
   Sparkles,
   X,
-  MapPin,
-  Info
+  Plus,
+  AlertCircle
 } from "lucide-react";
 import { 
   collection, 
@@ -17,73 +17,143 @@ import {
   doc, 
   setDoc,
   getDoc,
-  limit
+  limit,
+  updateDoc,
+  onSnapshot
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile } from "../types";
 import { toast } from "sonner";
 import { calculateCompatibility } from "../lib/compatibilityEngine";
+import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
+import { canSwipe, getRemainingSwipes, FREE_DAILY_LIMIT } from "../lib/swipeHelper";
 
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set());
+  const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  // Refs for stable access in listeners without re-subscribing
+  const currentIndexRef = useRef(currentIndex);
+  const swipedUserIdsRef = useRef(swipedUserIds);
 
   useEffect(() => {
-    fetchPotentialMatches();
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    swipedUserIdsRef.current = swipedUserIds;
+  }, [swipedUserIds]);
+
+  // Listen for swipes to know who to exclude
+  useEffect(() => {
+    if (!currentUser.uid) return;
+    
+    const q = query(
+      collection(db, "swipes"),
+      where("fromUserId", "==", currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ids = new Set(snapshot.docs.map(doc => doc.data().toUserId));
+      ids.add(currentUser.uid);
+      setSwipedUserIds(ids);
+    }, (error) => {
+      console.error("Swipes listener error:", error);
+    });
+
+    return () => unsubscribe();
   }, [currentUser.uid]);
 
-  const fetchPotentialMatches = async () => {
-    setLoading(true);
-    try {
-      // 1. Get all users we've already swiped on
-      const swipesQuery = query(
-        collection(db, "swipes"),
-        where("fromUserId", "==", currentUser.uid)
-      );
-      const swipesSnapshot = await getDocs(swipesQuery);
-      const swipedUserIds = new Set(swipesSnapshot.docs.map(doc => doc.data().toUserId));
-      swipedUserIds.add(currentUser.uid); // Add self to exclude
+  // Listen for potential matches in real-time
+  useEffect(() => {
+    if (!currentUser.uid) return;
 
-      // 2. Fetch users
-      const usersQuery = query(
-        collection(db, "users"),
-        limit(50)
-      );
-      
-      const usersSnapshot = await getDocs(usersQuery);
-      const users: UserProfile[] = [];
-      
-      usersSnapshot.forEach((doc) => {
-        if (!swipedUserIds.has(doc.id)) {
-          users.push({ uid: doc.id, ...doc.data() } as UserProfile);
+    const targetGender = getTargetGender(currentUser);
+    const usersRef = collection(db, "users");
+    const q = query(
+      usersRef,
+      where("social.enabled", "==", true),
+      where("social.profileCompleted", "==", true),
+      where("social.visible", "==", true),
+      where("social.gender", "==", targetGender),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedUsers = snapshot.docs
+        .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
+        .filter(u => isEligibleSocialUser(u, currentUser.uid, targetGender) && !swipedUserIdsRef.current.has(u.uid));
+
+      setPotentialMatches(prev => {
+        const fetchedIds = new Set(fetchedUsers.map(u => u.uid));
+        const currentIdx = currentIndexRef.current;
+        
+        let shift = 0;
+        prev.forEach((user, idx) => {
+          if (idx < currentIdx && !fetchedIds.has(user.uid)) {
+            shift++;
+          }
+        });
+
+        const existingStillEligible = prev.filter(u => fetchedIds.has(u.uid));
+        const existingIds = new Set(existingStillEligible.map(u => u.uid));
+        const newUsers = fetchedUsers.filter(u => !existingIds.has(u.uid));
+
+        newUsers.sort((a, b) => {
+          const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
+          const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
+          return scoreB - scoreA;
+        });
+
+        if (shift > 0) {
+          setCurrentIndex(old => Math.max(0, old - shift));
         }
-      });
 
-      // Optional: Sort by compatibility
-      users.sort((a, b) => {
-        const scoreA = calculateCompatibility(currentUser, a).overallScore;
-        const scoreB = calculateCompatibility(currentUser, b).overallScore;
-        return scoreB - scoreA;
+        return [...existingStillEligible, ...newUsers];
       });
-
-      setPotentialMatches(users);
-      setCurrentIndex(0);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, "users");
-    } finally {
+      
       setLoading(false);
-    }
-  };
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "users");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser.uid, currentUser.social?.gender]); // Minimal dependencies
 
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
-    if (currentIndex >= potentialMatches.length) return;
+    if (currentIndex >= potentialMatches.length || isAnimating) return;
     
+    if (!canSwipe(currentUser)) {
+      toast.error("Günlük swipe hakkın bitti!");
+      onNavigate('wallet');
+      return;
+    }
+
+    setIsAnimating(true);
+    if (type === 'pass') setExitDirection('left');
+    else if (type === 'like') setExitDirection('right');
+    else setExitDirection('up');
+
     const targetUser = potentialMatches[currentIndex];
-    setCurrentIndex(prev => prev + 1);
+    
+    const today = new Date().toISOString().split('T')[0];
+    const newUsed = (currentUser.dailySwipeDate === today ? (currentUser.dailySwipeUsed || 0) : 0) + 1;
+    
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        dailySwipeUsed: newUsed,
+        dailySwipeDate: today
+      });
+    } catch (error) {
+      console.error("Swipe count update error:", error);
+    }
 
     try {
-      // 1. Record the swipe
       await addDoc(collection(db, "swipes"), {
         fromUserId: currentUser.uid,
         toUserId: targetUser.uid,
@@ -92,17 +162,58 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
       });
 
       if (type === 'super_like') {
-        // Record as interaction request
         await addDoc(collection(db, "interactionRequests"), {
           fromUserId: currentUser.uid,
           toUserId: targetUser.uid,
-          type: 'super_like',
           status: 'pending',
+          type: 'super_like',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          senderSnapshot: {
+            nickname: currentUser.social?.nickname || currentUser.displayName || "İsimsiz",
+            photoURL: currentUser.social?.photos?.[0] || currentUser.photoURL || ""
+          },
+          receiverSnapshot: {
+            nickname: targetUser.social?.nickname || targetUser.displayName || "İsimsiz",
+            photoURL: targetUser.social?.photos?.[0] || targetUser.photoURL || ""
+          }
+        });
+        
+        // Create notification for super like
+        await addDoc(collection(db, "notifications"), {
+          userId: targetUser.uid,
+          type: "message_request",
+          title: "Yeni Süper Like!",
+          message: `${currentUser.social?.nickname || currentUser.displayName} sana bir Süper Like gönderdi! ✨`,
+          data: { fromUserId: currentUser.uid },
+          read: false,
           createdAt: serverTimestamp()
         });
+
         toast.success("Süper Like gönderildi! ✨");
       } else if (type === 'like') {
-        // Check for mutual like
+        // Create notification for like if it doesn't exist to avoid duplicates
+        const existingNotificationQ = query(
+          collection(db, "notifications"),
+          where("userId", "==", targetUser.uid),
+          where("type", "==", "like"),
+          where("data.fromUserId", "==", currentUser.uid),
+          limit(1)
+        );
+        const existingNotificationSnapshot = await getDocs(existingNotificationQ);
+
+        if (existingNotificationSnapshot.empty) {
+          await addDoc(collection(db, "notifications"), {
+            userId: targetUser.uid,
+            type: "like",
+            title: "Yeni Beğeni!",
+            message: `${currentUser.social?.nickname || currentUser.displayName} seni beğendi! ❤️`,
+            data: { fromUserId: currentUser.uid },
+            read: false,
+            createdAt: serverTimestamp()
+          });
+        }
+
         const reverseSwipeQ = query(
           collection(db, "swipes"),
           where("fromUserId", "==", targetUser.uid),
@@ -112,16 +223,12 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         const reverseSnapshot = await getDocs(reverseSwipeQ);
 
         if (!reverseSnapshot.empty) {
-          // It's a match!
           const matchId = [currentUser.uid, targetUser.uid].sort().join('_');
-          
-          // Create match document
           await setDoc(doc(db, "matches", matchId), {
             userIds: [currentUser.uid, targetUser.uid],
             createdAt: serverTimestamp()
           });
 
-          // Create chat document
           const chatDoc = await getDoc(doc(db, "chats", matchId));
           if (!chatDoc.exists()) {
             await setDoc(doc(db, "chats", matchId), {
@@ -133,6 +240,27 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
               status: 'active'
             });
 
+            // Create match notifications for both users
+            await addDoc(collection(db, "notifications"), {
+              userId: targetUser.uid,
+              type: "match",
+              title: "Yeni Eşleşme!",
+              message: `${currentUser.social?.nickname || currentUser.displayName} ile eşleştin! 🎉`,
+              data: { matchId, otherUserId: currentUser.uid },
+              read: false,
+              createdAt: serverTimestamp()
+            });
+
+            await addDoc(collection(db, "notifications"), {
+              userId: currentUser.uid,
+              type: "match",
+              title: "Yeni Eşleşme!",
+              message: `${targetUser.social?.nickname || targetUser.displayName} ile eşleştin! 🎉`,
+              data: { matchId, otherUserId: targetUser.uid },
+              read: false,
+              createdAt: serverTimestamp()
+            });
+
             await addDoc(collection(db, "messages"), {
               chatId: matchId,
               senderId: "system",
@@ -142,123 +270,212 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
               type: 'system'
             });
           }
-          
           toast.success("Yeni bir eşleşme! 🎉");
         }
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, "swipes");
     }
+
+    setTimeout(() => {
+      setCurrentIndex(prev => prev + 1);
+      setExitDirection(null);
+      setIsAnimating(false);
+    }, 400);
   };
 
   const activeUser = potentialMatches[currentIndex];
 
-  return (
-    <div className="h-full w-full bg-slate-50 text-slate-900 flex flex-col overflow-hidden">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-slate-100 px-6 py-4 flex flex-col gap-1 z-10">
-        <h1 className="text-2xl font-serif font-bold text-slate-900">Eşleş</h1>
-        <p className="text-xs font-medium text-slate-500">Ruh eşini bulmak için kaydır.</p>
-      </header>
+  // Safety check for currentIndex
+  useEffect(() => {
+    if (potentialMatches.length === 0) {
+      setCurrentIndex(0);
+    } else if (currentIndex >= potentialMatches.length) {
+      setCurrentIndex(Math.max(0, potentialMatches.length - 1));
+    }
+  }, [potentialMatches.length, currentIndex]);
 
-      {/* Content */}
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  
+  useEffect(() => {
+    setCurrentPhotoIndex(0);
+  }, [currentIndex]);
+
+  const photos = useMemo(() => {
+    if (!activeUser) return [];
+    return activeUser.social?.photos?.length 
+      ? activeUser.social.photos 
+      : [activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`];
+  }, [activeUser]);
+
+  const compatibility = useMemo(() => {
+    if (!activeUser) return null;
+    return calculateCompatibility(currentUser, activeUser);
+  }, [currentUser, activeUser]);
+
+  const nextPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (photos.length > 0) {
+      setCurrentPhotoIndex((prev) => (prev + 1) % photos.length);
+    }
+  };
+
+  const prevPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (photos.length > 0) {
+      setCurrentPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
+    }
+  };
+
+  return (
+    <div className="h-full w-full bg-slate-50 flex flex-col overflow-hidden pb-24">
+      {/* Swipe Counter Bar */}
+      <div className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 shrink-0 z-10">
+        <span className="text-sm font-bold text-slate-700">
+          Bugün kalan: {getRemainingSwipes(currentUser)} / { (currentUser.dailySwipeLimit || FREE_DAILY_LIMIT) + (currentUser.extraSwipeLimit || 0) }
+        </span>
+        <button 
+          onClick={() => onNavigate('wallet')}
+          className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Main Area */}
       <div className="flex-1 relative overflow-hidden flex items-center justify-center p-4">
         {loading ? (
           <div className="flex flex-col items-center justify-center space-y-4">
             <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
-            <p className="text-sm font-medium text-slate-500">Kişiler aranıyor...</p>
+            <p className="text-slate-400 text-sm font-medium">Yıldızlar eşleşiyor...</p>
           </div>
         ) : !activeUser ? (
-          <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
-            <div className="w-20 h-20 rounded-full bg-indigo-50 flex items-center justify-center border border-indigo-100">
-              <Sparkles className="w-10 h-10 text-indigo-300" />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center p-12 max-w-xs"
+          >
+            <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6 text-indigo-500 shadow-inner">
+              <Sparkles className="w-12 h-12" />
             </div>
-            <div>
-              <h3 className="text-xl font-bold text-slate-900">Yakınlarda kimse kalmadı</h3>
-              <p className="text-sm text-slate-500 mt-2">Daha fazla kişi görmek için arama kriterlerini genişletebilirsin.</p>
-            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Keşif Bitti</h3>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Şu an için kriterlerine uygun yeni kimse kalmadı. Yeni birileri gelince burada görünecek!
+            </p>
             <button 
-              onClick={fetchPotentialMatches}
-              className="mt-4 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-700 transition-colors"
+              onClick={() => onNavigate('discover')}
+              className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all"
             >
-              Tekrar Ara
+              Keşfet'e Göz At
             </button>
-          </div>
+          </motion.div>
         ) : (
           <AnimatePresence mode="popLayout">
             <motion.div
               key={activeUser.uid}
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, x: -100 }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="absolute inset-4 max-w-md mx-auto"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ 
+                scale: 1, 
+                opacity: 1,
+                x: exitDirection === 'left' ? -400 : exitDirection === 'right' ? 400 : 0,
+                y: exitDirection === 'up' ? -400 : 0,
+                rotate: exitDirection === 'left' ? -20 : exitDirection === 'right' ? 20 : 0
+              }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+              className="w-full h-full max-w-md relative rounded-3xl overflow-hidden shadow-2xl"
             >
-              <div className="w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col border border-slate-100 relative">
-                {/* Photo */}
-                <div className="relative flex-1 bg-slate-100">
-                  <img 
-                    src={activeUser.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`} 
-                    alt={activeUser.nickname}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                  
-                  {/* User Info Overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                    <div className="flex items-end justify-between mb-2">
-                      <div>
-                        <h2 className="text-3xl font-bold drop-shadow-md">
-                          {activeUser.nickname}, {activeUser.age}
-                        </h2>
-                        {activeUser.location && (
-                          <div className="flex items-center gap-1.5 text-white/90 mt-1">
-                            <MapPin className="w-4 h-4" />
-                            <span className="text-sm font-medium drop-shadow-sm">{activeUser.location.city}, {activeUser.location.country}</span>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Compatibility Score */}
-                      <div className="flex flex-col items-center justify-center bg-white/20 backdrop-blur-md rounded-2xl p-2 border border-white/30">
-                        <span className="text-xs font-bold text-white/90 uppercase tracking-wider mb-0.5">Uyum</span>
-                        <div className="text-xl font-black text-white drop-shadow-md">
-                          %{calculateCompatibility(currentUser, activeUser).overallScore}
-                        </div>
-                      </div>
+              {/* Photo Gallery */}
+              <div 
+                className="w-full h-full relative"
+                onTouchStart={(e) => {
+                  const touch = e.touches[0];
+                  const startX = touch.clientX;
+                  (e.currentTarget as any).startX = startX;
+                }}
+                onTouchEnd={(e) => {
+                  const touch = e.changedTouches[0];
+                  const startX = (e.currentTarget as any).startX;
+                  const diff = touch.clientX - startX;
+                  if (Math.abs(diff) > 50) {
+                    if (diff > 0) prevPhoto(e as any);
+                    else nextPhoto(e as any);
+                  }
+                }}
+              >
+                <img 
+                  src={photos[currentPhotoIndex]}
+                  alt={activeUser.nickname}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                
+                {/* Photo Navigation Indicators */}
+                {photos.length > 1 && (
+                  <>
+                    <div className="absolute top-4 left-4 right-4 flex gap-1 z-10">
+                      {photos.map((_, idx) => (
+                        <div key={idx} className={`h-1 flex-1 rounded-full ${idx === currentPhotoIndex ? 'bg-white' : 'bg-white/50'}`} />
+                      ))}
                     </div>
-                    
-                    {activeUser.bio && (
-                      <p className="text-sm text-white/80 line-clamp-2 mt-2 drop-shadow-sm">
-                        {activeUser.bio}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                    <div className="absolute inset-y-0 left-0 w-1/4" onClick={prevPhoto} />
+                    <div className="absolute inset-y-0 right-0 w-1/4" onClick={nextPhoto} />
+                  </>
+                )}
+              </div>
+              
+              {/* Gradient Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
 
-                {/* Action Buttons */}
-                <div className="h-24 bg-white flex items-center justify-center gap-6 px-6">
-                  <button 
-                    onClick={() => handleSwipe('pass')}
-                    className="w-14 h-14 rounded-full bg-white border-2 border-slate-200 text-slate-400 flex items-center justify-center hover:bg-slate-50 hover:text-slate-600 hover:border-slate-300 transition-all shadow-sm"
-                  >
-                    <X className="w-6 h-6" />
+              {/* Report Button */}
+              <button className="absolute top-12 right-4 p-2 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/30 z-20">
+                <AlertCircle className="w-5 h-5" />
+              </button>
+
+              {/* Scores (Top of overlay) */}
+              <div className="absolute top-20 left-4 right-4 flex gap-2 pointer-events-none">
+                <div className="flex-1 bg-rose-500/30 backdrop-blur-md rounded-xl p-2 text-center border border-rose-400/30">
+                  <div className="text-[10px] uppercase text-white/80 font-bold">Aşk</div>
+                  <div className="text-xl font-black text-white">%{compatibility?.love || 0}</div>
+                </div>
+                <div className="flex-1 bg-blue-500/30 backdrop-blur-md rounded-xl p-2 text-center border border-blue-400/30">
+                  <div className="text-[10px] uppercase text-white/80 font-bold">Dost</div>
+                  <div className="text-xl font-black text-white">%{compatibility?.friendship || 0}</div>
+                </div>
+                <div className="flex-1 bg-purple-500/30 backdrop-blur-md rounded-xl p-2 text-center border border-purple-400/30">
+                  <div className="text-[10px] uppercase text-white/80 font-bold">Uyum</div>
+                  <div className="text-xl font-black text-white">%{compatibility?.understanding || 0}</div>
+                </div>
+              </div>
+
+              {/* Info (Bottom of overlay) */}
+              <div className="absolute bottom-32 left-6 right-6 text-white pointer-events-none">
+                <div className="flex items-center gap-2 mb-2">
+                  <h2 className="text-3xl font-bold">{activeUser.social?.nickname || activeUser.nickname}, {activeUser.age}</h2>
+                  <span className="text-xs bg-white/20 backdrop-blur-md px-2 py-1 rounded-full">{activeUser.zodiacSign || "Burç"}</span>
+                </div>
+                <p className="text-sm text-white/80 line-clamp-2">{activeUser.social?.bio || activeUser.bio || "Bio yok."}</p>
+              </div>
+
+              {/* Action Buttons (Overlay) */}
+              <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between gap-2 z-20">
+                <div className="flex flex-col items-center gap-1">
+                  <button onClick={() => handleSwipe('pass')} className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white flex items-center justify-center hover:bg-white/20">
+                    <X className="w-8 h-8" />
                   </button>
-                  
-                  <button 
-                    onClick={() => handleSwipe('super_like')}
-                    className="w-12 h-12 rounded-full bg-white border-2 border-amber-200 text-amber-500 flex items-center justify-center hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300 transition-all shadow-sm"
-                  >
-                    <Sparkles className="w-5 h-5" />
+                  <span className="text-xs font-bold text-white">Geç</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <button onClick={() => handleSwipe('super_like')} className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white flex items-center justify-center hover:bg-white/20">
+                    <Sparkles className="w-7 h-7" />
                   </button>
-                  
-                  <button 
-                    onClick={() => handleSwipe('like')}
-                    className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-400 to-rose-600 text-white flex items-center justify-center hover:from-rose-500 hover:to-rose-700 transition-all shadow-lg shadow-rose-500/30"
-                  >
-                    <Heart className="w-6 h-6 fill-white" />
+                  <span className="text-xs font-bold text-white">Süper Beğeni</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <button onClick={() => handleSwipe('like')} className="w-16 h-16 rounded-full bg-rose-500/80 backdrop-blur-md border border-rose-400 text-white flex items-center justify-center hover:bg-rose-600/90">
+                    <Heart className="w-8 h-8 fill-white" />
                   </button>
+                  <span className="text-xs font-bold text-white">Beğeni</span>
                 </div>
               </div>
             </motion.div>

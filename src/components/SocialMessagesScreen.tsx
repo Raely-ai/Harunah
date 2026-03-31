@@ -26,7 +26,7 @@ import {
   getDocs
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile } from "../types";
+import { UserProfile, InteractionRequest as InteractionRequestType } from "../types";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { toast } from "sonner";
@@ -50,17 +50,6 @@ interface Message {
   type: 'text' | 'system';
 }
 
-interface InteractionRequest {
-  id: string;
-  fromUserId: string;
-  toUserId: string;
-  type: 'message_request' | 'super_like';
-  messagePreview?: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  createdAt: any;
-  fromUser?: UserProfile;
-}
-
 interface Liker {
   uid: string;
   swipeId: string;
@@ -68,13 +57,19 @@ interface Liker {
   createdAt: any;
 }
 
-export default function SocialMessagesScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
+export default function SocialMessagesScreen({ currentUser, onNavigate, onChatChange }: { currentUser: UserProfile, onNavigate: (tab: any) => void, onChatChange?: (chat: Chat | null) => void }) {
   const [activeTab, setActiveTab] = useState<'chats' | 'requests' | 'likers'>('chats');
   const [chats, setChats] = useState<Chat[]>([]);
-  const [requests, setRequests] = useState<InteractionRequest[]>([]);
+  const [requests, setRequests] = useState<InteractionRequestType[]>([]);
   const [likers, setLikers] = useState<Liker[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (onChatChange) {
+      onChatChange(selectedChat);
+    }
+  }, [selectedChat, onChatChange]);
 
   // Fetch Chats
   useEffect(() => {
@@ -118,19 +113,11 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
       orderBy("createdAt", "desc")
     );
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const requestList: InteractionRequest[] = [];
-      for (const reqDoc of snapshot.docs) {
-        const data = reqDoc.data();
-        const userDoc = await getDoc(doc(db, "users", data.fromUserId));
-        const fromUser = userDoc.exists() ? { uid: userDoc.id, ...userDoc.data() } as UserProfile : undefined;
-
-        requestList.push({
-          id: reqDoc.id,
-          ...data,
-          fromUser
-        } as InteractionRequest);
-      }
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const requestList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as InteractionRequestType));
       setRequests(requestList);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "interactionRequests");
@@ -181,10 +168,11 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
     return () => unsubscribe();
   }, [currentUser.uid]);
 
-  const handleAcceptRequest = async (request: InteractionRequest) => {
+  const handleAcceptRequest = async (request: InteractionRequestType) => {
     try {
       await updateDoc(doc(db, "interactionRequests", request.id), {
-        status: 'accepted'
+        status: 'accepted',
+        updatedAt: serverTimestamp()
       });
 
       const matchId = [currentUser.uid, request.fromUserId].sort().join('_');
@@ -198,6 +186,27 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
         });
       }
 
+      // Create match notifications for both users
+      await addDoc(collection(db, "notifications"), {
+        userId: request.fromUserId,
+        type: "match",
+        title: "İstek Kabul Edildi!",
+        message: `${currentUser.social?.nickname || currentUser.displayName} isteğini kabul etti! 🎉`,
+        data: { matchId, otherUserId: currentUser.uid },
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: currentUser.uid,
+        type: "match",
+        title: "Yeni Eşleşme!",
+        message: `${request.senderSnapshot.nickname} ile eşleştin! 🎉`,
+        data: { matchId, otherUserId: request.fromUserId },
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
       // Create chat
       const chatDoc = await getDoc(doc(db, "chats", matchId));
       if (!chatDoc.exists()) {
@@ -205,7 +214,7 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
           id: matchId,
           participants: [currentUser.uid, request.fromUserId],
           createdAt: serverTimestamp(),
-          lastMessage: request.type === 'super_like' ? "Süper Like kabul edildi! ✨" : "Mesaj isteği kabul edildi! 👋",
+          lastMessage: request.type === 'message_request' ? "Mesaj isteği kabul edildi! 👋" : "Süper Like kabul edildi! ✨",
           lastMessageAt: serverTimestamp(),
           status: 'active'
         });
@@ -213,22 +222,11 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
         await addDoc(collection(db, "messages"), {
           chatId: matchId,
           senderId: "system",
-          text: request.type === 'super_like' ? "Süper Like kabul edildi! Sohbet başlayabilir." : "Mesaj isteği kabul edildi! Sohbet başlayabilir.",
+          text: "Sohbet başlayabilir.",
           createdAt: serverTimestamp(),
           seen: false,
           type: 'system'
         });
-
-        if (request.type === 'message_request' && request.messagePreview) {
-          await addDoc(collection(db, "messages"), {
-            chatId: matchId,
-            senderId: request.fromUserId,
-            text: request.messagePreview,
-            createdAt: serverTimestamp(),
-            seen: false,
-            type: 'text'
-          });
-        }
       }
 
       toast.success("İstek kabul edildi! Sohbetler bölümünden yazışabilirsiniz.");
@@ -241,7 +239,8 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
   const handleRejectRequest = async (requestId: string) => {
     try {
       await updateDoc(doc(db, "interactionRequests", requestId), {
-        status: 'rejected'
+        status: 'rejected',
+        updatedAt: serverTimestamp()
       });
       toast.success("İstek reddedildi.");
     } catch (error) {
@@ -266,6 +265,27 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
         lastMessage: "Yeni eşleşme! 👋",
         lastMessageAt: serverTimestamp(),
         status: 'active'
+      });
+
+      // Create match notifications for both users
+      await addDoc(collection(db, "notifications"), {
+        userId: liker.uid,
+        type: "match",
+        title: "Yeni Eşleşme!",
+        message: `${currentUser.social?.nickname || currentUser.displayName} ile eşleştin! 🎉`,
+        data: { matchId: chatId, otherUserId: currentUser.uid },
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: currentUser.uid,
+        type: "match",
+        title: "Yeni Eşleşme!",
+        message: `${liker.user.nickname} ile eşleştin! 🎉`,
+        data: { matchId: chatId, otherUserId: liker.uid },
+        read: false,
+        createdAt: serverTimestamp()
       });
 
       await addDoc(collection(db, "messages"), {
@@ -398,7 +418,7 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
                     <div className="flex gap-4">
                       <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0">
                         <img 
-                          src={request.fromUser?.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${request.fromUserId}`} 
+                          src={request.senderSnapshot.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${request.fromUserId}`} 
                           alt="User"
                           className="w-full h-full object-cover"
                           referrerPolicy="no-referrer"
@@ -406,19 +426,14 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
                       </div>
                       <div className="flex-1 flex flex-col justify-center">
                         <div className="flex items-center justify-between mb-1">
-                          <h4 className="font-bold text-sm text-slate-900">{request.fromUser?.nickname}, {request.fromUser?.age}</h4>
+                          <h4 className="font-bold text-sm text-slate-900">{request.senderSnapshot.nickname}</h4>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            request.type === 'super_like' ? 'text-amber-600 bg-amber-50' : 'text-indigo-600 bg-indigo-50'
+                            request.type === 'message_request' ? 'text-indigo-600 bg-indigo-50' : 'text-amber-600 bg-amber-50'
                           }`}>
-                            {request.type === 'super_like' ? 'Süper Like' : 'Mesaj İsteği'}
+                            {request.type === 'message_request' ? 'Mesaj İsteği' : 'Süper Like'}
                           </span>
                         </div>
-                        {request.type === 'super_like' && (
-                          <p className="text-xs text-amber-600 font-medium mb-1">"Bu kişi sana güçlü bir ilgi gönderdi. Tanımak ister misin?"</p>
-                        )}
-                        {request.messagePreview && (
-                          <p className="text-xs text-slate-500 line-clamp-2 italic">"{request.messagePreview}"</p>
-                        )}
+                        <p className="text-xs text-slate-500 line-clamp-2 italic">"Sana bir mesaj isteği gönderdi."</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 pt-2 border-t border-slate-50">
@@ -458,7 +473,7 @@ export default function SocialMessagesScreen({ currentUser, onNavigate }: { curr
                   <div key={liker.swipeId} className="bg-white rounded-3xl p-4 border border-slate-100 shadow-sm flex items-center gap-4">
                     <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0">
                       <img 
-                        src={liker.user.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liker.uid}`} 
+                        src={liker.user.social?.photos?.[0] || liker.user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liker.uid}`} 
                         alt="User"
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
@@ -510,7 +525,7 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () 
       <div className="relative">
         <div className="w-14 h-14 rounded-full overflow-hidden bg-slate-100 border border-slate-200">
           <img 
-            src={otherUser.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser.uid}`} 
+            src={otherUser.social?.photos?.[0] || otherUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser.uid}`} 
             alt={otherUser.nickname}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
@@ -614,7 +629,7 @@ function ChatDetail({ chat, currentUser, onClose }: { chat: Chat, currentUser: U
       className="fixed inset-0 z-50 bg-slate-50 flex flex-col"
     >
       {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+      <header className="bg-white/90 backdrop-blur-xl border-b border-slate-100 px-4 py-3 flex items-center justify-between shrink-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
           <button 
             onClick={onClose}
@@ -626,7 +641,7 @@ function ChatDetail({ chat, currentUser, onClose }: { chat: Chat, currentUser: U
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 border border-slate-200">
               <img 
-                src={otherUser?.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
+                src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
                 alt={otherUser?.nickname}
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -650,7 +665,7 @@ function ChatDetail({ chat, currentUser, onClose }: { chat: Chat, currentUser: U
           const isMe = msg.senderId === currentUser.uid;
           const isSystem = msg.type === 'system';
           const showAvatar = !isMe && !isSystem && (index === 0 || messages[index - 1].senderId !== msg.senderId);
-
+          
           if (isSystem) {
             return (
               <div key={msg.id} className="flex justify-center my-4">
@@ -667,7 +682,7 @@ function ChatDetail({ chat, currentUser, onClose }: { chat: Chat, currentUser: U
                 <div className="w-8 flex-shrink-0 flex items-end">
                   {showAvatar && (
                     <img 
-                      src={otherUser?.photos?.[0] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
+                      src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
                       alt="avatar"
                       className="w-8 h-8 rounded-full object-cover border border-slate-200"
                       referrerPolicy="no-referrer"
@@ -702,7 +717,7 @@ function ChatDetail({ chat, currentUser, onClose }: { chat: Chat, currentUser: U
       </div>
 
       {/* Input */}
-      <div className="p-4 bg-white border-t border-slate-100 pb-safe">
+      <div className="bg-white border-t border-slate-100 p-4 pb-safe shrink-0">
         <form onSubmit={handleSend} className="flex items-center gap-2">
           <input
             type="text"

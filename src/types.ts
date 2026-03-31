@@ -4,7 +4,7 @@ export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
 export type AppTab = 'home' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-main' | 'social-onboarding' | 'social-match' | 'social-messages' | 'social-profile' | 'social-wallet';
 
-export type ReadingStatus = 'waiting' | 'interpreting' | 'completed';
+export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error';
 
 export interface FortuneReading {
   id: string;
@@ -21,6 +21,18 @@ export interface FortuneReading {
   userId: string;
   creditsUsed?: number;
   balanceType?: 'main' | 'ad' | 'subscription';
+  
+  // New Timestamp Fields for Queue Management
+  queueStartedAt?: string;
+  interpretationStartedAt?: string;
+  expectedReadyAt?: string;
+  priority?: boolean;
+  updatedAt?: string;
+  
+  // AI Metadata
+  promptSource?: 'admin' | 'default';
+  promptId?: string;
+  error?: string;
 }
 
 export interface UserProfile {
@@ -81,6 +93,9 @@ export interface UserProfile {
         gifts: boolean;
       };
     };
+    lastDiscoverRefreshAt?: string;
+    discoverRefreshCredits?: number;
+    compatibilityCredits?: number;
   };
 
   zodiacSign?: string;
@@ -95,6 +110,12 @@ export interface UserProfile {
   };
   dailySwipeCount?: number;
   lastSwipeDate?: string;
+
+  // Swipe Limit Fields
+  dailySwipeLimit?: number;
+  dailySwipeUsed?: number;
+  dailySwipeDate?: string;
+  extraSwipeLimit?: number;
   
   // Social Wallet Fields
   superLikeCount?: number;
@@ -325,5 +346,34 @@ export interface Transaction {
   source: 'boost' | 'super_like' | 'analysis' | 'extra_swipe' | 'discover_refresh' | 'subscription' | 'fortune';
   amount: number;
   quantity?: number;
+  createdAt: any;
+}
+
+export interface InteractionRequest {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  type: 'message_request' | 'super_like';
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: any;
+  updatedAt: any;
+  senderSnapshot: {
+    nickname: string;
+    photoURL: string;
+  };
+  receiverSnapshot: {
+    nickname: string;
+    photoURL: string;
+  };
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: 'message_request' | 'match' | 'system' | 'like';
+  title: string;
+  message: string;
+  data?: any;
+  read: boolean;
   createdAt: any;
 }

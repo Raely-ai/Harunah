@@ -34,6 +34,7 @@ interface HistoryScreenProps {
   onBack: () => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onRefresh?: () => Promise<void>;
 }
 
 const TYPE_ICONS: Record<string, any> = {
@@ -51,10 +52,24 @@ const STATUS_CONFIG = {
   completed: { label: 'Tamamlandı', color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
 };
 
-export default function HistoryScreen({ history, userProfile, onBack, onDelete, onToggleFavorite }: HistoryScreenProps) {
+export default function HistoryScreen({ history, userProfile, onBack, onDelete, onToggleFavorite, onRefresh }: HistoryScreenProps) {
   const [filter, setFilter] = useState<FortuneType | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReading, setSelectedReading] = useState<FortuneReading | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefresh) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+      toast.success("Kehanetler güncellendi");
+    } catch (err) {
+      toast.error("Güncelleme başarısız");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const filteredHistory = history.filter(item => {
     const matchesFilter = filter === 'all' || item.type === filter;
@@ -97,11 +112,12 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
           <div className="flex items-center gap-2">
             <motion.button
               whileHover={{ rotate: 180 }}
-              transition={{ duration: 0.5 }}
-              onClick={() => toast.success("Kehanetler güncellendi")}
-              className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
+              whileTap={{ scale: 0.9 }}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className={`w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors ${isRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <History className="w-5 h-5 text-amber-400" />
+              <RefreshCw className={`w-5 h-5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
             </motion.button>
           </div>
         </div>
@@ -149,7 +165,23 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
           {filteredHistory.length > 0 ? (
             filteredHistory.map((reading) => {
               const Icon = TYPE_ICONS[reading.type] || History;
-              const status = STATUS_CONFIG[reading.status];
+              
+              // Dynamic Status Logic
+              let currentStatus = reading.status;
+              const now = new Date();
+              
+              if (reading.status !== 'completed' && reading.status !== 'error' && reading.expectedReadyAt) {
+                const expectedReadyAt = new Date(reading.expectedReadyAt);
+                const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
+                
+                if (now >= expectedReadyAt) {
+                  currentStatus = 'completed'; // It should be completed, sync hook will handle actual data
+                } else if (interpretationStartedAt && now >= interpretationStartedAt) {
+                  currentStatus = 'interpreting';
+                }
+              }
+
+              const status = STATUS_CONFIG[currentStatus as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
               const StatusIcon = status.icon;
 
               return (
@@ -201,10 +233,10 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                       </div>
                     </div>
 
-                    {reading.status === 'completed' ? (
+                    {currentStatus === 'completed' ? (
                       <div className="space-y-4">
                         <p className="text-sm text-purple-200/60 line-clamp-2 leading-relaxed italic">
-                          "{reading.content}"
+                          "{reading.content || 'Kehanetin hazırlanıyor...'}"
                         </p>
                         <div className="flex items-center justify-between pt-4 border-t border-white/5">
                           <button
@@ -227,7 +259,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                       <div className="space-y-4">
                         <div className="p-4 rounded-xl bg-white/5 border border-dashed border-white/10 text-center">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40">
-                            {reading.status === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
+                            {currentStatus === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-2">

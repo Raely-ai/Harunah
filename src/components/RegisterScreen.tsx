@@ -35,7 +35,19 @@ export default function RegisterScreen({ onNavigate }: RegisterScreenProps) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
     } catch (err: any) {
-      setError(err.message || "Kayıt oluşturulamadı.");
+      let errorMessage = "Kayıt oluşturulamadı.";
+      
+      if (err.code === 'auth/operation-not-allowed') {
+        errorMessage = "E-posta ile kayıt şu anda aktif değil. Lütfen Google ile giriş yapmayı deneyin.";
+      } else if (err.code === 'auth/email-already-in-use') {
+        errorMessage = "Bu e-posta adresi zaten kullanımda.";
+      } else if (err.code === 'auth/invalid-email') {
+        errorMessage = "Geçersiz bir e-posta adresi girdiniz.";
+      } else if (err.code === 'auth/weak-password') {
+        errorMessage = "Şifreniz çok zayıf. En az 6 karakter kullanın.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

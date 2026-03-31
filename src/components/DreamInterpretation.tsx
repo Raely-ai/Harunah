@@ -18,7 +18,7 @@ export default function DreamInterpretation({ onClose }: DreamInterpretationProp
     setLoading(true);
     try {
       const result = await getDreamInterpretation(dream);
-      setReading(result);
+      setReading(result.text);
     } catch (error) {
       console.error("Error getting dream interpretation:", error);
       setReading("Rüyanın derinliklerine inemedim. Tekrar anlatır mısın?");

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Camera, User, Calendar, Heart, ArrowRight, Loader2, Sparkles, CheckCircle2, Zap, X, ChevronLeft, CreditCard, Plus } from "lucide-react";
+import RitualScreen from "./RitualScreen";
 import { UserProfile, AppConfig } from "../types";
 import { toast } from "sonner";
 
@@ -15,6 +16,7 @@ interface CoffeeFlowProps {
 export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onComplete, onClose }: CoffeeFlowProps) {
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeReading, setActiveReading] = useState<any>(null);
   const [formData, setFormData] = useState({
     target: 'self', // 'self' or 'other'
     name: '',
@@ -217,133 +219,35 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
               </div>
 
               <button
-                disabled={formData.images.filter(Boolean).length < 3}
-                onClick={nextStep}
+                disabled={formData.images.filter(Boolean).length < 3 || isProcessing}
+                onClick={async () => {
+                  setIsProcessing(true);
+                  try {
+                    const reading = await onComplete({ ...formData, type: 'coffee' });
+                    setActiveReading(reading);
+                    nextStep();
+                  } catch (error) {
+                    console.error("Submit error:", error);
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
                 className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-2xl shadow-amber-900/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
               >
-                <span>Kehaneti Başlat</span>
-                <Sparkles className="w-5 h-5" />
+                {isProcessing ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <span>Kehaneti Başlat</span>
+                    <Sparkles className="w-5 h-5" />
+                  </>
+                )}
               </button>
             </motion.div>
           )}
 
           {step === 3 && (
-            <motion.div
-              key="step3"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center py-20 text-center space-y-12"
-            >
-              <div className="relative">
-                <motion.div
-                  animate={{ 
-                    scale: [1, 1.2, 1],
-                    rotate: 360,
-                  }}
-                  transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                  className="w-48 h-48 rounded-full border-2 border-dashed border-amber-500/20"
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <motion.div
-                    animate={{ 
-                      opacity: [0.3, 1, 0.3],
-                      scale: [0.9, 1.1, 0.9]
-                    }}
-                    transition={{ duration: 3, repeat: Infinity }}
-                  >
-                    <Sparkles className="w-20 h-20 text-amber-400" />
-                  </motion.div>
-                </div>
-                
-                {/* Ritual Particles */}
-                {[...Array(12)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ 
-                      y: [-20, -100],
-                      opacity: [0, 1, 0],
-                      scale: [0, 1, 0]
-                    }}
-                    transition={{ 
-                      duration: 2 + Math.random() * 2,
-                      repeat: Infinity,
-                      delay: i * 0.3
-                    }}
-                    className="absolute left-1/2 top-1/2 w-1 h-1 bg-amber-400 rounded-full"
-                    style={{ 
-                      marginLeft: `${(Math.random() - 0.5) * 100}px`,
-                      marginTop: `${(Math.random() - 0.5) * 100}px`
-                    }}
-                  />
-                ))}
-              </div>
-
-              <div className="space-y-4">
-                <h2 className="text-3xl font-serif font-bold text-amber-50">Ritüel Başladı</h2>
-                <p className="text-purple-200/60 leading-relaxed max-w-xs mx-auto">
-                  Ahlas fincanındaki sembolleri evrenin enerjisiyle birleştiriyor. Bu mistik yolculuk biraz zaman alabilir.
-                </p>
-              </div>
-
-              <div className="w-full max-w-xs space-y-6">
-                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-4">
-                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest">
-                    <span className="text-purple-200/40">Tahmini Süre</span>
-                    <span className="text-amber-400">20 Dakika</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-amber-500"
-                      animate={{ x: ["-100%", "100%"] }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                    />
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-3xl bg-white/5 border border-white/10 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-left">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40">Bakiyen</p>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-amber-400">{userProfile.credits}</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40">Hızlı Yorum</p>
-                      <p className="text-sm font-bold text-amber-400">{isSubscribed ? 'Ücretsiz' : `${price} Kredi`}</p>
-                    </div>
-                  </div>
-
-                  <button
-                    disabled={isProcessing}
-                    onClick={() => {
-                      setIsProcessing(true);
-                      setTimeout(() => {
-                        toast.success("Hemen yorumcu bulundu! Falın öncelik sırasına alındı.");
-                        onComplete(formData);
-                      }, 1500);
-                    }}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold text-sm flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-amber-500/20 transition-all disabled:opacity-50"
-                  >
-                    {isProcessing ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <>
-                        <Zap className="w-5 h-5" />
-                        <span>{isSubscribed ? 'Ücretsiz Yorum Al' : 'Hemen Yorumcu Bul'}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                onClick={() => onComplete(formData)}
-                className="text-xs font-bold uppercase tracking-[0.3em] text-purple-200/40 hover:text-amber-400 transition-colors"
-              >
-                Normal Sırada Bekle
-              </button>
-            </motion.div>
+            <RitualScreen type="coffee" reading={activeReading} onClose={onClose} />
           )}
         </AnimatePresence>
       </div>

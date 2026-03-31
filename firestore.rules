@@ -28,7 +28,7 @@ service cloud.firestore {
     // User Profile
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
       allow update: if isAdmin() || (isOwner(userId) && isNotBanned() && (
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['credits', 'adCredits', 'subscription', 'isBanned', 'role']) ||
         // Allow usage (decrement)
@@ -73,6 +73,7 @@ service cloud.firestore {
         request.resource.data.senderId == request.auth.uid &&
         get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants.hasAny([request.auth.uid])
       );
+      allow update: if isAuthenticated() && (resource.data.senderId == request.auth.uid || isAdmin());
     }
 
     // Reports
@@ -97,8 +98,10 @@ service cloud.firestore {
 
     // Notifications
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Prompts

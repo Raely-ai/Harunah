@@ -174,7 +174,7 @@ export default function OracleHub({ user, userProfile, history, onSelectFortune,
           whileHover={{ scale: 1.02, y: -4 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
-            if (userProfile.socialProfileCompleted) {
+            if (userProfile.social?.profileCompleted) {
               onNavigate('social-main');
             } else {
               onNavigate('social-intro');

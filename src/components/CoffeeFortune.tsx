@@ -30,7 +30,7 @@ export default function CoffeeFortune({ onClose }: CoffeeFortuneProps) {
     setLoading(true);
     try {
       const result = await getCoffeeFortune(image);
-      setReading(result);
+      setReading(result.text);
     } catch (error) {
       console.error("Error getting coffee fortune:", error);
       setReading("Üzgünüm, fincanı tam okuyamadım. Tekrar dener misin?");

@@ -31,7 +31,7 @@ export default function TarotReading({ onClose }: TarotReadingProps) {
     setLoading(true);
     try {
       const result = await getTarotReading(selectedCards);
-      setReading(result);
+      setReading(result.text);
     } catch (error) {
       console.error("Error getting tarot reading:", error);
       setReading("Kartların fısıltısını duyamadım. Tekrar seçer misin?");

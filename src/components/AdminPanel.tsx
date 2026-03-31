@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { runSeed } from '../scripts/seedUsers';
 import { db, OperationType, handleFirestoreError, auth } from '../lib/firebase';
 import { doc, setDoc, getDocs, collection, updateDoc, getDoc, query, orderBy, limit, addDoc, onSnapshot, where, deleteDoc } from 'firebase/firestore';
 import { 
@@ -121,7 +122,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           snapshot.forEach((doc) => {
             fetchedPrompts.push({ type: doc.id, content: doc.data().content });
           });
-          const types: FortuneType[] = ['coffee', 'tarot', 'water', 'ebced', 'yildizname', 'havas', 'dream'];
+          const types: FortuneType[] = ['coffee', 'tarot', 'water', 'ebced', 'yildizname', 'havas', 'dream', 'horoscope'];
           const finalPrompts = types.map(type => {
             const existing = fetchedPrompts.find(p => p.type === type);
             return existing || { type, content: '' };
@@ -608,9 +609,26 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
                 />
               </div>
-              <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
-                <span className="block text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Toplam Üye</span>
-                <span className="text-xl font-bold text-amber-50">{users.length}</span>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={async () => {
+                    try {
+                      await runSeed();
+                      toast.success("Demo kullanıcılar oluşturuldu!");
+                    } catch (error) {
+                      toast.error("Demo kullanıcılar oluşturulurken bir hata oluştu.");
+                      console.error(error);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Demo Kullanıcıları Oluştur</span>
+                </button>
+                <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
+                  <span className="block text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Toplam Üye</span>
+                  <span className="text-xl font-bold text-amber-50">{users.length}</span>
+                </div>
               </div>
             </div>
 
@@ -2572,15 +2590,15 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
                         <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Sosyal Durum</span>
                         <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${editingUser.socialEnabled ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                          <span className="text-sm text-amber-50">{editingUser.socialEnabled ? 'Aktif' : 'Pasif'}</span>
+                          <div className={`w-2 h-2 rounded-full ${editingUser.social?.enabled ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-sm text-amber-50">{editingUser.social?.enabled ? 'Aktif' : 'Pasif'}</span>
                         </div>
                       </div>
                       <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
                         <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Görünürlük</span>
                         <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${editingUser.socialVisible ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                          <span className="text-sm text-amber-50">{editingUser.socialVisible ? 'Görünür' : 'Gizli'}</span>
+                          <div className={`w-2 h-2 rounded-full ${editingUser.social?.visible ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                          <span className="text-sm text-amber-50">{editingUser.social?.visible ? 'Görünür' : 'Gizli'}</span>
                         </div>
                       </div>
                     </div>
@@ -2618,26 +2636,26 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
                       <div className="grid grid-cols-2 gap-4">
                         <button 
-                          onClick={() => setEditingUser({ ...editingUser, socialEnabled: !editingUser.socialEnabled })}
+                          onClick={() => setEditingUser({ ...editingUser, social: { ...editingUser.social, enabled: !editingUser.social?.enabled } })}
                           className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                            editingUser.socialEnabled 
+                            editingUser.social?.enabled 
                               ? 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20' 
                               : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
                           }`}
                         >
-                          {editingUser.socialEnabled ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                          {editingUser.socialEnabled ? 'Sosyal Profili Kapat' : 'Sosyal Profili Aç'}
+                          {editingUser.social?.enabled ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                          {editingUser.social?.enabled ? 'Sosyal Profili Kapat' : 'Sosyal Profili Aç'}
                         </button>
                         <button 
-                          onClick={() => setEditingUser({ ...editingUser, socialVisible: !editingUser.socialVisible })}
+                          onClick={() => setEditingUser({ ...editingUser, social: { ...editingUser.social, visible: !editingUser.social?.visible } })}
                           className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                            editingUser.socialVisible 
+                            editingUser.social?.visible 
                               ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 hover:bg-amber-500/20' 
                               : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
                           }`}
                         >
-                          {editingUser.socialVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          {editingUser.socialVisible ? 'Profil Gizle' : 'Profil Göster'}
+                          {editingUser.social?.visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {editingUser.social?.visible ? 'Profil Gizle' : 'Profil Göster'}
                         </button>
                       </div>
 
@@ -2658,9 +2676,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             if (window.confirm("Sosyal verileri tamamen silmek istediğinize emin misiniz?")) {
                               setEditingUser({
                                 ...editingUser,
-                                socialEnabled: false,
-                                socialProfileCompleted: false,
-                                socialVisible: false,
+                                social: { ...editingUser.social, enabled: false, profileCompleted: false, visible: false },
                                 nickname: '',
                                 bio: '',
                                 photos: [],
@@ -2687,9 +2703,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         dailyAdReadingsUsed: editingUser.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() },
                         role: editingUser.role || 'user',
                         isBanned: editingUser.isBanned || false,
-                        socialEnabled: editingUser.socialEnabled || false,
+                        social: { ...editingUser.social, enabled: editingUser.social?.enabled || false },
                         socialProfileCompleted: editingUser.socialProfileCompleted || false,
-                        socialVisible: editingUser.socialVisible || false,
+                        socialVisible: editingUser.social?.visible || false,
                         nickname: editingUser.nickname || '',
                         bio: editingUser.bio || '',
                         photos: editingUser.photos || [],

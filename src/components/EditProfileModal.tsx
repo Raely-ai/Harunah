@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Calendar, Star, Camera, Check, Loader2, MapPin, FileText } from 'lucide-react';
+import { motion } from 'motion/react';
+import { X, User, Camera, Check, Loader2, FileText, Star } from 'lucide-react';
 import { UserProfile } from '../types';
-import { storage, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { storage } from '../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from 'sonner';
+import { uploadPhoto } from '../lib/uploadService';
 
 interface EditProfileModalProps {
   user: UserProfile;
@@ -13,92 +14,59 @@ interface EditProfileModalProps {
 }
 
 export default function EditProfileModal({ user, onClose, onSave }: EditProfileModalProps) {
-  const [nickname, setNickname] = useState(user.nickname || user.displayName || '');
+  const [nickname, setNickname] = useState(user.social?.nickname || user.nickname || '');
   const [bio, setBio] = useState(user.social?.bio || user.bio || '');
-  const [interests, setInterests] = useState(user.social?.interests?.join(', ') || user.interests?.join(', ') || '');
-  const [gender, setGender] = useState(user.social?.gender || '');
-  const [photoURL, setPhotoURL] = useState(user.social?.photos?.[0] || user.photos?.[0] || user.photoURL || '');
+  const [interests, setInterests] = useState(user.social?.interests?.join(', ') || '');
+  const [photoURL, setPhotoURL] = useState(user.social?.photos?.[0] || user.photoURL || '');
+  const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const zodiacSigns = [
-    { id: 'Koç', name: 'Koç' },
-    { id: 'Boğa', name: 'Boğa' },
-    { id: 'İkizler', name: 'İkizler' },
-    { id: 'Yengeç', name: 'Yengeç' },
-    { id: 'Aslan', name: 'Aslan' },
-    { id: 'Başak', name: 'Başak' },
-    { id: 'Terazi', name: 'Terazi' },
-    { id: 'Akrep', name: 'Akrep' },
-    { id: 'Yay', name: 'Yay' },
-    { id: 'Oğlak', name: 'Oğlak' },
-    { id: 'Kova', name: 'Kova' },
-    { id: 'Balık', name: 'Balık' },
-  ];
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    console.log("File selected:", file.name, "Size:", file.size);
-
-    // Check file size (e.g., 2MB limit)
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Fotoğraf çok büyük (maks 2MB).");
-      return;
-    }
-
-    setIsSaving(true);
+    setIsUploading(true);
     try {
-      console.log("Starting upload...");
-      const storageRef = ref(storage, `profiles/${user.uid}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      console.log("Upload completed, getting download URL...");
-      const downloadURL = await getDownloadURL(storageRef);
+      const downloadURL = await uploadPhoto(file, user.uid);
       setPhotoURL(downloadURL);
-      console.log("Download URL obtained:", downloadURL);
       toast.success("Fotoğraf yüklendi.");
-    } catch (error: any) {
-      console.error('Upload error details:', error);
-      if (error.code === 'storage/retry-limit-exceeded') {
-        toast.error("Yükleme zaman aşımına uğradı. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.");
-      } else if (error.code === 'storage/unauthorized') {
-        toast.error("Fotoğraf yükleme yetkiniz yok.");
-      } else {
-        toast.error("Fotoğraf yüklenemedi: " + error.message);
-      }
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast.error("Fotoğraf yüklenemedi.");
     } finally {
-      console.log("Upload process finished.");
-      setIsSaving(false);
+      setIsUploading(false);
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSaving) {
-      console.log("Save attempted while saving, ignoring.");
-      return;
-    }
+    if (isSaving || isUploading) return;
+
+    console.log("Saving profile, user:", user);
     setIsSaving(true);
-    console.log("Starting save...");
     try {
       const updatedInterests = interests.split(',').map(i => i.trim()).filter(i => i !== '');
-      const profileCompleted = !!(gender && nickname && updatedInterests.length > 0);
+      const profileCompleted = !!(user.social?.gender && nickname && updatedInterests.length > 0);
       
+      const finalPhotos = photoURL ? [photoURL] : (user.social?.photos || []);
+      console.log("Final photos:", finalPhotos);
+
       const updates: Partial<UserProfile> = {
         social: {
           ...user.social,
           nickname,
           bio,
           interests: updatedInterests,
-          photos: [photoURL],
-          gender: gender as 'erkek' | 'kadın',
+          photos: finalPhotos,
           profileCompleted,
           updatedAt: new Date().toISOString(),
+          // Preserve existing fields
+          gender: user.social?.gender || 'erkek',
+          lookingFor: user.social?.lookingFor || 'aşk',
           enabled: user.social?.enabled ?? true,
           visible: user.social?.visible ?? true,
           banned: user.social?.banned ?? false,
-          lookingFor: user.social?.lookingFor ?? 'aşk',
           settings: user.social?.settings ?? {
             whoCanMessage: 'everyone',
             whoCanAddFriend: 'everyone',
@@ -106,144 +74,106 @@ export default function EditProfileModal({ user, onClose, onSave }: EditProfileM
           }
         }
       };
+      console.log("Updates:", updates);
       
-      console.log("Updating Firestore with payload:", updates);
       await onSave(updates);
-      console.log("Firestore update successful.");
-      
       onClose();
       toast.success("Profil güncellendi.");
     } catch (error) {
-      console.error('Save error:', error);
+      console.error("Save error:", error);
       toast.error("Profil güncellenemedi.");
     } finally {
-      console.log("Save process finished.");
       setIsSaving(false);
     }
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-4"
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      className="fixed inset-0 z-[200] bg-slate-900/20 backdrop-blur-sm flex items-center justify-center p-4"
     >
-      <motion.div
-        initial={{ scale: 0.9, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.9, y: 20 }}
-        className="w-full max-w-lg bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden shadow-2xl"
+      <motion.div 
+        initial={{ scale: 0.95 }} 
+        animate={{ scale: 1 }} 
+        className="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100"
       >
-        <div className="p-8">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-serif font-bold text-amber-50">Profili Düzenle</h2>
-            <button onClick={onClose} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-slate-900">Profili Düzenle</h2>
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 text-slate-500">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <form onSubmit={handleSave} className="space-y-6">
-            {/* Avatar Edit */}
-            <div className="flex flex-col items-center mb-8">
-              <div className="relative group">
-                <div className="w-24 h-24 rounded-3xl bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center">
-                  {photoURL ? (
-                    <img src={photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="w-10 h-10 text-purple-200/20" />
-                  )}
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="flex justify-center mb-4">
+              <div 
+                className="relative w-24 h-24 rounded-full bg-slate-100 overflow-hidden cursor-pointer group border-2 border-slate-200" 
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <img 
+                  src={photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+                  className="w-full h-full object-cover"
+                  alt="Profil"
+                />
+                <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  {isUploading ? <Loader2 className="animate-spin text-white" /> : <Camera className="text-white" />}
                 </div>
-                <div 
-                  className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-3xl cursor-pointer"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Camera className="w-6 h-6 text-white" />
-                </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
               </div>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
             </div>
 
-            {/* Nickname */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Kullanıcı Adı</label>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Kullanıcı Adı</label>
               <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
+                <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                 <input 
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
-                  placeholder="Kullanıcı Adı"
-                  required
+                  type="text" 
+                  value={nickname} 
+                  onChange={(e) => setNickname(e.target.value)} 
+                  className="w-full p-3 pl-10 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  placeholder="Kullanıcı Adı" 
+                  required 
                 />
               </div>
             </div>
 
-            {/* Gender */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Cinsiyet</label>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  onClick={() => setGender('erkek')}
-                  className={`py-4 rounded-2xl border ${gender === 'erkek' ? 'bg-amber-500/20 border-amber-500 text-amber-500' : 'bg-white/5 border-white/10 text-amber-50'} transition-all`}
-                >
-                  Erkek
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGender('kadın')}
-                  className={`py-4 rounded-2xl border ${gender === 'kadın' ? 'bg-amber-500/20 border-amber-500 text-amber-500' : 'bg-white/5 border-white/10 text-amber-50'} transition-all`}
-                >
-                  Kadın
-                </button>
-              </div>
-            </div>
-
-            {/* Bio */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Bio</label>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Bio</label>
               <div className="relative">
-                <FileText className="absolute left-4 top-6 w-5 h-5 text-purple-200/20" />
+                <FileText className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                 <textarea 
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
-                  placeholder="Kendinden bahset"
-                  rows={3}
+                  value={bio} 
+                  onChange={(e) => setBio(e.target.value)} 
+                  className="w-full p-3 pl-10 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  placeholder="Kendinden bahset..." 
+                  rows={3} 
                 />
               </div>
             </div>
 
-            {/* Interests */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">İlgi Alanları (Virgülle ayır)</label>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">İlgi Alanları (Virgülle ayır)</label>
               <div className="relative">
-                <Star className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
+                <Star className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                 <input 
-                  type="text"
-                  value={interests}
-                  onChange={(e) => setInterests(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
-                  placeholder="Müzik, Spor, Seyahat"
+                  type="text" 
+                  value={interests} 
+                  onChange={(e) => setInterests(e.target.value)} 
+                  className="w-full p-3 pl-10 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  placeholder="Müzik, Spor, Seyahat..." 
                 />
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="w-full py-4 rounded-2xl bg-amber-500 text-black font-bold flex items-center justify-center gap-2 hover:bg-amber-400 transition-all disabled:opacity-50"
+            <button 
+              type="submit" 
+              disabled={isSaving || isUploading} 
+              className="w-full py-3 mt-4 rounded-xl bg-indigo-600 text-white font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all disabled:opacity-50"
             >
-              {isSaving ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  <Check className="w-5 h-5" />
-                  <span>Değişiklikleri Kaydet</span>
-                </>
-              )}
+              {isSaving ? <Loader2 className="animate-spin" /> : <><Check className="w-5 h-5" /> Kaydet</>}
             </button>
           </form>
         </div>
