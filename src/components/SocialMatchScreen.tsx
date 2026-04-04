@@ -30,23 +30,16 @@ import { canSwipe, getRemainingSwipes, FREE_DAILY_LIMIT } from "../lib/swipeHelp
 
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set());
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([currentUser.uid]));
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  // Refs for stable access in listeners without re-subscribing
-  const currentIndexRef = useRef(currentIndex);
-  const swipedUserIdsRef = useRef(swipedUserIds);
+  const displayMatches = useMemo(() => {
+    return potentialMatches.filter(u => !swipedUserIds.has(u.uid));
+  }, [potentialMatches, swipedUserIds]);
 
-  useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
-
-  useEffect(() => {
-    swipedUserIdsRef.current = swipedUserIds;
-  }, [swipedUserIds]);
+  const activeUser = displayMatches[0];
 
   // Listen for swipes to know who to exclude
   useEffect(() => {
@@ -58,9 +51,12 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const ids = new Set(snapshot.docs.map(doc => doc.data().toUserId));
-      ids.add(currentUser.uid);
-      setSwipedUserIds(ids);
+      const firestoreIds = snapshot.docs.map(doc => doc.data().toUserId);
+      setSwipedUserIds(prev => {
+        const next = new Set(prev);
+        firestoreIds.forEach(id => next.add(id));
+        return next;
+      });
     }, (error) => {
       console.error("Swipes listener error:", error);
     });
@@ -86,36 +82,16 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedUsers = snapshot.docs
         .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-        .filter(u => isEligibleSocialUser(u, currentUser.uid, targetGender) && !swipedUserIdsRef.current.has(u.uid));
+        .filter(u => isEligibleSocialUser(u, currentUser.uid, targetGender));
 
-      setPotentialMatches(prev => {
-        const fetchedIds = new Set(fetchedUsers.map(u => u.uid));
-        const currentIdx = currentIndexRef.current;
-        
-        let shift = 0;
-        prev.forEach((user, idx) => {
-          if (idx < currentIdx && !fetchedIds.has(user.uid)) {
-            shift++;
-          }
-        });
-
-        const existingStillEligible = prev.filter(u => fetchedIds.has(u.uid));
-        const existingIds = new Set(existingStillEligible.map(u => u.uid));
-        const newUsers = fetchedUsers.filter(u => !existingIds.has(u.uid));
-
-        newUsers.sort((a, b) => {
-          const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
-          const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
-          return scoreB - scoreA;
-        });
-
-        if (shift > 0) {
-          setCurrentIndex(old => Math.max(0, old - shift));
-        }
-
-        return [...existingStillEligible, ...newUsers];
+      // Sort by compatibility score
+      fetchedUsers.sort((a, b) => {
+        const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
+        const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
+        return scoreB - scoreA;
       });
-      
+
+      setPotentialMatches(fetchedUsers);
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "users");
@@ -126,7 +102,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   }, [currentUser.uid, currentUser.social?.gender]); // Minimal dependencies
 
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
-    if (currentIndex >= potentialMatches.length || isAnimating) return;
+    if (!activeUser || isAnimating) return;
     
     if (!canSwipe(currentUser)) {
       toast.error("Günlük swipe hakkın bitti!");
@@ -139,11 +115,18 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     else if (type === 'like') setExitDirection('right');
     else setExitDirection('up');
 
-    const targetUser = potentialMatches[currentIndex];
+    const targetUser = activeUser;
     
     const today = new Date().toISOString().split('T')[0];
     const newUsed = (currentUser.dailySwipeDate === today ? (currentUser.dailySwipeUsed || 0) : 0) + 1;
     
+    // Optimistic update local state after animation
+    setTimeout(() => {
+      setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
+      setExitDirection(null);
+      setIsAnimating(false);
+    }, 400);
+
     try {
       await updateDoc(doc(db, "users", currentUser.uid), {
         dailySwipeUsed: newUsed,
@@ -209,6 +192,10 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
             title: "Yeni Beğeni!",
             message: `${currentUser.social?.nickname || currentUser.displayName} seni beğendi! ❤️`,
             data: { fromUserId: currentUser.uid },
+            senderSnapshot: {
+              nickname: currentUser.social?.nickname || currentUser.displayName || "İsimsiz",
+              photoURL: currentUser.social?.photos?.[0] || currentUser.photoURL || ""
+            },
             read: false,
             createdAt: serverTimestamp()
           });
@@ -276,30 +263,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, "swipes");
     }
-
-    setTimeout(() => {
-      setCurrentIndex(prev => prev + 1);
-      setExitDirection(null);
-      setIsAnimating(false);
-    }, 400);
   };
-
-  const activeUser = potentialMatches[currentIndex];
-
-  // Safety check for currentIndex
-  useEffect(() => {
-    if (potentialMatches.length === 0) {
-      setCurrentIndex(0);
-    } else if (currentIndex >= potentialMatches.length) {
-      setCurrentIndex(Math.max(0, potentialMatches.length - 1));
-    }
-  }, [potentialMatches.length, currentIndex]);
 
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
   useEffect(() => {
     setCurrentPhotoIndex(0);
-  }, [currentIndex]);
+  }, [activeUser?.uid]);
 
   const photos = useMemo(() => {
     if (!activeUser) return [];

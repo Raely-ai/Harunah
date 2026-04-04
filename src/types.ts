@@ -2,7 +2,7 @@ export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' 
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
-export type AppTab = 'home' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-main' | 'social-onboarding' | 'social-match' | 'social-messages' | 'social-profile' | 'social-wallet';
+export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-main' | 'social-onboarding' | 'social-match' | 'social-messages' | 'social-profile' | 'social-wallet';
 
 export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error';
 

@@ -32,6 +32,7 @@ import SocialDiscoverScreen from "./components/SocialDiscoverScreen";
 import SocialMessagesScreen from "./components/SocialMessagesScreen";
 import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
+import FortunesScreen from "./components/FortunesScreen";
 import { WalletScreen } from "./components/WalletScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
 import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope } from "./types";
@@ -409,8 +410,12 @@ export default function App() {
           const diffMins = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
           
           if (diffMins > 2) {
-            console.log(`Sync: Cleaning up stuck pending reading ${reading.id}`);
-            await deleteDoc(docSnap.ref);
+            console.log(`Sync: Marking stuck pending reading ${reading.id} as error`);
+            await updateDoc(docSnap.ref, {
+              status: 'error',
+              error: 'İşlem zaman aşımına uğradı (pending stuck)',
+              updatedAt: new Date().toISOString()
+            });
           }
           continue;
         }
@@ -538,8 +543,8 @@ export default function App() {
       maxReadingTime: 30
     };
 
-    const interpreterDelay = Math.floor(Math.random() * (times.maxInterpreterTime - times.minInterpreterTime + 1) + times.minInterpreterTime) * 1000;
-    const readingDelay = Math.floor(Math.random() * (times.maxReadingTime - times.minReadingTime + 1) + times.minReadingTime) * 1000;
+    const interpreterDelay = Math.floor(Math.random() * (times.maxInterpreterTime - times.minInterpreterTime + 1) + times.minInterpreterTime) * 60 * 1000;
+    const readingDelay = Math.floor(Math.random() * (times.maxReadingTime - times.minReadingTime + 1) + times.minReadingTime) * 60 * 1000;
 
     const now = new Date();
     const queueStartedAt = now.toISOString();
@@ -722,7 +727,11 @@ export default function App() {
       
       // Cleanup pending reading if transaction failed
       try {
-        await deleteDoc(readingRef);
+        await updateDoc(readingRef, {
+          status: 'error',
+          error: 'İşlem sırasında hata oluştu (transaction failed)',
+          updatedAt: new Date().toISOString()
+        });
       } catch (cleanupErr) {
         console.error("Cleanup error:", cleanupErr);
       }
@@ -867,77 +876,83 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-purple-50 selection:bg-amber-500/30 overflow-x-hidden">
+    <div className="min-h-screen bg-[#020205] relative text-purple-50 selection:bg-amber-500/30 overflow-x-hidden">
+      {/* Noise Texture Overlay */}
+      <div className="fixed inset-0 noise-bg z-[1] opacity-[0.03]" />
+      
+      {/* Deep Mystical Gradient Overlay */}
+      <div className="fixed inset-0 bg-gradient-to-b from-purple-900/15 via-black to-amber-900/10 pointer-events-none z-[2]" />
+
       <Toaster position="top-center" expand={false} richColors />
       
       {/* Mystical Background Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-900/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-900/5 rounded-full blur-[120px]" />
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-[3]">
+        <div className="absolute top-[-20%] left-[-20%] w-[70%] h-[70%] bg-purple-900/20 rounded-full blur-[150px]" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[70%] h-[70%] bg-amber-900/10 rounded-full blur-[150px]" />
         
-        {/* Ambient Floating Elements (Hearts, Snowflakes) */}
+        {/* Ambient Floating Elements (Refined) */}
         <div className="absolute inset-0 overflow-hidden">
-          {[...Array(10)].map((_, i) => (
+          {[...Array(12)].map((_, i) => (
             <motion.div
               key={`heart-${i}`}
               initial={{ 
                 opacity: 0,
                 y: "110vh",
                 x: `${Math.random() * 100}vw`,
+                scale: Math.random() * 0.4 + 0.3
+              }}
+              animate={{ 
+                opacity: [0, 0.15, 0],
+                y: "-10vh",
+                x: `${(Math.random() * 100) + (Math.sin(i) * 15)}vw`
+              }}
+              transition={{ 
+                duration: 30 + Math.random() * 20,
+                repeat: Infinity,
+                delay: i * 4,
+                ease: "linear"
+              }}
+              className="absolute"
+            >
+              <Heart className="w-6 h-6 text-purple-500/10 fill-purple-500/5" />
+            </motion.div>
+          ))}
+          {[...Array(15)].map((_, i) => (
+            <motion.div
+              key={`sparkle-${i}`}
+              initial={{ 
+                opacity: 0,
+                y: "-10vh",
+                x: `${Math.random() * 100}vw`,
                 scale: Math.random() * 0.5 + 0.5
               }}
               animate={{ 
-                opacity: [0, 0.2, 0],
-                y: "-10vh",
-                x: `${(Math.random() * 100) + (Math.sin(i) * 10)}vw`
+                opacity: [0, 0.3, 0],
+                y: "110vh",
+                x: `${(Math.random() * 100) + (Math.cos(i) * 10)}vw`
               }}
               transition={{ 
-                duration: 20 + Math.random() * 10,
+                duration: 25 + Math.random() * 25,
                 repeat: Infinity,
                 delay: i * 3,
                 ease: "linear"
               }}
               className="absolute"
             >
-              <Heart className="w-4 h-4 text-red-500/10 fill-red-500/5" />
-            </motion.div>
-          ))}
-          {[...Array(15)].map((_, i) => (
-            <motion.div
-              key={`snow-${i}`}
-              initial={{ 
-                opacity: 0,
-                y: "-10vh",
-                x: `${Math.random() * 100}vw`,
-                scale: Math.random() * 0.3 + 0.2
-              }}
-              animate={{ 
-                opacity: [0, 0.3, 0],
-                y: "110vh",
-                x: `${(Math.random() * 100) + (Math.cos(i) * 5)}vw`
-              }}
-              transition={{ 
-                duration: 15 + Math.random() * 15,
-                repeat: Infinity,
-                delay: i * 2,
-                ease: "linear"
-              }}
-              className="absolute"
-            >
-              <div className="w-2 h-2 bg-white/10 rounded-full blur-[1px]" />
+              <Sparkles className="w-4 h-4 text-amber-400/15" />
             </motion.div>
           ))}
         </div>
 
-        {/* Stars/Particles */}
-        <div className="absolute inset-0 opacity-20">
-          {[...Array(40)].map((_, i) => (
+        {/* Stars/Particles (Refined) */}
+        <div className="fixed inset-0 opacity-50 pointer-events-none z-[4]">
+          {[...Array(100)].map((_, i) => (
             <motion.div
               key={i}
               initial={{ opacity: Math.random() }}
-              animate={{ opacity: [0.1, 0.5, 0.1] }}
-              transition={{ duration: 4 + Math.random() * 6, repeat: Infinity }}
-              className="absolute w-0.5 h-0.5 bg-white rounded-full"
+              animate={{ opacity: [0.1, 0.8, 0.1], scale: [1, 1.2, 1] }}
+              transition={{ duration: 5 + Math.random() * 10, repeat: Infinity }}
+              className="absolute w-0.5 h-0.5 bg-white rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"
               style={{
                 top: `${Math.random() * 100}%`,
                 left: `${Math.random() * 100}%`,
@@ -952,10 +967,11 @@ export default function App() {
           {activeTab === 'home' && userProfile && (
             <motion.div
               key="home"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="pt-8"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="pt-4"
             >
               <OracleHub 
                 user={user} 
@@ -968,13 +984,48 @@ export default function App() {
               />
             </motion.div>
           )}
+
+          {activeTab === 'fortunes' && userProfile && (
+            <motion.div
+              key="fortunes"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="pt-4"
+            >
+              <FortunesScreen 
+                onSelectFortune={handleSelectFortune}
+                onBack={() => handleNavigate('home')}
+                config={appConfig}
+                userProfile={userProfile}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'messages' && userProfile && (
+            <motion.div
+              key="messages"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="fixed inset-0 z-40 bg-slate-50 pb-20"
+            >
+              <SocialMessagesScreen 
+                currentUser={userProfile}
+                onNavigate={handleNavigate}
+              />
+            </motion.div>
+          )}
           
           {activeTab === 'history' && (
             <motion.div
               key="history"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed inset-0 z-40 bg-black"
             >
               <HistoryScreen 
@@ -991,9 +1042,10 @@ export default function App() {
           {activeTab === 'horoscopes' && (
             <motion.div
               key="horoscopes"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed inset-0 z-[60] bg-black"
             >
               <HoroscopeScreen 
@@ -1006,9 +1058,10 @@ export default function App() {
           {activeTab === 'wallet' && (
             <motion.div
               key="wallet"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="pt-8"
             >
               <WalletScreen 
@@ -1049,9 +1102,10 @@ export default function App() {
           {activeTab === 'profile' && (
             <motion.div
               key="profile"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="pt-8"
             >
               <ProfileView 
@@ -1069,9 +1123,10 @@ export default function App() {
           {activeTab === 'social-intro' && userProfile && (
             <motion.div
               key="social-intro"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed inset-0 z-[70] bg-white"
             >
               <SocialIntroScreen 
@@ -1090,9 +1145,10 @@ export default function App() {
           {activeTab === 'social-onboarding' && userProfile && (
             <motion.div
               key="social-onboarding"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed inset-0 z-[70] bg-white"
             >
               <SocialOnboardingFlow 
@@ -1106,14 +1162,15 @@ export default function App() {
           {activeTab === 'social-main' && userProfile && (
             <motion.div
               key="social-main"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
               className="fixed inset-0 z-[70] bg-white"
             >
               <SocialMainScreen 
                 currentUser={userProfile}
-                onBack={() => handleNavigate('home')}
+                onBack={() => handleNavigate('fortunes')}
                 onEdit={() => setIsEditProfileOpen(true)}
               />
             </motion.div>

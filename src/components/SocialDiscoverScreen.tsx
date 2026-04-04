@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkles, Zap, RefreshCw, Star, Heart, UserPlus, ArrowRight } from "lucide-react";
+import { Sparkles, Zap, RefreshCw, Star, Heart, UserPlus, ArrowRight, Home } from "lucide-react";
 import { collection, query, where, limit, getDocs, updateDoc, doc, serverTimestamp, getDoc, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { UserProfile } from "../types";
@@ -181,8 +181,16 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack }
 
   return (
     <div className="flex flex-col h-full w-full bg-white text-slate-900">
-      {/* Header - Only Refresh Button */}
-      <div className="flex justify-end p-4 sticky top-0 bg-white/95 backdrop-blur-sm z-20">
+      {/* Header - Back to Fortune & Refresh */}
+      <div className="flex justify-between items-center p-4 sticky top-0 bg-white/95 backdrop-blur-sm z-20">
+        <button 
+          onClick={onBack} 
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 text-purple-700 text-[11px] font-bold tracking-wider uppercase hover:bg-purple-100 transition-colors border border-purple-100"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          Fala Geri Dön
+        </button>
+
         <button onClick={handleRefresh} className="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold tracking-wider uppercase hover:bg-slate-200 transition-colors">
           <RefreshCw className="w-3.5 h-3.5" />
           {refreshTimer}

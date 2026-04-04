@@ -3,6 +3,47 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", serif;
+  
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.5; filter: blur(10px); }
+    50% { opacity: 1; filter: blur(15px); }
+  }
+
+  @keyframes star-twinkle {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+
+.animate-star {
+  animation: star-twinkle 3s ease-in-out infinite;
+}
+
+.celestial-bg {
+  background: radial-gradient(circle at 50% 50%, #0a0a0a 0%, #050505 100%);
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+}
+
+.star-particle {
+  position: absolute;
+  background: white;
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 /* Social Module Theme */
@@ -18,6 +59,12 @@
   
   background-color: var(--social-bg);
   color: var(--social-text);
+}
+
+.noise-bg {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  pointer-events: none;
 }
 
 .social-card {
