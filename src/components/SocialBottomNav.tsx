@@ -9,7 +9,7 @@ interface SocialBottomNavProps {
 export default function SocialBottomNav({ activeTab, onNavigate }: SocialBottomNavProps) {
   const tabs = [
     { id: 'discover', icon: Compass, label: 'Keşfet' },
-    { id: 'match', icon: Heart, label: 'Eşleş' },
+    { id: 'match', icon: Heart, label: 'Karşılaşma' },
     { id: 'messages', icon: MessageCircle, label: 'Mesaj' },
     { id: 'profile', icon: User, label: 'Profil' },
     { id: 'wallet', icon: Wallet, label: 'Cüzdan' },

@@ -134,9 +134,14 @@
       "properties": {
         "id": { "type": "string" },
         "participants": { "type": "array", "items": { "type": "string" } },
+        "participantSnapshots": { "type": "object", "description": "Denormalized user data for fast list rendering" },
         "createdAt": { "type": "string", "format": "date-time" },
         "lastMessage": { "type": "string" },
         "lastMessageAt": { "type": "string", "format": "date-time" },
+        "lastMessageSenderId": { "type": "string" },
+        "lastMessageStatus": { "type": "string", "enum": ["sent", "delivered", "seen"] },
+        "unreadCount": { "type": "object", "description": "Unread message count per user" },
+        "typing": { "type": "object", "description": "Typing status per user" },
         "status": { "type": "string", "enum": ["active", "archived"] }
       }
     },
@@ -148,9 +153,12 @@
         "chatId": { "type": "string" },
         "senderId": { "type": "string" },
         "text": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["image", "video"] },
         "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "seen"] },
         "seen": { "type": "boolean", "default": false },
-        "type": { "type": "string", "enum": ["text", "system"] }
+        "type": { "type": "string", "enum": ["text", "image", "video", "system"] }
       }
     },
     "InteractionRequest": {

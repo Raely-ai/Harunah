@@ -14,7 +14,7 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import LoginScreen from "./components/LoginScreen";
 import RegisterScreen from "./components/RegisterScreen";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
-import OracleHub from "./components/OracleHub";
+import HomeScreen from "./components/HomeScreen";
 import BottomNav from "./components/BottomNav";
 import FortuneFlow from "./components/FortuneFlow";
 import ReadingResult from "./components/ReadingResult";
@@ -25,7 +25,6 @@ import SettingsView from "./components/SettingsView";
 import EditProfileModal from "./components/EditProfileModal";
 import DeleteAccountModal from "./components/DeleteAccountModal";
 import HoroscopeScreen from "./components/HoroscopeScreen";
-import SocialMainScreen from "./components/SocialMainScreen";
 import SocialIntroScreen from "./components/SocialIntroScreen";
 import SocialOnboardingFlow from "./components/SocialOnboardingFlow";
 import SocialDiscoverScreen from "./components/SocialDiscoverScreen";
@@ -33,10 +32,12 @@ import SocialMessagesScreen from "./components/SocialMessagesScreen";
 import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
-import { WalletScreen } from "./components/WalletScreen";
+import WalletScreen from "./components/WalletScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
 import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope } from "./types";
 import { generateFortune } from "./services/geminiService";
+import { socialService } from "./lib/socialService";
+import { isSocialProfileReady } from "./lib/socialUtils";
 
 export default function App() {
   const [user, loading, error] = useAuthState(auth);
@@ -55,7 +56,33 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [horoscopes, setHoroscopes] = useState<Record<string, Horoscope>>({});
+  const [isChatOpen, setIsChatOpen] = useState(false);
   
+  // Presence Management
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Set online
+    socialService.updateUserStatus(user.uid, true);
+
+    // Set offline on tab close or navigation away
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        socialService.updateUserStatus(user.uid, false);
+      } else {
+        socialService.updateUserStatus(user.uid, true);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', () => socialService.updateUserStatus(user.uid, false));
+
+    return () => {
+      socialService.updateUserStatus(user.uid, false);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.uid]);
+
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
   // Fetch Global Config
@@ -154,16 +181,16 @@ export default function App() {
         // Ensure social object exists for existing users
         if (!profile.social) {
           const defaultSocial = {
-            enabled: false,
-            profileCompleted: false,
-            nickname: profile.displayName || "Gezgin",
-            gender: 'erkek' as const,
-            lookingFor: 'arkadaş',
-            bio: '',
-            photos: [] as string[],
-            interests: [] as string[],
-            visible: true,
-            banned: false,
+            enabled: profile.socialEnabled || false,
+            profileCompleted: profile.socialProfileCompleted || false,
+            nickname: profile.nickname || profile.displayName || "Gezgin",
+            gender: (profile.gender as any) || 'erkek',
+            lookingFor: profile.lookingFor || 'arkadaş',
+            bio: profile.bio || '',
+            photos: profile.photos || [],
+            interests: profile.interests || [],
+            visible: profile.socialVisible !== undefined ? profile.socialVisible : true,
+            banned: profile.socialBan || false,
             settings: {
               whoCanMessage: 'everyone' as const,
               whoCanAddFriend: 'everyone' as const,
@@ -181,6 +208,20 @@ export default function App() {
             .catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`));
           
           profile = { ...profile, social: defaultSocial };
+        }
+        
+        // Auto-fix: If they have all required fields but profileCompleted is false, fix it
+        if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
+          console.log("Auto-fixing profileCompleted for user:", user.uid);
+          updateDoc(doc(db, "users", user.uid), { 
+            "social.profileCompleted": true,
+            "social.enabled": true 
+          }).catch(err => console.error("Auto-fix error:", err));
+          
+          if (profile.social) {
+            profile.social.profileCompleted = true;
+            profile.social.enabled = true;
+          }
         }
         
         if (profile.isBanned) {
@@ -304,7 +345,7 @@ export default function App() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 3500);
+    }, 2000);
     
     // Play splash sound after a short delay
     const soundTimer = setTimeout(() => {
@@ -962,7 +1003,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-32">
+      <div className="relative z-10 w-full pb-32">
         <AnimatePresence mode="wait">
           {activeTab === 'home' && userProfile && (
             <motion.div
@@ -971,16 +1012,15 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="pt-4"
             >
-              <OracleHub 
+              <HomeScreen 
                 user={user} 
                 userProfile={userProfile}
                 history={history}
                 onSelectFortune={handleSelectFortune}
                 onNavigate={handleNavigate}
                 config={appConfig}
-                horoscope={userProfile.horoscope ? horoscopes[userProfile.horoscope] : null}
+                horoscopes={horoscopes}
               />
             </motion.div>
           )}
@@ -992,13 +1032,16 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="pt-4"
             >
               <FortunesScreen 
                 onSelectFortune={handleSelectFortune}
                 onBack={() => handleNavigate('home')}
                 config={appConfig}
                 userProfile={userProfile}
+                history={history}
+                onDeleteHistory={handleDeleteHistory}
+                onToggleFavorite={handleToggleFavorite}
+                onRefreshHistory={syncReadings}
               />
             </motion.div>
           )}
@@ -1010,11 +1053,12 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-slate-50 pb-20"
+              className="fixed inset-0 z-40 bg-[#050505] pb-20"
             >
               <SocialMessagesScreen 
                 currentUser={userProfile}
                 onNavigate={handleNavigate}
+                onChatOpenChange={setIsChatOpen}
               />
             </motion.div>
           )}
@@ -1099,7 +1143,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'profile' && (
+          {activeTab === 'profile' && userProfile && (
             <motion.div
               key="profile"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1116,6 +1160,23 @@ export default function App() {
                 onLogout={() => signOut(auth)}
                 onDeleteAccount={() => setIsDeleteAccountOpen(true)}
                 onAdminPanel={() => setIsAdminPanelOpen(true)}
+                onNavigate={handleNavigate}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'social-profile' && userProfile && (
+            <motion.div
+              key="social-profile"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="fixed inset-0 z-[70] bg-[#050505]"
+            >
+              <SocialProfileScreen 
+                currentUser={userProfile}
+                onNavigate={handleNavigate}
               />
             </motion.div>
           )}
@@ -1127,13 +1188,13 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[70] bg-white"
+              className="fixed inset-0 z-[70] bg-[#050505]"
             >
               <SocialIntroScreen 
                 onBack={() => handleNavigate('home')}
                 onContinue={async () => {
-                  if (userProfile.social?.profileCompleted) {
-                    handleNavigate('social-main');
+                  if (isSocialProfileReady(userProfile)) {
+                    handleNavigate('home');
                   } else {
                     handleNavigate('social-onboarding');
                   }
@@ -1154,24 +1215,7 @@ export default function App() {
               <SocialOnboardingFlow 
                 initialData={userProfile}
                 onBack={() => handleNavigate('social-intro')}
-                onComplete={() => handleNavigate('social-main')}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'social-main' && userProfile && (
-            <motion.div
-              key="social-main"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[70] bg-white"
-            >
-              <SocialMainScreen 
-                currentUser={userProfile}
-                onBack={() => handleNavigate('fortunes')}
-                onEdit={() => setIsEditProfileOpen(true)}
+                onComplete={() => handleNavigate('home')}
               />
             </motion.div>
           )}
@@ -1184,11 +1228,13 @@ export default function App() {
         </footer>
       </div>
 
-      <BottomNav 
-        activeTab={activeTab} 
-        onTabChange={handleNavigate} 
-        className={['social-intro', 'social-onboarding', 'social-main', 'social-match', 'social-messages', 'social-profile', 'social-wallet'].includes(activeTab) ? 'hidden' : ''}
-      />
+      {!isChatOpen && (
+        <BottomNav 
+          activeTab={activeTab} 
+          onTabChange={handleNavigate} 
+          className={['social-intro', 'social-onboarding'].includes(activeTab) ? 'hidden' : ''}
+        />
+      )}
 
       <AnimatePresence>
         {activeFortune && (

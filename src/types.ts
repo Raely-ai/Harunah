@@ -2,7 +2,7 @@ export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' 
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
-export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-main' | 'social-onboarding' | 'social-match' | 'social-messages' | 'social-profile' | 'social-wallet';
+export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-onboarding' | 'social-profile';
 
 export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error';
 
@@ -82,6 +82,8 @@ export interface UserProfile {
     interests: string[];
     visible: boolean;
     banned: boolean;
+    isOnline?: boolean;
+    lastSeen?: any;
     updatedAt?: string;
     settings: {
       whoCanMessage: 'everyone' | 'friends' | 'nobody';
@@ -349,6 +351,14 @@ export interface Transaction {
   createdAt: any;
 }
 
+export type SocialActionResult = 
+  | 'SUCCESS' 
+  | 'ALREADY_REQUESTED' 
+  | 'ALREADY_CHATTING' 
+  | 'SELF_ACTION' 
+  | 'INVALID_TARGET' 
+  | 'TECHNICAL_ERROR';
+
 export interface InteractionRequest {
   id: string;
   fromUserId: string;
@@ -365,6 +375,39 @@ export interface InteractionRequest {
     nickname: string;
     photoURL: string;
   };
+}
+
+export interface Chat {
+  id: string;
+  participants: string[];
+  participantSnapshots?: Record<string, {
+    nickname: string;
+    photoURL: string;
+  }>;
+  lastMessage: string;
+  lastMessageAt: any;
+  lastMessageSenderId?: string;
+  lastMessageStatus?: 'sent' | 'delivered' | 'seen';
+  createdAt: any;
+  type?: 'direct' | 'group';
+  unreadCount?: Record<string, number>;
+  typing?: Record<string, boolean>;
+}
+
+export interface Message {
+  id: string;
+  chatId: string;
+  senderId: string;
+  text?: string;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video';
+  createdAt: any;
+  seen: boolean; // Deprecated, use status
+  status: 'sent' | 'delivered' | 'seen';
+  type: 'text' | 'image' | 'video' | 'system';
+  editedAt?: any;
+  isDeleted?: boolean;
+  deletedForEveryone?: boolean;
 }
 
 export interface Notification {

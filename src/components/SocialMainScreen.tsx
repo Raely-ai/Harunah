@@ -20,12 +20,22 @@ export default function SocialMainScreen({ currentUser, onBack, onEdit }: { curr
   return (
     <div className="fixed inset-0 flex flex-col bg-white text-slate-900">
       {/* Content */}
-      <main className="flex-1 relative overflow-hidden">
-        {activeTab === 'discover' && <SocialDiscoverScreen currentUser={currentUser} onNavigate={handleNavigate} onBack={onBack} />}
-        {activeTab === 'match' && <SocialMatchScreen currentUser={currentUser} onNavigate={handleNavigate} />}
-        {activeTab === 'messages' && <SocialMessagesScreen currentUser={currentUser} onNavigate={handleNavigate} onChatChange={(chat) => setIsChatOpen(!!chat)} />}
-        {activeTab === 'profile' && <SocialProfileScreen currentUser={currentUser} onNavigate={handleNavigate} />}
-        {activeTab === 'wallet' && <SocialWalletScreen currentUser={currentUser} onNavigate={handleNavigate} />}
+      <main className="flex-1 relative flex flex-col overflow-hidden">
+        <div className={`flex-1 ${activeTab === 'discover' ? 'flex flex-col' : 'hidden'}`}>
+          <SocialDiscoverScreen currentUser={currentUser} onNavigate={handleNavigate} onBack={onBack} config={null} isActive={activeTab === 'discover'} />
+        </div>
+        <div className={`flex-1 ${activeTab === 'match' ? 'flex flex-col' : 'hidden'}`}>
+          <SocialMatchScreen currentUser={currentUser} onNavigate={handleNavigate} isActive={activeTab === 'match'} />
+        </div>
+        <div className={`flex-1 ${activeTab === 'messages' ? 'flex flex-col' : 'hidden'}`}>
+          <SocialMessagesScreen currentUser={currentUser} onNavigate={handleNavigate} onChatOpenChange={setIsChatOpen} isActive={activeTab === 'messages'} />
+        </div>
+        <div className={`flex-1 ${activeTab === 'profile' ? 'flex flex-col' : 'hidden'}`}>
+          <SocialProfileScreen currentUser={currentUser} onNavigate={handleNavigate} />
+        </div>
+        <div className={`flex-1 ${activeTab === 'wallet' ? 'flex flex-col' : 'hidden'}`}>
+          <SocialWalletScreen currentUser={currentUser} onNavigate={handleNavigate} />
+        </div>
       </main>
 
       {/* Bottom Nav */}

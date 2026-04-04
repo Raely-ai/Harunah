@@ -120,9 +120,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
       setStep(step + 1);
     } else {
       // Final step: Complete onboarding
-      const hasCustomPhoto = formData.photos.length > 0 && !Object.values(DEFAULT_AVATARS).includes(formData.photos[0]);
       await updateFirestore({
-        "social.enabled": hasCustomPhoto,
+        "social.enabled": true,
         "social.profileCompleted": true,
         "social.visible": true,
         "social.banned": false

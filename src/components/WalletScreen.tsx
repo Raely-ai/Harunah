@@ -1,248 +1,203 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import { motion } from "motion/react";
 import { 
-  Wallet, 
+  CreditCard, 
   Zap, 
-  Crown, 
-  History, 
-  ArrowUpRight, 
-  Plus, 
-  PlayCircle,
-  Clock,
-  ChevronRight,
-  ShieldCheck
-} from 'lucide-react';
-import { UserProfile, AppConfig } from '../types';
+  ChevronRight, 
+  Star, 
+  ShieldCheck, 
+  Clock, 
+  History,
+  ArrowUpRight,
+  Sparkles,
+  Coins
+} from "lucide-react";
+import { AppConfig, UserProfile } from "../types";
 
 interface WalletScreenProps {
-  user: UserProfile;
+  user: UserProfile | null;
   config: AppConfig | null;
   onBuyCredits: () => void;
   onSubscribe: () => void;
   onWatchAd: () => void;
 }
 
-export const WalletScreen: React.FC<WalletScreenProps> = ({ 
-  user, 
-  config,
-  onBuyCredits, 
-  onSubscribe,
-  onWatchAd 
-}) => {
-  const adSectionRef = React.useRef<HTMLDivElement>(null);
+export default function WalletScreen({ user, config, onBuyCredits, onSubscribe, onWatchAd }: WalletScreenProps) {
+  const PACKS = [
+    { id: 'pack1', credits: 100, price: '₺49.99', bonus: '10 Bonus', popular: false, color: 'from-amber-500/10 to-amber-900/20' },
+    { id: 'pack2', credits: 250, price: '₺99.99', bonus: '30 Bonus', popular: true, color: 'from-purple-500/10 to-purple-900/20' },
+    { id: 'pack3', credits: 600, price: '₺199.99', bonus: '100 Bonus', popular: false, color: 'from-indigo-500/10 to-indigo-900/20' },
+    { id: 'pack4', credits: 1500, price: '₺449.99', bonus: '300 Bonus', popular: false, color: 'from-rose-500/10 to-rose-900/20' },
+  ];
 
-  const scrollToAds = () => {
-    adSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const renderBalanceIcon = (type: 'main' | 'ad') => {
+    const icon = type === 'main' ? config?.icons?.mainBalance : config?.icons?.adBalance;
+    if (icon) {
+      if (icon.startsWith('http')) {
+        return <img src={icon} alt={type} className="w-5 h-5 object-contain" />;
+      }
+      return <span className="text-lg">{icon}</span>;
+    }
+    return type === 'main' ? <Coins className="w-5 h-5 text-amber-500" /> : <Zap className="w-5 h-5 text-blue-500" />;
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pt-8 pb-32 custom-scrollbar bg-[#050505]">
-      <div className="max-w-md mx-auto space-y-8">
-        {/* Header - Premium */}
-        <div className="flex items-center justify-between px-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-serif font-bold text-white tracking-tight">Mistik Cüzdan</h1>
-            <p className="text-[10px] text-amber-400/60 uppercase tracking-[0.3em] font-black">Enerjini Yönet, Geleceğini Şekillendir</p>
-          </div>
-          <motion.div 
-            whileHover={{ rotate: 15, scale: 1.1 }}
-            className="w-14 h-14 rounded-[1.5rem] bg-gradient-to-br from-amber-500/10 to-purple-500/10 border border-white/10 flex items-center justify-center shadow-inner"
-          >
-            <Wallet className="w-7 h-7 text-amber-400 drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]" />
-          </motion.div>
-        </div>
-
-        {/* Balance Cards - Premium Glass */}
-        <div className="grid grid-cols-2 gap-4">
-          {/* Main Balance Card */}
-          <motion.div 
-            whileHover={{ y: -5, boxShadow: "0 20px 40px rgba(212,175,55,0.1)" }}
-            whileTap={{ scale: 0.98 }}
-            className="relative p-6 rounded-[2.5rem] bg-white/[0.03] backdrop-blur-3xl overflow-hidden border border-white/10 shadow-2xl group"
-          >
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl group-hover:bg-amber-500/20 transition-colors" />
-            <div className="relative z-10 space-y-5">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-400/60">Ana Jeton</span>
-                <ShieldCheck className="w-4 h-4 text-amber-400/40" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl font-serif font-bold text-white">{user.credits}</span>
-                <span className="text-[10px] font-bold text-amber-400/60 uppercase tracking-widest">🪙</span>
-              </div>
-              <button 
-                onClick={onBuyCredits}
-                className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white text-xs font-black flex items-center justify-center gap-2 hover:from-amber-500 hover:to-amber-400 transition-all shadow-xl shadow-amber-900/40 relative overflow-hidden group/btn"
-              >
-                <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700" />
-                <Plus className="w-3.5 h-3.5" />
-                <span>Yükle</span>
-              </button>
-            </div>
-          </motion.div>
-
-          {/* Ad Balance Card */}
-          <motion.div 
-            whileHover={{ y: -5, boxShadow: "0 20px 40px rgba(59,130,246,0.1)" }}
-            whileTap={{ scale: 0.98 }}
-            className="relative p-6 rounded-[2.5rem] bg-white/[0.03] backdrop-blur-3xl overflow-hidden border border-white/10 shadow-2xl group"
-          >
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-colors" />
-            <div className="relative z-10 space-y-5">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400/60">Enerji</span>
-                <Zap className="w-4 h-4 text-blue-400/40" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl font-serif font-bold text-white">{user.adCredits || 0}</span>
-                <span className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest">⚡</span>
-              </div>
-              <button 
-                onClick={scrollToAds}
-                className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-white text-xs font-black flex items-center justify-center gap-2 hover:bg-white/10 hover:border-white/20 transition-all shadow-xl"
-              >
-                <Zap className="w-3.5 h-3.5 text-blue-400" />
-                <span>Kazan</span>
-              </button>
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Ad Credits Section - Premium Engagement */}
-        <div ref={adSectionRef} className="space-y-4 scroll-mt-24">
-          <div className="flex items-center justify-between px-4">
-            <div className="flex items-center gap-2">
-              <PlayCircle className="w-4 h-4 text-blue-400" />
-              <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Günlük Enerji Topla</h3>
-            </div>
-            <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur-md">Ücretsiz Fal İçin</span>
-          </div>
-          
-          <div className="p-8 rounded-[3rem] bg-white/[0.03] backdrop-blur-3xl border border-white/10 space-y-6 relative overflow-hidden group shadow-2xl">
-            <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 rounded-full blur-[80px] -mr-24 -mt-24 group-hover:bg-blue-500/10 transition-colors" />
-            
-            <div className="flex items-center justify-between relative z-10">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shadow-inner">
-                  <Zap className="w-7 h-7 text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-white">Enerji Topla & Kazan</p>
-                  <p className="text-xs text-zinc-500 font-medium">Her video +{config?.adRewardAmount || 5} Enerji</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-serif font-bold text-blue-400">{user.dailyAdCount}/{config?.maxDailyAds || 10}</p>
-                <p className="text-[9px] text-zinc-500 uppercase tracking-[0.2em] font-black">Bugün</p>
-              </div>
-            </div>
-
-            <div className="space-y-2 relative z-10">
-              <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(user.dailyAdCount / (config?.maxDailyAds || 10)) * 100}%` }}
-                  transition={{ duration: 1, ease: "easeOut" }}
-                  className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.6)]"
-                />
-              </div>
-            </div>
-
-            <motion.button 
-              whileHover={{ scale: 1.02, boxShadow: "0 0 30px rgba(59,130,246,0.3)" }}
-              whileTap={{ scale: 0.98 }}
-              onClick={onWatchAd}
-              disabled={user.dailyAdCount >= (config?.maxDailyAds || 10)}
-              className="w-full py-5 rounded-[1.5rem] bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-black flex items-center justify-center gap-3 transition-all shadow-xl shadow-blue-900/40 disabled:opacity-20 disabled:grayscale relative z-10 overflow-hidden group/adbtn"
-            >
-              <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover/adbtn:translate-x-[100%] transition-transform duration-700" />
-              <PlayCircle className="w-6 h-6" />
-              <span>Hemen İzle (+{config?.adRewardAmount || 5} Enerji)</span>
-            </motion.button>
-
-            <div className="flex items-center gap-2 px-2 relative z-10">
-              <Clock className="w-3.5 h-3.5 text-zinc-600" />
-              <p className="text-[10px] text-zinc-500 italic font-medium">Kazanılan enerji kredileri ile ücretsiz fal bakabilirsin.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Subscription Status - Premium */}
-        <div className="space-y-4">
-          <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500 px-4">Ayrıcalıklı Üyelik</h3>
-          <motion.div 
-            whileHover={{ y: -5 }}
-            className={`p-8 rounded-[3rem] border transition-all relative overflow-hidden shadow-2xl backdrop-blur-3xl ${
-            user.subscription?.status === 'active' 
-              ? 'bg-amber-500/[0.03] border-amber-500/20' 
-              : 'bg-white/[0.03] border-white/10'
-          }`}>
-            {user.subscription?.status === 'active' && (
-              <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/5 rounded-full blur-[80px] -mr-24 -mt-24" />
-            )}
-            
-            <div className="flex items-center justify-between mb-8 relative z-10">
-              <div className="flex items-center gap-4">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border shadow-inner ${
-                  user.subscription?.status === 'active' ? 'bg-amber-500/10 border-amber-500/20' : 'bg-white/5 border-white/10'
-                }`}>
-                  <Crown className={`w-7 h-7 ${
-                    user.subscription?.status === 'active' ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(212,175,55,0.5)]' : 'text-zinc-700'
-                  }`} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-white">
-                    {user.subscription?.status === 'active' ? 'Premium Üye' : 'Standart Üye'}
-                  </p>
-                  <p className="text-xs text-zinc-500 font-medium">
-                    {user.subscription?.status === 'active' 
-                      ? `Sınırsız Ayrıcalıklar Aktif` 
-                      : 'Hemen Premium\'a Yükselt'}
-                  </p>
-                </div>
-              </div>
-              {user.subscription?.status === 'active' && (
-                <div className="px-4 py-1.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-[0.2em] border border-amber-500/20 backdrop-blur-md">
-                  Aktif
-                </div>
-              )}
-            </div>
-
-            <motion.button 
-              whileHover={{ scale: 1.02, boxShadow: user.subscription?.status === 'active' ? "none" : "0 0 30px rgba(212,175,55,0.3)" }}
-              whileTap={{ scale: 0.98 }}
-              onClick={onSubscribe}
-              className={`w-full py-4 rounded-[1.5rem] text-sm font-black flex items-center justify-center gap-3 transition-all relative overflow-hidden group/subbtn ${
-                user.subscription?.status === 'active'
-                  ? 'bg-white/5 text-white border border-white/10 hover:bg-white/10'
-                  : 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-xl shadow-amber-900/40'
-              }`}
-            >
-              {user.subscription?.status !== 'active' && (
-                <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover/subbtn:translate-x-[100%] transition-transform duration-700" />
-              )}
-              <span className="relative z-10">{user.subscription?.status === 'active' ? 'Aboneliği Yönet' : 'Ayrıcalıkları Keşfet'}</span>
-              <ChevronRight className="w-5 h-5 relative z-10" />
-            </motion.button>
-          </motion.div>
-        </div>
-
-        {/* Recent Transactions - Premium Empty State */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-4">
-            <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">Son İşlemler</h3>
-          </div>
-          <div className="p-12 text-center rounded-[3rem] border border-dashed border-white/10 bg-white/[0.02] backdrop-blur-sm">
-            <motion.div
-              animate={{ y: [0, -5, 0] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <History className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
-            </motion.div>
-            <p className="text-[11px] text-zinc-600 uppercase tracking-[0.3em] font-black">Henüz bir işlem kaydı bulunmuyor.</p>
-          </div>
-        </div>
+    <div className="relative min-h-screen space-y-10 pb-40 overflow-hidden bg-[#050505]">
+      {/* 1. Full-Screen Ambient Background (Seamless) */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        {/* Large soft radial glows instead of rectangular patches */}
+        <div className="absolute top-[-30%] left-[-20%] w-[140%] h-[80%] bg-purple-900/5 blur-[200px] rounded-full opacity-30" />
+        <div className="absolute bottom-[-30%] right-[-20%] w-[140%] h-[80%] bg-amber-900/5 blur-[200px] rounded-full opacity-30" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gradient-to-b from-transparent via-black/40 to-black opacity-90" />
       </div>
+
+      {/* 2. Header: Balance Summary */}
+      <section className="px-6 pt-8 relative z-10">
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative p-10 rounded-[3.5rem] overflow-hidden bg-white/[0.02] backdrop-blur-3xl border border-white/5 shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
+        >
+          {/* Background Glows */}
+          <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 blur-[80px] rounded-full" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 blur-[80px] rounded-full" />
+          
+          <div className="relative z-10 space-y-10">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.5em] text-amber-500/60">Cüzdan Bakiyesi</p>
+                <h2 className="text-4xl font-serif font-bold text-white tracking-tight drop-shadow-sm">Mistik Cüzdan</h2>
+              </div>
+              <div className="p-4 rounded-3xl bg-white/[0.03] border border-white/10 shadow-inner">
+                <CreditCard className="w-8 h-8 text-amber-400/60" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div className="p-6 rounded-[2.5rem] bg-gradient-to-br from-white/[0.03] to-transparent border border-white/5 shadow-xl group hover:border-amber-500/20 transition-all duration-500">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                    {renderBalanceIcon('main')}
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Kredi</span>
+                </div>
+                <p className="text-3xl font-serif font-bold text-white group-hover:text-amber-200 transition-colors">{user?.credits || 0}</p>
+              </div>
+              
+              <div className="p-6 rounded-[2.5rem] bg-gradient-to-br from-white/[0.03] to-transparent border border-white/5 shadow-xl group hover:border-purple-500/20 transition-all duration-500">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                    {renderBalanceIcon('ad')}
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Bonus</span>
+                </div>
+                <p className="text-3xl font-serif font-bold text-white group-hover:text-purple-200 transition-colors">{user?.adCredits || 0}</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* 3. Purchase Packs */}
+      <section className="px-6 space-y-8 relative z-10">
+        <div className="flex items-center justify-between px-2">
+          <h3 className="text-2xl font-serif font-bold text-white tracking-tight">Kredi Paketleri</h3>
+          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-amber-500/80">
+            <Sparkles className="w-3 h-3" /> Güvenli Ödeme
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6">
+          {PACKS.map((pack, idx) => (
+            <motion.button
+              key={pack.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: idx * 0.1 }}
+              whileHover={{ scale: 1.02, x: 5 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => onBuyCredits()}
+              className={`relative p-8 rounded-[2.5rem] bg-gradient-to-r ${pack.color} border border-white/5 flex items-center justify-between group shadow-2xl transition-all duration-500 hover:border-white/10`}
+            >
+              <div className="flex items-center gap-6">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-white/10 blur-xl rounded-full group-hover:bg-white/20 transition-all" />
+                  <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center relative z-10 shadow-inner">
+                    <Coins className="w-8 h-8 text-amber-400" />
+                  </div>
+                </div>
+                <div className="text-left space-y-1">
+                  <div className="flex items-center gap-3">
+                    <h4 className="text-2xl font-serif font-bold text-white tracking-tight">{pack.credits} Kredi</h4>
+                    {pack.popular && (
+                      <span className="px-3 py-1 rounded-full bg-amber-500 text-[9px] font-black uppercase tracking-widest text-black shadow-[0_0_15px_rgba(212,175,55,0.4)]">Popüler</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-medium text-zinc-500 tracking-wide">+{pack.bonus} Hediye Kredi</p>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-3">
+                <span className="text-xl font-serif font-bold text-white tracking-tight">{pack.price}</span>
+                <div className="p-2 rounded-xl bg-white/5 border border-white/10 group-hover:bg-amber-500 group-hover:text-black transition-all duration-500">
+                  <ChevronRight className="w-5 h-5" />
+                </div>
+              </div>
+            </motion.button>
+          ))}
+        </div>
+      </section>
+
+      {/* 4. Earn Free Credits */}
+      <section className="px-6 relative z-10">
+        <motion.div
+          whileHover={{ y: -5 }}
+          onClick={() => onSubscribe()}
+          className="p-10 rounded-[3rem] bg-gradient-to-br from-purple-900/20 to-transparent border border-purple-500/20 overflow-hidden relative group shadow-2xl"
+        >
+          <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/10 blur-[80px] rounded-full" />
+          
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-purple-500/20 border border-purple-500/30">
+                  <Zap className="w-6 h-6 text-purple-400" />
+                </div>
+                <h3 className="text-2xl font-serif font-bold text-white tracking-tight">Ücretsiz Kredi Kazan</h3>
+              </div>
+              <p className="text-zinc-500 text-base font-medium max-w-[240px] leading-relaxed opacity-80">
+                Reklam izleyerek anında 5 bonus kredi kazanabilirsin.
+              </p>
+              <button 
+                onClick={() => onWatchAd()}
+                className="px-8 py-4 rounded-2xl bg-purple-600 text-white font-black text-sm shadow-xl shadow-purple-900/40 hover:bg-purple-500 transition-all"
+              >
+                Hemen İzle ✨
+              </button>
+            </div>
+            <div className="relative hidden md:block">
+              <Star className="w-24 h-24 text-purple-500/20 animate-spin-slow" />
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* 5. Transaction History Link */}
+      <section className="px-6 pb-10 relative z-10">
+        <button 
+          onClick={() => onBuyCredits()}
+          className="w-full p-8 rounded-[2.5rem] bg-white/[0.02] border border-white/5 flex items-center justify-between group hover:bg-white/[0.04] transition-all duration-500"
+        >
+          <div className="flex items-center gap-5">
+            <div className="p-3 rounded-2xl bg-zinc-800/50 border border-white/5">
+              <History className="w-6 h-6 text-zinc-500" />
+            </div>
+            <div className="text-left">
+              <h4 className="text-lg font-serif font-bold text-white tracking-tight">İşlem Geçmişi</h4>
+              <p className="text-xs font-medium text-zinc-500 tracking-wide">Tüm harcamalarını ve yüklemelerini gör.</p>
+            </div>
+          </div>
+          <ChevronRight className="w-6 h-6 text-zinc-600 group-hover:text-white transition-colors" />
+        </button>
+      </section>
     </div>
   );
-};
+}

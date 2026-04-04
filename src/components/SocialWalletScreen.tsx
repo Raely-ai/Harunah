@@ -130,98 +130,138 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 text-slate-900">
+    <div className="flex flex-col h-full bg-[#050505] text-white relative overflow-hidden">
+      {/* Ambient Background Glows */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-20%] left-[-10%] w-[80%] h-[60%] bg-purple-900/10 blur-[120px] rounded-full opacity-40" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[80%] h-[60%] bg-amber-900/10 blur-[120px] rounded-full opacity-30" />
+      </div>
+
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-slate-100 px-6 py-4 flex items-center gap-4 z-10">
+      <header className="relative z-20 bg-black/40 backdrop-blur-2xl border-b border-white/5 px-6 py-6 flex items-center gap-4">
         <button 
           onClick={() => onNavigate('social-main')}
-          className="p-2 -ml-2 rounded-full hover:bg-slate-100 text-slate-600 transition-colors"
+          className="p-2 -ml-2 rounded-full hover:bg-white/5 text-white/60 transition-colors"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
         <div>
-          <h1 className="text-2xl font-serif font-bold text-slate-900">Cüzdan</h1>
-          <p className="text-xs font-medium text-slate-500">Ayrıcalıkları keşfet.</p>
+          <h1 className="text-2xl font-serif font-bold text-white tracking-tight">Mistik Cüzdan</h1>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500/60">Ayrıcalıkları Keşfet</p>
         </div>
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        <div className="p-6 space-y-8">
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32 relative z-10">
+        <div className="p-6 space-y-10">
           
           {/* Balance Card */}
-          <div className="relative p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-sm overflow-hidden flex flex-col items-center text-center">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full blur-3xl -mr-16 -mt-16 opacity-50" />
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative p-10 rounded-[3rem] bg-white/[0.02] border border-white/10 backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col items-center text-center group"
+          >
+            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/5 rounded-full blur-[80px] -mr-24 -mt-24 group-hover:bg-indigo-500/10 transition-all duration-700" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-amber-500/5 rounded-full blur-[80px] -ml-24 -mb-24 group-hover:bg-amber-500/10 transition-all duration-700" />
             
-            <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center border border-indigo-100 mb-4 relative z-10">
-              <Wallet className="w-8 h-8 text-indigo-600" />
+            <div className="w-20 h-20 rounded-[2rem] bg-white/5 flex items-center justify-center border border-white/10 mb-6 relative z-10 shadow-inner group-hover:scale-110 transition-transform duration-500">
+              <Wallet className="w-10 h-10 text-indigo-400/80" />
             </div>
             
-            <div className="relative z-10">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Mevcut Jeton Bakiyesi</p>
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-5xl font-serif font-bold text-slate-900">{currentUser.credits}</span>
-                <Sparkles className="w-6 h-6 text-amber-400" />
+            <div className="relative z-10 space-y-2">
+              <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Mevcut Jeton Bakiyesi</p>
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-6xl font-serif font-bold text-white tracking-tighter">{currentUser.credits}</span>
+                <motion.div
+                  animate={{ rotate: [0, 15, -15, 0] }}
+                  transition={{ duration: 4, repeat: Infinity }}
+                >
+                  <Sparkles className="w-8 h-8 text-amber-400" />
+                </motion.div>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Premium Packages */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 px-2">
-              <Crown className="w-5 h-5 text-amber-500" />
-              <h2 className="text-lg font-serif font-bold text-slate-900">Premium Paketler</h2>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between px-2">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <Crown className="w-5 h-5 text-amber-500" />
+                </div>
+                <h2 className="text-xl font-serif font-bold text-white tracking-tight">Premium Paketler</h2>
+              </div>
+              <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Özel Teklifler</span>
             </div>
 
-            {config.subscriptions.map((sub) => (
-              <motion.div 
-                key={sub.id}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="relative p-6 rounded-[2rem] bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-indigo-500/20 overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -mr-24 -mt-24" />
-                
-                <div className="relative z-10 flex flex-col gap-6">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="text-xl font-bold">{sub.name}</h3>
-                      <p className="text-xs text-indigo-100 mt-1">Sınırsız beğeni ve daha fazlası</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="flex items-center gap-1 justify-end">
-                        <span className="text-2xl font-serif font-bold">{sub.price}</span>
-                        <Sparkles className="w-4 h-4 text-amber-300" />
+            <div className="grid grid-cols-1 gap-6">
+              {config.subscriptions.map((sub, idx) => (
+                <motion.div 
+                  key={sub.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  whileHover={{ scale: 1.02, y: -5 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="relative p-8 rounded-[2.5rem] bg-gradient-to-br from-white/[0.03] to-transparent border border-white/10 backdrop-blur-xl text-white shadow-2xl overflow-hidden group"
+                >
+                  {/* Decorative Background Elements */}
+                  <div className={`absolute top-0 right-0 w-64 h-64 ${sub.type === 'yearly' ? 'bg-amber-500/10' : 'bg-indigo-500/10'} rounded-full blur-[100px] -mr-32 -mt-32 group-hover:opacity-100 opacity-60 transition-opacity`} />
+                  
+                  <div className="relative z-10 flex flex-col gap-8">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-2xl font-serif font-bold tracking-tight">{sub.name}</h3>
+                          {sub.type === 'yearly' && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500 text-[8px] font-black uppercase tracking-widest text-black shadow-lg shadow-amber-500/20">En İyi Değer</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-white/40 font-medium tracking-wide">Sınırsız beğeni ve mistik ayrıcalıklar</p>
                       </div>
-                      <p className="text-[10px] text-indigo-200 uppercase tracking-wider">Jeton / {sub.type === 'monthly' ? 'Ay' : 'Yıl'}</p>
+                      <div className="text-right">
+                        <div className="flex items-center gap-1 justify-end">
+                          <span className="text-3xl font-serif font-bold text-amber-200">{sub.price}</span>
+                          <Sparkles className="w-4 h-4 text-amber-400" />
+                        </div>
+                        <p className="text-[9px] text-white/30 font-black uppercase tracking-widest">Jeton / {sub.type === 'monthly' ? 'Ay' : 'Yıl'}</p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-indigo-50">
-                      <Check className="w-4 h-4 text-amber-300" />
-                      <span>Sınırsız Beğeni</span>
+                    <div className="grid grid-cols-1 gap-3">
+                      {[
+                        "Sınırsız Beğeni Hakkı",
+                        `${sub.features.superLikes} Süper Like`,
+                        "Seni Beğenenleri Gör",
+                        "Mistik Profil Analizi"
+                      ].map((feature, fIdx) => (
+                        <div key={fIdx} className="flex items-center gap-3 text-sm text-white/70 font-medium">
+                          <div className="w-5 h-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                            <Check className="w-3 h-3 text-amber-400" />
+                          </div>
+                          <span>{feature}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-indigo-50">
-                      <Check className="w-4 h-4 text-amber-300" />
-                      <span>{sub.features.superLikes} Süper Like</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-indigo-50">
-                      <Check className="w-4 h-4 text-amber-300" />
-                      <span>Seni Beğenenleri Gör</span>
-                    </div>
-                  </div>
 
-                  <button 
-                    onClick={() => handlePurchase(sub)}
-                    disabled={purchasing === sub.id}
-                    className="w-full py-4 rounded-2xl bg-white text-indigo-600 font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors disabled:opacity-70"
-                  >
-                    {purchasing === sub.id ? 'İşleniyor...' : 'Satın Al'}
-                  </button>
-                </div>
-              </motion.div>
-            ))}
+                    <button 
+                      onClick={() => handlePurchase(sub)}
+                      disabled={purchasing === sub.id}
+                      className={`w-full py-5 rounded-2xl ${sub.type === 'yearly' ? 'bg-amber-500 text-black' : 'bg-white text-black'} font-black text-sm shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100`}
+                    >
+                      {purchasing === sub.id ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
+                            <Sparkles className="w-4 h-4" />
+                          </motion.div>
+                          İşleniyor...
+                        </div>
+                      ) : 'Ayrıcalıkları Başlat'}
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           </div>
 
         </div>

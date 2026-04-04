@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { User, Settings, LogOut, ChevronRight, Calendar, Star, Wallet, Zap, ShieldCheck, Trash2 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { User, Settings, LogOut, ChevronRight, Calendar, Star, Wallet, Zap, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { UserProfile, AppTab } from '../types';
 
 interface ProfileViewProps {
   user: UserProfile;
@@ -11,9 +11,10 @@ interface ProfileViewProps {
   onDeleteAccount: () => void;
   isAdmin?: boolean;
   onAdminPanel: () => void;
+  onNavigate: (tab: AppTab) => void;
 }
 
-export default function ProfileView({ user, onEdit, onSettings, onLogout, onDeleteAccount, isAdmin, onAdminPanel }: ProfileViewProps) {
+export default function ProfileView({ user, onEdit, onSettings, onLogout, onDeleteAccount, isAdmin, onAdminPanel, onNavigate }: ProfileViewProps) {
   const SIGNS = [
     { id: 'aries', name: 'Koç' },
     { id: 'taurus', name: 'Boğa' },
@@ -151,6 +152,19 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
             <ChevronRight className="w-5 h-5 text-amber-400/40 group-hover:text-amber-400 transition-colors" />
           </button>
         )}
+
+        <button 
+          onClick={() => onNavigate('social-profile')}
+          className="w-full p-5 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 transition-all"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40 group-hover:text-amber-400 transition-colors">
+              <Users className="w-5 h-5" />
+            </div>
+            <span className="font-bold text-amber-50/80">Sosyal Profilim</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-purple-200/20 group-hover:text-amber-400 transition-colors" />
+        </button>
 
         <button 
           onClick={onSettings}
