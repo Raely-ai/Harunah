@@ -239,7 +239,7 @@ export default function App() {
           uid: user.uid,
           email: user.email || "",
           displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-          photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=AhlasDefault", // Use Google photo if available, else default
+          photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault", // Use Google photo if available, else default
           credits: 0,
           adCredits: 50,
           dailyAdCount: 0,
@@ -345,7 +345,7 @@ export default function App() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 2000);
+    }, 3500);
     
     // Play splash sound after a short delay
     const soundTimer = setTimeout(() => {
@@ -702,7 +702,7 @@ export default function App() {
 
       // Initial Notification
       toast.info("Şu an yorumcu bekleniyor...", {
-        description: "Ahlas'ın yorumcuları senin için hazırlanıyor.",
+        description: "LASYA'nın yorumcuları senin için hazırlanıyor.",
         icon: <Clock className="w-4 h-4 text-red-500" />,
         className: "bg-black/80 border-red-500/20 text-red-500 backdrop-blur-xl"
       });
@@ -864,7 +864,7 @@ export default function App() {
             className="w-16 h-16 border-4 border-amber-500/10 border-t-amber-500 rounded-full"
           />
           <div className="space-y-2 text-center">
-            <h2 className="text-xl font-serif font-bold text-amber-50">Ahlas Yükleniyor</h2>
+            <h2 className="text-xl font-serif font-bold text-amber-50">LASYA Yükleniyor</h2>
             <p className="text-purple-200/40 text-sm italic">Yıldızlar senin için hizalanıyor...</p>
           </div>
         </div>
@@ -917,12 +917,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#020205] relative text-purple-50 selection:bg-amber-500/30 overflow-x-hidden">
+    <div className="min-h-screen bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
       {/* Noise Texture Overlay */}
       <div className="fixed inset-0 noise-bg z-[1] opacity-[0.03]" />
       
       {/* Deep Mystical Gradient Overlay */}
-      <div className="fixed inset-0 bg-gradient-to-b from-purple-900/15 via-black to-amber-900/10 pointer-events-none z-[2]" />
+      <div className="fixed inset-0 bg-gradient-to-b from-purple-900/5 via-[#F8F9FB] to-[#F8F9FB] pointer-events-none z-[2]" />
 
       <Toaster position="top-center" expand={false} richColors />
       
@@ -1003,7 +1003,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="relative z-10 w-full pb-32">
+      <div className={`relative z-10 w-full ${activeTab === 'home' ? 'h-screen overflow-hidden' : 'pb-32'}`}>
         <AnimatePresence mode="wait">
           {activeTab === 'home' && userProfile && (
             <motion.div
@@ -1012,6 +1012,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="h-full w-full"
             >
               <HomeScreen 
                 user={user} 
@@ -1053,7 +1054,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#050505] pb-20"
+              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-20"
             >
               <SocialMessagesScreen 
                 currentUser={userProfile}
@@ -1070,7 +1071,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-black"
+              className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
               <HistoryScreen 
                 history={history}
@@ -1090,7 +1091,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[60] bg-black"
+              className="fixed inset-0 z-[60] bg-[#F6F4F8]"
             >
               <HoroscopeScreen 
                 onBack={() => handleNavigate('home')}
@@ -1172,7 +1173,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[70] bg-[#050505]"
+              className="fixed inset-0 z-[70] bg-[#F6F4F8]"
             >
               <SocialProfileScreen 
                 currentUser={userProfile}
@@ -1221,11 +1222,13 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        <footer className="mt-20 text-center pb-20">
-          <p className="text-xs text-purple-200/20 font-medium uppercase tracking-widest">
-            © 2026 Falcı Ahlas • Tüm Hakları Saklıdır
-          </p>
-        </footer>
+        {activeTab !== 'home' && (
+          <footer className="mt-20 text-center pb-20">
+            <p className="text-xs text-purple-200/20 font-medium uppercase tracking-widest">
+              © 2026 LASYA • Tüm Hakları Saklıdır
+            </p>
+          </footer>
+        )}
       </div>
 
       {!isChatOpen && (

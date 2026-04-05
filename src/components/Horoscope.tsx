@@ -68,13 +68,11 @@ export default function Horoscope({ onClose }: HoroscopeProps) {
         {!reading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {ZODIAC_SIGNS.map((sign) => (
-              <motion.button
+              <button
                 key={sign.name}
-                whileHover={{ scale: 1.05, y: -4 }}
-                whileTap={{ scale: 0.95 }}
                 onClick={() => handleGetReading(sign.name)}
                 disabled={loading}
-                className="relative p-6 rounded-2xl border border-blue-500/10 bg-black/40 hover:border-blue-500/40 transition-all duration-300 flex flex-col items-center gap-2 group overflow-hidden"
+                className="relative p-6 rounded-2xl border border-blue-500/10 bg-black/40 hover:border-blue-500/40 transition-all duration-300 flex flex-col items-center gap-2 group overflow-hidden active:scale-[0.98]"
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 <span className="text-4xl mb-2 text-blue-400 group-hover:scale-110 transition-transform">{sign.symbol}</span>
@@ -85,7 +83,7 @@ export default function Horoscope({ onClose }: HoroscopeProps) {
                     <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
                   </div>
                 )}
-              </motion.button>
+              </button>
             ))}
           </div>
         ) : (
@@ -97,7 +95,7 @@ export default function Horoscope({ onClose }: HoroscopeProps) {
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3 text-blue-400">
                 <Sparkles className="w-5 h-5" />
-                <span className="text-sm font-bold uppercase tracking-widest">Ahlas'ın Yorumu</span>
+                <span className="text-sm font-bold uppercase tracking-widest">LASYA'nın Yorumu</span>
               </div>
               <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-200 text-sm font-bold">
                 {ZODIAC_SIGNS.find(s => s.name === selectedSign)?.symbol} {selectedSign}

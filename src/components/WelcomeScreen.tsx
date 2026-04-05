@@ -16,25 +16,29 @@ export default function WelcomeScreen({ onNavigate }: WelcomeScreenProps) {
 
       <div className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-sm">
         <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
+          initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.5 }}
           className="relative mb-12"
         >
-          <div className="absolute inset-0 bg-amber-500/20 rounded-full blur-3xl animate-pulse" />
-          <div className="relative bg-black/40 p-8 rounded-full border border-amber-500/20 backdrop-blur-2xl">
-            <Sparkles className="w-16 h-16 text-amber-400" />
+          <div className="relative w-32 h-32 flex items-center justify-center">
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 to-amber-500/20 rounded-full blur-2xl" />
+            <img 
+              src="/logo.svg" 
+              alt="LASYA Logo" 
+              className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_15px_rgba(212,175,55,0.3)]"
+            />
           </div>
         </motion.div>
 
         <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.3, duration: 1 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2, duration: 0.5 }}
           className="text-center"
         >
           <h1 className="text-5xl font-serif font-bold tracking-tighter text-amber-50 mb-4">
-            Falcı Ahlas
+            LASYA
           </h1>
           <p className="text-lg text-purple-200/40 font-medium leading-relaxed">
             Kaderinin fısıltılarını duyma vaktin geldi. Mistik bir yolculuğa hazır mısın?

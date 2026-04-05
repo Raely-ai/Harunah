@@ -22,8 +22,8 @@ export default function SocialDisabledView({
         </div>
       </div>
       <div className="space-y-3">
-        <h3 className="text-2xl font-serif font-bold text-white tracking-tight">{title}</h3>
-        <p className="text-zinc-400 text-sm leading-relaxed max-w-[260px] mx-auto">
+        <h3 className="text-2xl font-serif font-bold text-heading tracking-tight">{title}</h3>
+        <p className="text-body text-sm leading-relaxed max-w-[260px] mx-auto">
           {description}
         </p>
       </div>

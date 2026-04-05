@@ -60,7 +60,7 @@ export default function TarotReading({ onClose }: TarotReadingProps) {
             <CreditCard className="w-10 h-10 text-purple-400" />
           </div>
           <h2 className="text-3xl font-serif font-bold text-purple-50 mb-2">Tarot Falı</h2>
-          <p className="text-purple-200/60 font-medium">Kaderini belirleyecek 3 kart seç, Ahlas senin için yorumlasın.</p>
+          <p className="text-purple-200/60 font-medium">Kaderini belirleyecek 3 kart seç, LASYA senin için yorumlasın.</p>
         </div>
 
         {!reading ? (
@@ -116,7 +116,7 @@ export default function TarotReading({ onClose }: TarotReadingProps) {
           >
             <div className="flex items-center gap-3 mb-6 text-purple-400">
               <Sparkles className="w-5 h-5" />
-              <span className="text-sm font-bold uppercase tracking-widest">Ahlas'ın Yorumu</span>
+              <span className="text-sm font-bold uppercase tracking-widest">LASYA'nın Yorumu</span>
             </div>
             <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
               {selectedCards.map((card, i) => (

@@ -47,7 +47,7 @@ export default function DreamInterpretation({ onClose }: DreamInterpretationProp
             <Cloud className="w-10 h-10 text-indigo-400" />
           </div>
           <h2 className="text-3xl font-serif font-bold text-indigo-50 mb-2">Rüya Tabiri</h2>
-          <p className="text-purple-200/60 font-medium">Gördüğün rüyayı anlat, Ahlas senin için gizemini çözsün.</p>
+          <p className="text-purple-200/60 font-medium">Gördüğün rüyayı anlat, LASYA senin için gizemini çözsün.</p>
         </div>
 
         {!reading ? (
@@ -92,7 +92,7 @@ export default function DreamInterpretation({ onClose }: DreamInterpretationProp
           >
             <div className="flex items-center gap-3 mb-6 text-indigo-400">
               <Sparkles className="w-5 h-5" />
-              <span className="text-sm font-bold uppercase tracking-widest">Ahlas'ın Yorumu</span>
+              <span className="text-sm font-bold uppercase tracking-widest">LASYA'nın Yorumu</span>
             </div>
             <div className="text-purple-50/90 leading-relaxed font-serif text-lg">
               <Markdown>{reading}</Markdown>

@@ -99,19 +99,19 @@ export default function HomeScreen({
   const isSocialEnabled = isSocialProfileReady(userProfile);
 
   return (
-    <div className="flex flex-col min-h-screen bg-transparent">
-      {/* Top Navigation Bar */}
-      <div className="sticky top-0 z-30 bg-[#050505]/80 backdrop-blur-2xl border-b border-white/5 pt-[env(safe-area-inset-top,2.5rem)] pb-5 px-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+    <div className="relative h-full w-full bg-[#F6F4F8] overflow-hidden">
+      {/* Top Navigation Bar - Absolute to allow content to go under */}
+      <div className="absolute top-0 left-0 right-0 z-50 header-gradient backdrop-blur-sm pt-[env(safe-area-inset-top,2.5rem)] pb-10 px-4">
         <div className="max-w-md mx-auto flex items-center justify-between gap-3">
-          {/* Left side spacer to help centering */}
+          {/* Left side spacer */}
           <div className="w-10 hidden xs:block" />
 
-          {/* Social Tabs - Centered and Balanced */}
-          <div className="relative flex bg-white/5 p-1 rounded-2xl border border-white/10 flex-1 max-w-[240px] shadow-inner">
+          {/* Social Tabs */}
+          <div className="relative flex bg-black/5 p-1 rounded-2xl border border-black/5 flex-1 max-w-[240px] shadow-inner backdrop-blur-xl">
             {/* Sliding Background Indicator */}
             <motion.div
               layoutId="activeTab"
-              className="absolute inset-y-1 bg-white/10 rounded-xl border border-white/10 shadow-lg z-0"
+              className="absolute inset-y-1 bg-white rounded-xl border border-black/5 shadow-lg z-0"
               initial={false}
               animate={{
                 left: activeTopTab === 'discover' ? '4px' : '50%',
@@ -124,41 +124,39 @@ export default function HomeScreen({
               onClick={() => setActiveTopTab('discover')}
               className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
                 activeTopTab === 'discover' 
-                  ? 'text-white' 
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-heading' 
+                  : 'text-muted hover:text-body'
               }`}
             >
-              <Users className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'discover' ? 'text-amber-400' : ''}`} />
-              <span className="hidden sm:inline">Keşfet</span>
-              <span className="sm:hidden">Keşfet</span>
+              <Users className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'discover' ? 'text-amber-600' : ''}`} />
+              <span>Keşfet</span>
             </button>
             <button
               onClick={() => setActiveTopTab('match')}
               className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
                 activeTopTab === 'match' 
-                  ? 'text-white' 
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-heading' 
+                  : 'text-muted hover:text-body'
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'match' ? 'text-rose-400' : ''}`} />
-              <span className="hidden sm:inline">Karşılaşma</span>
-              <span className="sm:hidden">Karşılaşma</span>
+              <Heart className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'match' ? 'text-rose-600' : ''}`} />
+              <span>Karşılaşma</span>
             </button>
           </div>
 
-          {/* Right Controls - Compact and aligned */}
+          {/* Right Controls */}
           <div className="flex items-center justify-end min-w-[70px]">
             {activeTopTab === 'discover' && (
               <button 
                 onClick={handleRefreshDiscover}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 transition-all active:scale-95 shadow-lg shadow-amber-500/5"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 hover:bg-amber-500/20 transition-all active:scale-95 shadow-lg shadow-amber-500/5"
               >
                 <RefreshCw className="w-3 h-3 flex-shrink-0" />
                 <span className="text-[10px] font-black tracking-tighter tabular-nums">{refreshTimer}</span>
               </button>
             )}
             {activeTopTab === 'match' && (
-              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-zinc-400 shadow-lg">
+              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/5 border border-black/5 text-muted shadow-lg backdrop-blur-xl">
                 <Heart className="w-3 h-3 text-rose-500 flex-shrink-0 fill-rose-500/20" />
                 <span className="text-[10px] font-black tracking-tighter tabular-nums">
                   {getRemainingSwipes(userProfile)}
@@ -170,16 +168,16 @@ export default function HomeScreen({
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1">
+      <div className="h-full w-full">
         <AnimatePresence mode="wait">
           {activeTopTab === 'discover' && (
             <motion.div
               key="discover"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="w-full"
+              className="h-full w-full overflow-y-auto pt-28 pb-32"
             >
               {!isSocialEnabled ? (
                 <SocialDisabledView onNavigate={onNavigate} />
@@ -198,11 +196,11 @@ export default function HomeScreen({
           {activeTopTab === 'match' && (
             <motion.div
               key="match"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="w-full"
+              className="h-full w-full"
             >
               {!isSocialEnabled ? (
                 <SocialDisabledView onNavigate={onNavigate} />

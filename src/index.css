@@ -5,40 +5,33 @@
   --font-serif: "Playfair Display", serif;
   
   --breakpoint-xs: 375px;
-  
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
-  }
-  
-  @keyframes pulse-glow {
-    0%, 100% { opacity: 0.5; filter: blur(10px); }
-    50% { opacity: 1; filter: blur(15px); }
-  }
 
-  @keyframes star-twinkle {
-    0%, 100% { opacity: 0.3; transform: scale(0.8); }
-    50% { opacity: 1; transform: scale(1.2); }
-  }
+  --color-heading: #171423;
+  --color-body: #5F6170;
+  --color-muted: #8A8D98;
 }
 
 .animate-float {
-  animation: float 6s ease-in-out infinite;
+  /* animation: float 6s ease-in-out infinite; */
 }
 
 .animate-pulse-glow {
-  animation: pulse-glow 4s ease-in-out infinite;
+  /* animation: pulse-glow 4s ease-in-out infinite; */
 }
 
 .animate-star {
-  animation: star-twinkle 3s ease-in-out infinite;
+  /* animation: star-twinkle 3s ease-in-out infinite; */
 }
 
 .celestial-bg {
-  background: radial-gradient(circle at 50% 50%, #0a0a0a 0%, #050505 100%);
+  background: #F6F4F8;
   position: fixed;
   inset: 0;
   z-index: -1;
+}
+
+.header-gradient {
+  background: linear-gradient(to bottom, #FFFFFF, #F6F4F8);
 }
 
 .star-particle {

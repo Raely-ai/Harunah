@@ -75,7 +75,7 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
             >
               <div className="text-center space-y-2">
                 <h2 className="text-3xl font-serif font-bold text-amber-50">Kimin Falı?</h2>
-                <p className="text-purple-200/40">Ahlas'ın fısıltılarını kimin için duymak istersin?</p>
+                <p className="text-purple-200/40">LASYA'nın fısıltılarını kimin için duymak istersin?</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -163,7 +163,7 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
             >
               <div className="text-center space-y-2">
                 <h2 className="text-3xl font-serif font-bold text-amber-50">Fincan Fotoğrafları</h2>
-                <p className="text-purple-200/40">Ahlas'ın sembolleri görebilmesi için net fotoğraflar yükle.</p>
+                <p className="text-purple-200/40">LASYA'nın sembolleri görebilmesi için net fotoğraflar yükle.</p>
               </div>
 
               <div className="grid grid-cols-1 gap-4">

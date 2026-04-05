@@ -19,7 +19,6 @@ import SocialStoryArea from "./SocialStoryArea";
 import SocialProfilePopup from "./SocialProfilePopup";
 import SocialGridBlock from "./SocialGridBlock";
 import { socialService } from "../lib/socialService";
-import OptimizedImage from "./OptimizedImage";
 
 interface SocialDiscoverScreenProps {
   currentUser: UserProfile;
@@ -27,10 +26,9 @@ interface SocialDiscoverScreenProps {
   onBack?: () => void;
   config: AppConfig | null;
   horoscope?: Horoscope | null;
-  isActive?: boolean;
 }
 
-function DiscoverCard({ user, currentUser, onClick, isActive }: { user: UserProfile, currentUser: UserProfile, onClick: () => void, isActive?: boolean }) {
+function DiscoverCard({ user, currentUser, onClick }: { user: UserProfile, currentUser: UserProfile, onClick: () => void }) {
   const compatibility = calculateCompatibility(currentUser, user);
   const score = Math.max(compatibility.love, compatibility.friendship);
   
@@ -39,19 +37,18 @@ function DiscoverCard({ user, currentUser, onClick, isActive }: { user: UserProf
       whileHover={{ scale: 1.02, y: -4 }}
       whileTap={{ scale: 0.98 }}
       initial={{ opacity: 0, y: 20 }}
-      animate={isActive ? { opacity: 1, y: 0 } : { opacity: 1, y: 0 }}
+      animate={{ opacity: 1, y: 0 }}
       className="relative aspect-[3/4] rounded-3xl overflow-hidden cursor-pointer group shadow-2xl shadow-purple-500/10"
       onClick={onClick}
     >
-      <OptimizedImage 
+      <img 
         src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
-        containerClassName="w-full h-full"
-        alt={user.social?.nickname || user.nickname}
+        referrerPolicy="no-referrer"
       />
       
       {/* Glass Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500" />
       
       {/* Content */}
       <div className="absolute inset-x-0 bottom-0 p-4 flex flex-col gap-1">
@@ -62,12 +59,12 @@ function DiscoverCard({ user, currentUser, onClick, isActive }: { user: UserProf
             </h4>
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-              <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">Aktif</span>
+              <span className="text-[10px] font-medium text-white/60 uppercase tracking-wider">Aktif</span>
             </div>
           </div>
           
           <div className="flex flex-col items-end">
-            <div className="px-2 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center gap-1 shadow-xl">
+            <div className="px-2 py-1 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center gap-1 shadow-xl">
               <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
               <span className="text-[10px] font-black text-white">%{score}</span>
             </div>
@@ -77,21 +74,21 @@ function DiscoverCard({ user, currentUser, onClick, isActive }: { user: UserProf
 
       {/* Premium Glow */}
       <motion.div 
-        animate={isActive ? { 
+        animate={{ 
           opacity: [0.1, 0.3, 0.1],
           scale: [1, 1.02, 1]
-        } : { opacity: 0.1, scale: 1 }}
+        }}
         transition={{ repeat: Infinity, duration: 4 }}
         className="absolute -inset-px rounded-3xl border border-white/10 group-hover:border-purple-500/50 transition-colors duration-500 z-20 pointer-events-none" 
       />
       
-      {/* Aura Glow - Reduced for Android performance */}
-      <div className="absolute -inset-2 bg-purple-500/0 group-hover:bg-purple-500/5 blur-xl rounded-full transition-all duration-700 -z-10" />
+      {/* Aura Glow */}
+      <div className="absolute -inset-4 bg-purple-500/0 group-hover:bg-purple-500/10 blur-2xl rounded-full transition-all duration-700 -z-10" />
     </motion.div>
   );
 }
 
-export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, config, horoscope, isActive }: SocialDiscoverScreenProps) {
+export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, config, horoscope }: SocialDiscoverScreenProps) {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [featuredUsers, setFeaturedUsers] = useState<UserProfile[]>([]);
   const [loveUsers, setLoveUsers] = useState<UserProfile[]>([]);
@@ -102,8 +99,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    if (!isActive) return;
-
     const targetGender = getTargetGender(currentUser);
     const usersRef = collection(db, "users");
     
@@ -225,28 +220,37 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
         case 'INVALID_TARGET':
           toast.error("Geçersiz kullanıcı.");
           break;
+        case 'TECHNICAL_ERROR':
+          console.error("SocialDiscoverScreen: socialService returned TECHNICAL_ERROR");
+          toast.error("İstek gönderilirken teknik bir hata oluştu. Lütfen tekrar dene.");
+          break;
         default:
+          console.error("SocialDiscoverScreen: socialService returned unknown result:", result);
           toast.error("İstek gönderilirken bir hata oluştu.");
           break;
       }
     } catch (error) {
       console.error("SocialDiscoverScreen: Error in handleSendMessage catch block:", error);
-      toast.error("İstek gönderilirken bir hata oluştu.");
+      if (error instanceof Error) {
+        console.error("Error Message:", error.message);
+        console.error("Error Stack:", error.stack);
+      }
+      toast.error("İstek gönderilirken kritik bir hata oluştu.");
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#050505] text-white relative overflow-hidden">
-      {/* Background Effects - Simplified for performance */}
-      <div className="absolute inset-0 bg-gradient-to-b from-purple-900/10 via-black to-black pointer-events-none" />
-      <div className="absolute top-[-5%] left-[-5%] w-[30%] h-[30%] bg-purple-600/5 blur-[80px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-[5%] right-[-5%] w-[30%] h-[30%] bg-amber-600/5 blur-[80px] rounded-full pointer-events-none" />
+    <div className="flex flex-col h-full w-full bg-[#F6F4F8] text-body relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0 bg-gradient-to-b from-purple-900/5 via-[#F6F4F8] to-[#F6F4F8] pointer-events-none" />
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[10%] right-[-10%] w-[40%] h-[40%] bg-amber-600/5 blur-[120px] rounded-full pointer-events-none" />
       
-      {/* Floating Particles - Reduced count for Android */}
-      <div className="absolute inset-0 pointer-events-none opacity-20">
-        {isActive && [...Array(10)].map((_, i) => (
+      {/* Floating Particles */}
+      <div className="absolute inset-0 pointer-events-none opacity-30">
+        {[...Array(20)].map((_, i) => (
           <motion.div
             key={i}
             initial={{ 
@@ -264,7 +268,7 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
               ease: "linear",
               delay: Math.random() * 10
             }}
-            className="absolute w-1 h-1 bg-white rounded-full"
+            className="absolute w-1 h-1 bg-black/10 rounded-full"
           />
         ))}
       </div>
@@ -273,10 +277,10 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
         {/* Featured Section Header */}
         <div className="px-6 pt-8 pb-2 flex items-center justify-between">
           <div className="flex flex-col">
-            <h3 className="text-xl font-serif font-bold text-white tracking-tight flex items-center gap-2">
-              Öne Çıkanlar <Sparkles className="w-4 h-4 text-amber-400" />
+            <h3 className="text-xl font-serif font-bold text-heading tracking-tight flex items-center gap-2">
+              Öne Çıkanlar <Sparkles className="w-4 h-4 text-amber-500" />
             </h3>
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">
+            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mt-1">
               Bugün öne çıkan enerjiler
             </p>
           </div>
@@ -286,10 +290,10 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
         
         {/* Main Discover Section Header */}
         <div className="px-6 pt-10 pb-4">
-          <h3 className="text-lg font-serif font-bold text-white tracking-tight flex items-center gap-2">
-            Ruh Eşini Keşfet <Star className="w-4 h-4 text-purple-400" />
+          <h3 className="text-lg font-serif font-bold text-heading tracking-tight flex items-center gap-2">
+            Ruh Eşini Keşfet <Star className="w-4 h-4 text-purple-500" />
           </h3>
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">
+          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mt-1">
             Frekansına en yakın ruhlar
           </p>
         </div>
@@ -302,7 +306,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
               user={u} 
               currentUser={currentUser} 
               onClick={() => setSelectedUser(u)} 
-              isActive={isActive}
             />
           ))}
         </div>
@@ -313,7 +316,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
           color="red" 
           onSelect={setSelectedUser} 
           currentUser={currentUser}
-          isActive={isActive}
         />
         
         {/* Secondary Grid */}
@@ -324,7 +326,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
               user={u} 
               currentUser={currentUser} 
               onClick={() => setSelectedUser(u)} 
-              isActive={isActive}
             />
           ))}
         </div>
@@ -335,7 +336,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
           color="blue" 
           onSelect={setSelectedUser} 
           currentUser={currentUser}
-          isActive={isActive}
         />
         
         {/* Final Grid */}
@@ -346,7 +346,6 @@ export default function SocialDiscoverScreen({ currentUser, onNavigate, onBack, 
               user={u} 
               currentUser={currentUser} 
               onClick={() => setSelectedUser(u)} 
-              isActive={isActive}
             />
           ))}
         </div>

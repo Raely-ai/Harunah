@@ -81,24 +81,24 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
 
           <div className="text-center mb-6">
             <div className="flex items-center justify-center gap-2 mb-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-200/40">Mistik Profilin</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-muted">Mistik Profilin</p>
               {user.subscription && user.subscription.status === 'active' && (
                 <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[8px] font-black uppercase tracking-widest border border-amber-500/20">Premium</span>
               )}
             </div>
-            <h2 className="text-3xl font-serif font-bold text-amber-50 leading-tight">{user.displayName}</h2>
-            <p className="text-purple-200/40 font-medium text-sm mt-1">{user.email}</p>
+            <h2 className="text-3xl font-serif font-bold text-heading leading-tight">{user.displayName}</h2>
+            <p className="text-muted font-medium text-sm mt-1">{user.email}</p>
           </div>
 
           <div className="flex gap-3">
             {user.birthDate && (
-              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
+              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-body">
                 <Calendar className="w-4 h-4 text-amber-400/60" />
                 <span>{new Date(user.birthDate).toLocaleDateString('tr-TR')}</span>
               </div>
             )}
             {userSignName && (
-              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-purple-200/60">
+              <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2 text-sm text-body">
                 <Star className="w-4 h-4 text-amber-400/60" />
                 <span>{userSignName}</span>
               </div>
@@ -114,10 +114,10 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
               <Wallet className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-black text-purple-200/40 uppercase tracking-widest">Ana Jeton</span>
+            <span className="text-[10px] font-black text-muted uppercase tracking-widest">Ana Jeton</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-amber-50">{user.credits}</span>
+            <span className="text-2xl font-bold text-heading">{user.credits}</span>
             <span className="text-[10px] font-bold text-amber-200/40 uppercase">Jeton</span>
           </div>
         </div>
@@ -127,10 +127,10 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
               <Zap className="w-4 h-4" />
             </div>
-            <span className="text-[10px] font-black text-purple-200/40 uppercase tracking-widest">Enerji</span>
+            <span className="text-[10px] font-black text-muted uppercase tracking-widest">Enerji</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-amber-50">{user.adCredits}</span>
+            <span className="text-2xl font-bold text-heading">{user.adCredits}</span>
             <span className="text-[10px] font-bold text-blue-200/40 uppercase">Enerji</span>
           </div>
         </div>
@@ -158,10 +158,10 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
           className="w-full p-5 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 transition-all"
         >
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40 group-hover:text-amber-400 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-muted group-hover:text-amber-400 transition-colors">
               <Users className="w-5 h-5" />
             </div>
-            <span className="font-bold text-amber-50/80">Sosyal Profilim</span>
+            <span className="font-bold text-body">Sosyal Profilim</span>
           </div>
           <ChevronRight className="w-5 h-5 text-purple-200/20 group-hover:text-amber-400 transition-colors" />
         </button>
@@ -171,10 +171,10 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
           className="w-full p-5 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-between group hover:bg-white/10 transition-all"
         >
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40 group-hover:text-amber-400 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-muted group-hover:text-amber-400 transition-colors">
               <Settings className="w-5 h-5" />
             </div>
-            <span className="font-bold text-amber-50/80">Ayarlar</span>
+            <span className="font-bold text-body">Ayarlar</span>
           </div>
           <ChevronRight className="w-5 h-5 text-purple-200/20 group-hover:text-amber-400 transition-colors" />
         </button>
@@ -184,7 +184,7 @@ export default function ProfileView({ user, onEdit, onSettings, onLogout, onDele
       <div className="space-y-3">
         <button
           onClick={onLogout}
-          className="w-full flex items-center justify-center gap-3 p-5 rounded-2xl bg-white/5 border border-white/10 text-purple-200/60 font-bold hover:bg-white/10 transition-all"
+          className="w-full flex items-center justify-center gap-3 p-5 rounded-2xl bg-white/5 border border-white/10 text-body font-bold hover:bg-white/10 transition-all"
         >
           <LogOut className="w-5 h-5" />
           <span>Oturumu Kapat</span>

@@ -83,7 +83,7 @@ export const generateFortune = async (data: PromptData): Promise<FortuneResult> 
       model: "gemini-3-flash-preview",
       contents: [{ parts: [{ text: prompt }] }],
       config: {
-        systemInstruction: "Sen 'Ahlas' isminde, çok derin ve mistik bir kahinsin. Kullanıcının verdiği bilgilere göre ona özel, etkileyici ve gerçekçi bir fal yorumu yapmalısın. Dilin gizemli, şiirsel ama anlaşılır olmalı. Yorumun en az 300 kelime olmalı.",
+        systemInstruction: "Sen 'LASYA' isminde, çok derin ve mistik bir kahinsin. Kullanıcının verdiği bilgilere göre ona özel, etkileyici ve gerçekçi bir fal yorumu yapmalısın. Dilin gizemli, şiirsel ama anlaşılır olmalı. Yorumun en az 300 kelime olmalı.",
       },
     });
 

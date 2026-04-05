@@ -95,10 +95,14 @@ export default function RegisterScreen({ onNavigate }: RegisterScreenProps) {
           <div className="flex flex-col items-center text-center mb-10 relative">
             <motion.div 
               whileHover={{ scale: 1.1, rotate: 5 }}
-              className="p-5 rounded-[2rem] bg-gradient-to-br from-amber-500/10 to-purple-500/10 border border-white/10 mb-6 shadow-inner relative group"
+              className="w-24 h-24 flex items-center justify-center relative group mb-6"
             >
-              <div className="absolute inset-0 bg-amber-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <Sparkles className="w-10 h-10 text-amber-400 relative z-10 drop-shadow-[0_0_10px_rgba(212,175,55,0.5)]" />
+              <div className="absolute inset-0 bg-amber-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity rounded-full" />
+              <img 
+                src="/logo.svg" 
+                alt="LASYA Logo" 
+                className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_10px_rgba(212,175,55,0.5)]"
+              />
             </motion.div>
             <h2 className="text-3xl sm:text-4xl font-serif font-bold text-white mb-3 tracking-tight">
               Aramıza Katıl

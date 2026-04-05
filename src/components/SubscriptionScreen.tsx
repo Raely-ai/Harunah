@@ -59,7 +59,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
             <Crown className="w-5 h-5 text-amber-400" />
           </div>
-          <span className="text-sm font-bold uppercase tracking-widest text-amber-400">Ahlas Premium</span>
+          <span className="text-sm font-bold uppercase tracking-widest text-amber-400">LASYA Premium</span>
         </div>
         <button 
           onClick={onClose}
@@ -83,7 +83,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
             </span>
           </motion.h1>
           <p className="text-purple-200/40 max-w-xs mx-auto">
-            Ahlas Premium ile evrenin kapılarını sonuna kadar aç ve mistik dünyanın tüm sırlarına eriş.
+            LASYA Premium ile evrenin kapılarını sonuna kadar aç ve mistik dünyanın tüm sırlarına eriş.
           </p>
         </div>
 

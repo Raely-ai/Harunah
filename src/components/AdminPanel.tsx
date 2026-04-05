@@ -1345,7 +1345,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <div className="space-y-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex-1 mr-4">
-                <h2 className="text-2xl font-serif font-bold text-amber-50">Ahlas Social Yönetimi</h2>
+                <h2 className="text-2xl font-serif font-bold text-amber-50">LASYA Social Yönetimi</h2>
                 <p className="text-xs text-purple-200/40">Üyeler ve canlı sohbet odaları</p>
               </div>
               <div className="flex gap-4">

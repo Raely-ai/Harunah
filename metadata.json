@@ -1,5 +1,5 @@
 {
-  "name": "Falcı Ahlas",
-  "description": "Mystical fortune telling app featuring coffee readings, tarot, and daily horoscopes.",
+  "name": "LASYA",
+  "description": "Modern and minimal mystical fortune telling app.",
   "requestFramePermissions": ["camera"]
 }

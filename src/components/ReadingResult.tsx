@@ -117,7 +117,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
             <div className="mt-12 pt-8 border-t border-white/5 flex justify-center">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/40">
                 <Sparkles className="w-3 h-3" />
-                <span>Ahlas'ın Kehaneti</span>
+                <span>LASYA'nın Kehaneti</span>
                 <Sparkles className="w-3 h-3" />
               </div>
             </div>

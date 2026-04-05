@@ -275,7 +275,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
             >
               <div className="text-center space-y-2">
                 <h2 className="text-3xl font-serif font-bold text-indigo-50">Sorularını Sor</h2>
-                <p className="text-purple-200/40">Ahlas'a sormak istediğin her şeyi detaylıca yaz.</p>
+                <p className="text-purple-200/40">LASYA'ya sormak istediğin her şeyi detaylıca yaz.</p>
               </div>
 
               {/* Identity Photos */}

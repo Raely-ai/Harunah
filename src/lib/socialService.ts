@@ -20,40 +20,33 @@ import { UserProfile, InteractionRequest, SocialActionResult, Message } from "..
 
 export const socialService = {
   // 1. Create or Get Chat
-  async createChat(userAId: string, userBId: string): Promise<string> {
+  async createChat(userAId: string, userBId: string, existingBatch?: any): Promise<string> {
     const chatId = `chat_${[userAId, userBId].sort().join('_')}`;
     const chatRef = doc(db, "chats", chatId);
     const chatSnap = await getDoc(chatRef);
 
     if (chatSnap.exists()) return chatId;
 
-    // Fetch snapshots for denormalization
-    const [userASnap, userBSnap] = await Promise.all([
-      getDoc(doc(db, "users", userAId)),
-      getDoc(doc(db, "users", userBId))
-    ]);
+    // Backward Compatibility: Check for legacy chat with random ID
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", userAId),
+      limit(20)
+    );
+    const snap = await getDocs(q);
+    const legacyChat = snap.docs.find(d => {
+      const parts = d.data().participants as string[];
+      return parts.includes(userBId);
+    });
 
-    const userAData = userASnap.data() as UserProfile;
-    const userBData = userBSnap.data() as UserProfile;
-
-    const participantSnapshots = {
-      [userAId]: {
-        nickname: userAData?.social?.nickname || userAData?.displayName || "Kullanıcı",
-        photoURL: userAData?.social?.photos?.[0] || userAData?.photoURL || ""
-      },
-      [userBId]: {
-        nickname: userBData?.social?.nickname || userBData?.displayName || "Kullanıcı",
-        photoURL: userBData?.social?.photos?.[0] || userBData?.photoURL || ""
-      }
-    };
+    if (legacyChat) return legacyChat.id;
 
     // Create new deterministic chat
-    const batch = writeBatch(db);
+    const batch = existingBatch || writeBatch(db);
     
     batch.set(chatRef, {
       id: chatId,
       participants: [userAId, userBId],
-      participantSnapshots,
       createdAt: serverTimestamp(),
       lastMessage: "Sohbet başladı! 👋",
       lastMessageAt: serverTimestamp(),
@@ -82,22 +75,33 @@ export const socialService = {
       type: 'system'
     });
 
-    await batch.commit();
+    if (!existingBatch) {
+      await batch.commit();
+    }
     return chatId;
   },
 
   // 2. Send Like (Encounter Module)
   async sendLike(fromUser: UserProfile, toUserId: string, type: 'like' | 'super_like' | 'pass'): Promise<SocialActionResult> {
-    if (!toUserId) return 'INVALID_TARGET';
-    if (fromUser.uid === toUserId) return 'SELF_ACTION';
+    console.log("socialService: sendLike called", { fromUserId: fromUser.uid, toUserId, type });
+    if (!toUserId) {
+      console.warn("socialService: sendLike INVALID_TARGET (toUserId missing)");
+      return 'INVALID_TARGET';
+    }
+    if (fromUser.uid === toUserId) {
+      console.warn("socialService: sendLike SELF_ACTION");
+      return 'SELF_ACTION';
+    }
 
     try {
       const swipeId = `swipe_${fromUser.uid}_${toUserId}`;
       let swipeRef = doc(db, "swipes", swipeId);
+      console.log("socialService: Checking swipe existence:", swipeId);
       let swipeSnap = await getDoc(swipeRef);
 
       // Backward Compatibility: Check for legacy swipe with random ID
       if (!swipeSnap.exists()) {
+        console.log("socialService: Swipe not found by ID, checking legacy query...");
         const q = query(
           collection(db, "swipes"),
           where("fromUserId", "==", fromUser.uid),
@@ -106,6 +110,7 @@ export const socialService = {
         );
         const snap = await getDocs(q);
         if (!snap.empty) {
+          console.log("socialService: Legacy swipe found:", snap.docs[0].id);
           swipeRef = doc(db, "swipes", snap.docs[0].id);
           swipeSnap = snap.docs[0];
         }
@@ -113,17 +118,24 @@ export const socialService = {
 
       if (swipeSnap.exists()) {
         const existingData = swipeSnap.data();
+        console.log("socialService: Existing swipe data:", existingData);
         // If it's the same type, ignore
-        if (existingData.type === type) return 'SUCCESS';
+        if (existingData.type === type) {
+          console.log("socialService: Same swipe type, ignoring.");
+          return 'SUCCESS';
+        }
         
         // If changing from 'pass' to 'like'/'super_like', we allow it
         if (existingData.type === 'pass' && (type === 'like' || type === 'super_like')) {
+          console.log("socialService: Changing pass to like/super_like");
           // Continue to update
         } else {
+          console.log("socialService: Already swiped, treating as success");
           return 'SUCCESS'; // Already swiped, treat as success
         }
       }
 
+      console.log("socialService: Committing swipe batch...");
       const batch = writeBatch(db);
 
       batch.set(swipeRef, {
@@ -177,9 +189,10 @@ export const socialService = {
       }
 
       await batch.commit();
+      console.log("socialService: Swipe batch committed successfully.");
       return 'SUCCESS';
     } catch (error) {
-      console.error("Error in sendLike:", error);
+      console.error("socialService: Error in sendLike:", error);
       return 'TECHNICAL_ERROR';
     }
   },
@@ -188,7 +201,7 @@ export const socialService = {
   async sendMessageRequest(fromUser: UserProfile, toUser: UserProfile): Promise<SocialActionResult> {
     const currentUid = auth.currentUser?.uid;
     
-    console.log("sendMessageRequest called:", { 
+    console.log("socialService: sendMessageRequest called", { 
       passedFromUserId: fromUser?.uid, 
       authCurrentUserId: currentUid,
       toUserId: toUser?.uid,
@@ -197,64 +210,94 @@ export const socialService = {
     });
 
     if (!toUser?.uid) {
-      console.warn("sendMessageRequest: INVALID_TARGET (toUser.uid missing)");
+      console.warn("socialService: sendMessageRequest INVALID_TARGET (toUser.uid missing)");
       return 'INVALID_TARGET';
     }
     
-    // Use auth.currentUser.uid as the source of truth for the sender ID
-    const fromUserId = currentUid || fromUser?.uid;
-    
-    if (!fromUserId) {
-      console.warn("sendMessageRequest: TECHNICAL_ERROR (fromUserId missing)");
+    // CRITICAL: Use auth.currentUser.uid as the ONLY source of truth for the sender ID
+    // If it's missing, we MUST fail because Firestore rules will reject it anyway.
+    if (!currentUid) {
+      console.error("socialService: sendMessageRequest TECHNICAL_ERROR (auth.currentUser.uid is missing)");
       return 'TECHNICAL_ERROR';
     }
     
+    const fromUserId = currentUid;
+    
     if (fromUserId === toUser.uid) {
-      console.warn("sendMessageRequest: SELF_ACTION");
+      console.warn("socialService: sendMessageRequest SELF_ACTION");
       return 'SELF_ACTION';
     }
 
     try {
       // 1. Check if chat already exists (Deterministic Chat ID)
       const chatId = `chat_${[fromUserId, toUser.uid].sort().join('_')}`;
-      console.log("Checking chat existence:", chatId);
-      const chatSnap = await getDoc(doc(db, "chats", chatId));
-      if (chatSnap.exists()) {
-        console.log("Chat already exists.");
+      console.log("socialService: Checking chat existence:", chatId);
+      
+      let chatSnap;
+      try {
+        chatSnap = await getDoc(doc(db, "chats", chatId));
+      } catch (err) {
+        console.error("socialService: Error checking chat existence (likely permission denied on non-existent doc):", err);
+        // If we can't read it, we assume it doesn't exist or we don't have permission.
+        // But with the new rules, this should not happen.
+      }
+
+      if (chatSnap?.exists()) {
+        console.log("socialService: Chat already exists.");
         return 'ALREADY_CHATTING';
       }
 
       // 2. Check if request already exists (Deterministic Request ID)
       const requestId = `request_${fromUserId}_${toUser.uid}`;
-      console.log("Checking request existence:", requestId);
+      console.log("socialService: Checking request existence:", requestId);
       let requestRef = doc(db, "interactionRequests", requestId);
-      let requestSnap = await getDoc(requestRef);
+      let requestSnap;
+      
+      try {
+        requestSnap = await getDoc(requestRef);
+      } catch (err) {
+        console.error("socialService: Error checking request existence:", err);
+      }
       
       // Backward Compatibility: Check for legacy request with random ID
-      if (!requestSnap.exists()) {
-        const q = query(
-          collection(db, "interactionRequests"),
-          where("fromUserId", "==", fromUserId),
-          where("toUserId", "==", toUser.uid),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          requestRef = doc(db, "interactionRequests", snap.docs[0].id);
-          requestSnap = snap.docs[0];
+      // ONLY if deterministic one doesn't exist AND we didn't have a permission error
+      if (!requestSnap?.exists()) {
+        console.log("socialService: Request not found by ID, checking legacy query...");
+        try {
+          const q = query(
+            collection(db, "interactionRequests"),
+            where("fromUserId", "==", fromUserId),
+            where("toUserId", "==", toUser.uid),
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            console.log("socialService: Legacy request found:", snap.docs[0].id);
+            requestRef = doc(db, "interactionRequests", snap.docs[0].id);
+            requestSnap = snap.docs[0];
+          }
+        } catch (queryErr) {
+          console.warn("socialService: Legacy query failed (likely missing index):", queryErr);
+          // If query fails, we just proceed with the deterministic ID.
         }
       }
 
-      if (requestSnap.exists()) {
+      if (requestSnap?.exists()) {
         const existingData = requestSnap.data();
-        console.log("Request already exists with status:", existingData.status);
-        if (existingData.status === 'pending') return 'ALREADY_REQUESTED';
-        if (existingData.status === 'accepted') return 'ALREADY_CHATTING';
+        console.log("socialService: Existing request data:", existingData);
+        if (existingData.status === 'pending') {
+          console.log("socialService: Request already pending.");
+          return 'ALREADY_REQUESTED';
+        }
+        if (existingData.status === 'accepted') {
+          console.log("socialService: Request already accepted (chat should exist).");
+          return 'ALREADY_CHATTING';
+        }
         // If rejected, we allow resubmitting (overwriting the existing doc)
       }
 
       // 3. Create request with deterministic ID or update legacy one
-      console.log("Creating/Updating interaction request...");
+      console.log("socialService: Committing request batch...");
       const batch = writeBatch(db);
       
       const requestData = {
@@ -263,7 +306,7 @@ export const socialService = {
         toUserId: toUser.uid,
         status: "pending",
         type: "message_request",
-        createdAt: requestSnap.exists() ? requestSnap.data().createdAt : serverTimestamp(),
+        createdAt: (requestSnap?.exists() && requestSnap.data().createdAt) ? requestSnap.data().createdAt : serverTimestamp(),
         updatedAt: serverTimestamp(),
         senderSnapshot: {
           nickname: fromUser.social?.nickname || fromUser.displayName || "İsimsiz",
@@ -289,16 +332,15 @@ export const socialService = {
         createdAt: serverTimestamp()
       });
 
-      console.log("Committing batch...");
       await batch.commit();
-      console.log("Batch committed successfully.");
+      console.log("socialService: Request batch committed successfully.");
       return 'SUCCESS';
     } catch (error) {
-      console.error("CRITICAL ERROR in sendMessageRequest:", error);
+      console.error("socialService: CRITICAL ERROR in sendMessageRequest:", error);
       // Log more details if it's a Firebase error
       if (error && typeof error === 'object' && 'code' in error) {
-        console.error("Firebase Error Code:", (error as any).code);
-        console.error("Firebase Error Message:", (error as any).message);
+        console.error("socialService: Firebase Error Code:", (error as any).code);
+        console.error("socialService: Firebase Error Message:", (error as any).message);
       }
       return 'TECHNICAL_ERROR';
     }
@@ -306,12 +348,31 @@ export const socialService = {
 
   // 4. Accept Request
   async acceptRequest(request: InteractionRequest) {
-    await updateDoc(doc(db, "interactionRequests", request.id), {
+    const batch = writeBatch(db);
+    
+    // 1. Update request status
+    batch.update(doc(db, "interactionRequests", request.id), {
       status: 'accepted',
       updatedAt: serverTimestamp()
     });
 
-    return await this.createChat(request.fromUserId, request.toUserId);
+    // 2. Create chat (this will add to the batch)
+    const chatId = await this.createChat(request.fromUserId, request.toUserId, batch);
+    
+    // 3. Create notification for the sender
+    const notifRef = doc(collection(db, "notifications"));
+    batch.set(notifRef, {
+      userId: request.fromUserId,
+      type: "request_accepted",
+      title: "İstek Kabul Edildi!",
+      message: "Mesaj isteğin kabul edildi, sohbete başlayabilirsin! 🎉",
+      data: { chatId },
+      read: false,
+      createdAt: serverTimestamp()
+    });
+
+    await batch.commit();
+    return chatId;
   },
 
   // 5. Reject Request
@@ -394,24 +455,27 @@ export const socialService = {
     );
 
     const snap = await getDocs(q);
-    const batch = writeBatch(db);
-
-    if (!snap.empty) {
-      snap.docs.forEach(d => {
-        batch.update(d.ref, { status: 'seen', seen: true });
+    if (snap.empty) {
+      // Still need to reset unreadCount in chat doc
+      await updateDoc(doc(db, "chats", chatId), {
+        [`unreadCount.${currentUserId}`]: 0
       });
+      return;
     }
 
-    // Always reset unreadCount and update lastMessageStatus if applicable
-    const chatRef = doc(db, "chats", chatId);
-    batch.update(chatRef, {
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+      batch.update(d.ref, { status: 'seen', seen: true });
+    });
+
+    batch.update(doc(db, "chats", chatId), {
       [`unreadCount.${currentUserId}`]: 0
     });
 
     // If the last message was from the other user, update its status in the chat doc too
-    const chatSnap = await getDoc(chatRef);
+    const chatSnap = await getDoc(doc(db, "chats", chatId));
     if (chatSnap.exists() && chatSnap.data().lastMessageSenderId === otherUserId) {
-      batch.update(chatRef, {
+      batch.update(doc(db, "chats", chatId), {
         lastMessageStatus: 'seen'
       });
     }
@@ -435,15 +499,6 @@ export const socialService = {
     snap.docs.forEach(d => {
       batch.update(d.ref, { status: 'delivered' });
     });
-
-    // Update lastMessageStatus in chat doc if applicable
-    const chatRef = doc(db, "chats", chatId);
-    const chatSnap = await getDoc(chatRef);
-    if (chatSnap.exists() && chatSnap.data().lastMessageSenderId === otherUserId && chatSnap.data().lastMessageStatus === 'sent') {
-      batch.update(chatRef, {
-        lastMessageStatus: 'delivered'
-      });
-    }
     
     await batch.commit();
   },

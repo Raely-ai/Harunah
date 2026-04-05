@@ -120,13 +120,22 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
       setStep(step + 1);
     } else {
       // Final step: Complete onboarding
-      await updateFirestore({
-        "social.enabled": true,
-        "social.profileCompleted": true,
-        "social.visible": true,
-        "social.banned": false
-      });
-      onComplete();
+      try {
+        setLoading(true);
+        const userRef = doc(db, "users", auth.currentUser!.uid);
+        await updateDoc(userRef, {
+          "social.enabled": true,
+          "social.profileCompleted": true,
+          "social.visible": true,
+          "social.banned": false
+        });
+        onComplete();
+      } catch (error) {
+        console.error("Firestore update error:", error);
+        toast.error("İlerleme kaydedilemedi.");
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -141,28 +150,28 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Burada ne arıyorsun?</h2>
-              <p className="text-slate-500">Niyetin, enerjini doğru insanlara ulaştırır.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Burada ne arıyorsun?</h2>
+              <p className="text-body">Niyetin, enerjini doğru insanlara ulaştırır.</p>
             </div>
             <div className="grid grid-cols-1 gap-4">
               {[
-                { id: 'aşk', icon: Heart, label: 'Aşk', color: 'text-rose-500', bg: 'bg-rose-50' },
-                { id: 'dostluk', icon: Users, label: 'Dostluk', color: 'text-blue-500', bg: 'bg-blue-50' },
-                { id: 'sohbet', icon: MessageCircle, label: 'Sohbet', color: 'text-amber-500', bg: 'bg-amber-50' }
+                { id: 'aşk', icon: Heart, label: 'Aşk', color: 'text-rose-600', bg: 'bg-rose-500/10' },
+                { id: 'dostluk', icon: Users, label: 'Dostluk', color: 'text-blue-600', bg: 'bg-blue-500/10' },
+                { id: 'sohbet', icon: MessageCircle, label: 'Sohbet', color: 'text-amber-600', bg: 'bg-amber-500/10' }
               ].map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setFormData({ ...formData, lookingFor: item.id })}
                   className={`p-6 rounded-3xl border-2 transition-all flex items-center gap-6 ${
                     formData.lookingFor === item.id 
-                      ? "border-indigo-500 bg-indigo-50 shadow-lg shadow-indigo-500/5" 
-                      : "border-slate-100 bg-white hover:bg-slate-50"
+                      ? "border-indigo-600 bg-indigo-500/5 shadow-lg shadow-indigo-600/5" 
+                      : "border-black/5 bg-white hover:bg-black/5"
                   }`}
                 >
                   <div className={`w-14 h-14 rounded-2xl ${item.bg} flex items-center justify-center ${item.color}`}>
                     <item.icon className="w-7 h-7" />
                   </div>
-                  <span className="text-xl font-bold text-slate-900">{item.label}</span>
+                  <span className="text-xl font-bold text-heading">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -172,8 +181,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Takma adın ne olsun?</h2>
-              <p className="text-slate-500">Seni herkes bu isimle görecek.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Takma adın ne olsun?</h2>
+              <p className="text-body">Seni herkes bu isimle görecek.</p>
             </div>
             <div className="relative">
               <input
@@ -181,10 +190,10 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
                 value={formData.nickname}
                 onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
                 placeholder="Örn: MistikRuh"
-                className="w-full bg-white border-2 border-slate-100 rounded-3xl p-6 text-xl text-slate-900 focus:border-indigo-500 outline-none transition-all text-center shadow-sm"
+                className="w-full bg-white border-2 border-black/5 rounded-3xl p-6 text-xl text-heading focus:border-indigo-600 outline-none transition-all text-center shadow-sm placeholder:text-muted"
               />
               <div className="absolute top-1/2 -translate-y-1/2 right-6 opacity-20">
-                <User className="w-6 h-6 text-slate-400" />
+                <User className="w-6 h-6 text-muted" />
               </div>
             </div>
           </div>
@@ -193,18 +202,18 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Doğum tarihin?</h2>
-              <p className="text-slate-500">Enerji analizinin temelidir.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Doğum tarihin?</h2>
+              <p className="text-body">Enerji analizinin temelidir.</p>
             </div>
             <div className="relative">
               <input
                 type="date"
                 value={formData.birthDate}
                 onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                className="w-full bg-white border-2 border-slate-100 rounded-3xl p-6 text-xl text-slate-900 focus:border-indigo-500 outline-none transition-all text-center [color-scheme:light] shadow-sm"
+                className="w-full bg-white border-2 border-black/5 rounded-3xl p-6 text-xl text-heading focus:border-indigo-600 outline-none transition-all text-center [color-scheme:light] shadow-sm"
               />
               <div className="absolute top-1/2 -translate-y-1/2 right-6 opacity-20 pointer-events-none">
-                <Calendar className="w-6 h-6 text-slate-400" />
+                <Calendar className="w-6 h-6 text-muted" />
               </div>
             </div>
           </div>
@@ -213,8 +222,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Cinsiyetin?</h2>
-              <p className="text-slate-500">Doğru eşleşmeler için gereklidir.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Cinsiyetin?</h2>
+              <p className="text-body">Doğru eşleşmeler için gereklidir.</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {[
@@ -226,12 +235,12 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
                   onClick={() => setFormData({ ...formData, gender: item.id })}
                   className={`p-8 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${
                     formData.gender === item.id 
-                      ? "border-indigo-500 bg-indigo-50 shadow-lg shadow-indigo-500/5" 
-                      : "border-slate-100 bg-white hover:bg-slate-50"
+                      ? "border-indigo-600 bg-indigo-500/5 shadow-lg shadow-indigo-600/5" 
+                      : "border-black/5 bg-white hover:bg-black/5"
                   }`}
                 >
                   <span className="text-4xl">{item.icon}</span>
-                  <span className="text-xl font-bold text-slate-900">{item.label}</span>
+                  <span className="text-xl font-bold text-heading">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -241,10 +250,10 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">İlgi alanların?</h2>
-              <p className="text-slate-500">En az 5 tane seçmelisin. ({formData.interests.length}/5)</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">İlgi alanların?</h2>
+              <p className="text-body">En az 5 tane seçmelisin. ({formData.interests.length}/5)</p>
             </div>
-            <div className="flex flex-wrap justify-center gap-2 max-h-[40vh] overflow-y-auto p-4 bg-white rounded-3xl border border-slate-100 shadow-sm">
+            <div className="flex flex-wrap justify-center gap-2 max-h-[40vh] overflow-y-auto p-4 bg-white rounded-3xl border border-black/5 shadow-sm">
               {INTERESTS.map((interest) => {
                 const isSelected = formData.interests.includes(interest);
                 return (
@@ -259,8 +268,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
                     }}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                       isSelected 
-                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20" 
-                        : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20" 
+                        : "bg-black/5 text-muted hover:bg-black/10"
                     }`}
                   >
                     {interest}
@@ -274,19 +283,19 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Fotoğraf ekle</h2>
-              <p className="text-slate-500">Opsiyoneldir. Eklemezsen mistik bir avatar atanır.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Fotoğraf ekle</h2>
+              <p className="text-body">Opsiyoneldir. Eklemezsen mistik bir avatar atanır.</p>
             </div>
             <div className="flex justify-center">
               <div className="relative">
                 <div 
-                  className="w-48 h-48 rounded-[3rem] bg-white border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden group shadow-sm cursor-pointer"
+                  className="w-48 h-48 rounded-[3rem] bg-white border-2 border-dashed border-black/10 flex items-center justify-center overflow-hidden group shadow-sm cursor-pointer"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {formData.photos.length > 0 ? (
                     <img src={formData.photos[0]} alt="Profil" className="w-full h-full object-cover" />
                   ) : (
-                    <Camera className="w-12 h-12 text-slate-200 group-hover:text-slate-300 transition-colors" />
+                    <Camera className="w-12 h-12 text-black/10 group-hover:text-black/20 transition-colors" />
                   )}
                   {isUploading && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -303,14 +312,14 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
         return (
           <div className="space-y-8">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl font-serif font-bold text-slate-900">Kendinden bahset</h2>
-              <p className="text-slate-500">Kısa bir bio enerjini yansıtır.</p>
+              <h2 className="text-3xl font-serif font-bold text-heading">Kendinden bahset</h2>
+              <p className="text-body">Kısa bir bio enerjini yansıtır.</p>
             </div>
             <textarea
               value={formData.bio}
               onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
               placeholder="Nelerden hoşlanırsın? Hayata bakışın nasıl?..."
-              className="w-full bg-white border-2 border-slate-100 rounded-3xl p-6 text-lg text-slate-900 focus:border-indigo-500 outline-none transition-all h-48 resize-none shadow-sm"
+              className="w-full bg-white border-2 border-black/5 rounded-3xl p-6 text-lg text-heading focus:border-indigo-600 outline-none transition-all h-48 resize-none shadow-sm placeholder:text-muted"
             />
           </div>
         );
@@ -320,13 +329,13 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className="w-32 h-32 rounded-[3rem] bg-indigo-600 flex items-center justify-center shadow-xl shadow-indigo-500/20"
+              className="w-32 h-32 rounded-[3rem] bg-indigo-600 flex items-center justify-center shadow-xl shadow-indigo-600/20"
             >
               <CheckCircle2 className="w-16 h-16 text-white" />
             </motion.div>
             <div className="text-center space-y-4">
-              <h2 className="text-4xl font-serif font-bold text-slate-900">Her şey hazır!</h2>
-              <p className="text-slate-500">Sosyal profilin oluşturuldu. <br />Artık enerjine uygun insanlarla tanışabilirsin.</p>
+              <h2 className="text-4xl font-serif font-bold text-heading">Her şey hazır!</h2>
+              <p className="text-body">Sosyal profilin oluşturuldu. <br />Artık enerjine uygun insanlarla tanışabilirsin.</p>
             </div>
           </div>
         );
@@ -336,18 +345,18 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
   };
 
   return (
-    <div className="h-full w-full bg-slate-50 text-slate-900 overflow-y-auto flex flex-col relative overscroll-behavior-y-contain">
+    <div className="h-full w-full bg-[#F6F4F8] text-heading overflow-y-auto flex flex-col relative overscroll-behavior-y-contain">
       {/* Background Effects */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[70%] h-[70%] bg-indigo-50 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[70%] h-[70%] bg-purple-50 rounded-full blur-[120px]" />
+        <div className="absolute top-[-10%] left-[-10%] w-[70%] h-[70%] bg-indigo-500/5 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[70%] h-[70%] bg-purple-500/5 rounded-full blur-[120px]" />
       </div>
 
       {/* Header */}
       <header className="relative z-10 p-6 flex items-center justify-between flex-shrink-0">
         <button 
           onClick={prevStep}
-          className="w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors shadow-sm"
+          className="w-12 h-12 rounded-2xl bg-white border border-black/5 flex items-center justify-center text-muted hover:text-heading transition-colors shadow-sm"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -356,7 +365,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
             <div 
               key={i} 
               className={`h-1 rounded-full transition-all duration-500 ${
-                i + 1 <= step ? "w-4 bg-indigo-500" : "w-2 bg-slate-200"
+                i + 1 <= step ? "w-4 bg-indigo-600" : "w-2 bg-black/10"
               }`} 
             />
           ))}
@@ -387,8 +396,8 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
           whileTap={{ scale: 0.98 }}
           disabled={loading}
           onClick={nextStep}
-          className={`w-full py-5 rounded-[2rem] bg-slate-900 text-white font-black text-lg shadow-xl shadow-slate-900/10 flex items-center justify-center gap-2 ${
-            loading ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-800"
+          className={`w-full py-5 rounded-[2rem] bg-heading text-white font-black text-lg shadow-xl shadow-black/10 flex items-center justify-center gap-2 ${
+            loading ? "opacity-50 cursor-not-allowed" : "hover:bg-black"
           }`}
         >
           {loading ? (

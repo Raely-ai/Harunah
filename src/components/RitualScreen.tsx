@@ -74,24 +74,12 @@ export default function RitualScreen({ type, reading, onClose }: RitualScreenPro
     >
       {/* Mystical Animation Center */}
       <div className="relative">
-        {/* Outer Rotating Rings */}
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-          className="w-64 h-64 rounded-full border border-dashed border-white/10 flex items-center justify-center"
-        >
-          <motion.div
-            animate={{ rotate: -360 }}
-            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-            className="w-48 h-48 rounded-full border border-dashed border-amber-500/20 flex items-center justify-center"
-          >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
-              className="w-32 h-32 rounded-full border border-purple-500/30"
-            />
-          </motion.div>
-        </motion.div>
+        {/* Outer Rotating Rings Simplified */}
+        <div className="w-64 h-64 rounded-full border border-dashed border-white/10 flex items-center justify-center">
+          <div className="w-48 h-48 rounded-full border border-dashed border-amber-500/20 flex items-center justify-center">
+            <div className="w-32 h-32 rounded-full border border-purple-500/30" />
+          </div>
+        </div>
 
         {/* Floating Icons based on type */}
         <div className="absolute inset-0 flex items-center justify-center">
@@ -109,32 +97,7 @@ export default function RitualScreen({ type, reading, onClose }: RitualScreenPro
           </AnimatePresence>
         </div>
 
-        {/* Orbiting Particles */}
-        {[...Array(8)].map((_, i) => (
-          <motion.div
-            key={i}
-            animate={{
-              rotate: 360,
-              scale: [1, 1.2, 1],
-            }}
-            transition={{
-              duration: 3 + Math.random() * 2,
-              repeat: Infinity,
-              delay: i * 0.5,
-            }}
-            className="absolute inset-0 pointer-events-none"
-          >
-            <motion.div
-              animate={{
-                y: [0, -10, 0],
-                opacity: [0.2, 0.6, 0.2]
-              }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-amber-400/40 blur-[1px]"
-              style={{ transform: `rotate(${i * 45}deg) translateY(-120px)` }}
-            />
-          </motion.div>
-        ))}
+        {/* Orbiting Particles Removed */}
       </div>
 
       {/* Status Text Area */}
@@ -152,7 +115,7 @@ export default function RitualScreen({ type, reading, onClose }: RitualScreenPro
             </h2>
             <p className="text-purple-200/40 text-sm leading-relaxed italic">
               {currentStep === 0 && "Evrenin frekansları senin için hizalanıyor..."}
-              {currentStep === 1 && "Ahlas'ın en bilge yorumcuları enerjine odaklanıyor..."}
+              {currentStep === 1 && "LASYA'nın en bilge yorumcuları enerjine odaklanıyor..."}
               {currentStep === 2 && "Semboller ve yıldızlar geleceğin kapılarını aralıyor..."}
             </p>
           </motion.div>

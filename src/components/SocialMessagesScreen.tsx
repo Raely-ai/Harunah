@@ -45,26 +45,23 @@ import SocialProfilePopup from "./SocialProfilePopup";
 import { socialService } from "../lib/socialService";
 import { isSocialProfileReady } from "../lib/socialUtils";
 import SocialDisabledView from "./SocialDisabledView";
-import OptimizedImage from "./OptimizedImage";
 
 export default function SocialMessagesScreen({ 
   currentUser, 
   onBack, 
   onNavigate,
-  onChatOpenChange,
-  isActive
+  onChatOpenChange 
 }: { 
   currentUser: UserProfile, 
   onBack?: () => void, 
   onNavigate: (tab: any) => void,
-  onChatOpenChange?: (isOpen: boolean) => void,
-  isActive?: boolean
+  onChatOpenChange?: (isOpen: boolean) => void
 }) {
   const [activeTab, setActiveTab] = useState<'chats' | 'requests' | 'likers'>('chats');
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [chats, setChats] = useState<(Chat & { otherUser: UserProfile })[]>([]);
   const [requests, setRequests] = useState<InteractionRequestType[]>([]);
   const [likers, setLikers] = useState<{ id: string, user: UserProfile, createdAt: any }[]>([]);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [selectedChat, setSelectedChat] = useState<(Chat & { otherUser: UserProfile }) | null>(null);
   const [selectedLiker, setSelectedLiker] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -74,27 +71,41 @@ export default function SocialMessagesScreen({
   // Sync chat open state with parent
   useEffect(() => {
     onChatOpenChange?.(!!selectedChat);
-    if (selectedChat && currentUser.uid && isActive) {
-      const otherUserId = selectedChat.participants.find(id => id !== currentUser.uid);
-      if (otherUserId) {
-        // Mark as seen immediately when chat is selected from list
-        socialService.markAsSeen(selectedChat.id, currentUser.uid, otherUserId);
-      }
+    if (selectedChat && currentUser.uid) {
+      // Mark as seen immediately when chat is selected from list
+      socialService.markAsSeen(selectedChat.id, currentUser.uid, selectedChat.otherUser.uid);
     }
-  }, [selectedChat, onChatOpenChange, currentUser.uid, isActive]);
+  }, [selectedChat, onChatOpenChange, currentUser.uid]);
 
   // Fetch Chats
   useEffect(() => {
-    if (!currentUser.uid || !isActive) return;
+    if (!currentUser.uid) return;
     const q = query(
       collection(db, "chats"),
       where("participants", "array-contains", currentUser.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const chatList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const chatDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
       
-      // Improved sorting
+      const chatList = await Promise.all(chatDocs.map(async (chatData) => {
+        const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
+        
+        // Use cache if available to speed up "live" updates
+        let otherUser = profilesCache.current[otherUserId!];
+        if (!otherUser) {
+          const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
+          otherUser = { uid: otherUserSnap.id, ...otherUserSnap.data() } as UserProfile;
+          profilesCache.current[otherUserId!] = otherUser;
+        }
+        
+        return {
+          ...chatData,
+          otherUser
+        };
+      }));
+      
+      // Improved sorting: Handle pending server timestamps by using current time as fallback
       chatList.sort((a, b) => {
         const timeA = a.lastMessageAt?.toMillis?.() || Date.now();
         const timeB = b.lastMessageAt?.toMillis?.() || Date.now();
@@ -109,11 +120,11 @@ export default function SocialMessagesScreen({
     });
 
     return () => unsubscribe();
-  }, [currentUser.uid, isActive]);
+  }, [currentUser.uid]);
 
   // Fetch Requests
   useEffect(() => {
-    if (!currentUser.uid || !isActive) return;
+    if (!currentUser.uid) return;
     const q = query(
       collection(db, "interactionRequests"),
       where("toUserId", "==", currentUser.uid),
@@ -139,11 +150,11 @@ export default function SocialMessagesScreen({
     });
 
     return () => unsubscribe();
-  }, [currentUser.uid, isActive]);
+  }, [currentUser.uid]);
 
   // Fetch Likers
   useEffect(() => {
-    if (!currentUser.uid || !isActive) return;
+    if (!currentUser.uid) return;
     const q = query(
       collection(db, "swipes"),
       where("toUserId", "==", currentUser.uid),
@@ -151,40 +162,66 @@ export default function SocialMessagesScreen({
     );
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
+      console.log(`SocialMessagesScreen: Likers query returned ${snapshot.docs.length} docs`);
+      
       const likerList = await Promise.all(snapshot.docs.map(async (swipeDoc) => {
-        const swipeData = swipeDoc.data();
-        const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
-        return {
-          id: swipeDoc.id,
-          user: { uid: senderSnap.id, ...senderSnap.data() } as UserProfile,
-          createdAt: swipeData.createdAt
-        };
+        try {
+          const swipeData = swipeDoc.data();
+          console.log(`SocialMessagesScreen: Processing swipe ${swipeDoc.id} from ${swipeData.fromUserId}`);
+          
+          const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
+          
+          if (!senderSnap.exists()) {
+            console.warn(`SocialMessagesScreen: User ${swipeData.fromUserId} not found for swipe ${swipeDoc.id}`);
+            return {
+              id: swipeDoc.id,
+              user: { 
+                uid: swipeData.fromUserId, 
+                nickname: "Gizli Kullanıcı",
+                photoURL: "",
+                social: { nickname: "Gizli Kullanıcı", photos: [] }
+              } as any as UserProfile,
+              createdAt: swipeData.createdAt
+            };
+          }
+
+          return {
+            id: swipeDoc.id,
+            user: { uid: senderSnap.id, ...senderSnap.data() } as UserProfile,
+            createdAt: swipeData.createdAt
+          };
+        } catch (err) {
+          console.error(`SocialMessagesScreen: Error fetching profile for swipe ${swipeDoc.id}:`, err);
+          return null;
+        }
       }));
 
-      // Client-side sort
-      likerList.sort((a, b) => {
+      // Filter out failed fetches and sort
+      const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
+      
+      validLikers.sort((a, b) => {
         const timeA = a.createdAt?.toMillis() || 0;
         const timeB = b.createdAt?.toMillis() || 0;
         return timeB - timeA;
       });
 
-      setLikers(likerList);
+      console.log(`SocialMessagesScreen: Setting ${validLikers.length} valid likers`);
+      setLikers(validLikers);
     }, (error) => {
+      console.error("SocialMessagesScreen: Likers onSnapshot error:", error);
       handleFirestoreError(error, OperationType.LIST, "swipes");
     });
 
     return () => unsubscribe();
-  }, [currentUser.uid, isActive]);
+  }, [currentUser.uid]);
 
   const filteredChats = useMemo(() => {
     if (!searchQuery.trim()) return chats;
     return chats.filter(chat => {
-      const otherUserId = chat.participants.find(id => id !== currentUser.uid);
-      const otherUserSnapshot = chat.participantSnapshots?.[otherUserId!];
-      const name = (otherUserSnapshot?.nickname || "Kullanıcı").toLowerCase();
+      const name = (chat.otherUser.social?.nickname || chat.otherUser.nickname || "").toLowerCase();
       return name.includes(searchQuery.toLowerCase());
     });
-  }, [chats, searchQuery, currentUser.uid]);
+  }, [chats, searchQuery]);
 
   const handleAcceptRequest = async (request: InteractionRequestType) => {
     if (isProcessing) return;
@@ -197,14 +234,18 @@ export default function SocialMessagesScreen({
       const chatSnap = await getDoc(doc(db, "chats", chatId));
       if (chatSnap.exists()) {
         const chatData = chatSnap.data() as Chat;
+        const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
+        const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
         setSelectedChat({
           ...chatData,
-          id: chatSnap.id
+          id: chatSnap.id,
+          otherUser: { uid: otherUserSnap.id, ...otherUserSnap.data() } as UserProfile
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error accepting request:", error);
-      toast.error("İstek kabul edilirken bir hata oluştu.");
+      const errorMessage = error?.message || "İstek kabul edilirken bir hata oluştu.";
+      toast.error(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -234,14 +275,18 @@ export default function SocialMessagesScreen({
       const chatSnap = await getDoc(doc(db, "chats", chatId));
       if (chatSnap.exists()) {
         const chatData = chatSnap.data() as Chat;
+        const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
+        const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
         setSelectedChat({
           ...chatData,
-          id: chatSnap.id
+          id: chatSnap.id,
+          otherUser: { uid: otherUserSnap.id, ...otherUserSnap.data() } as UserProfile
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error starting chat:", error);
-      toast.error("Sohbet başlatılırken bir hata oluştu.");
+      const errorMessage = error?.message || "Sohbet başlatılırken bir hata oluştu.";
+      toast.error(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -291,9 +336,7 @@ export default function SocialMessagesScreen({
           if (msg.senderId !== currentUser.uid && selectedChat?.id !== msg.chatId) {
             const chat = chats.find(c => c.id === msg.chatId);
             if (chat) {
-              const otherUserId = chat.participants.find(id => id !== currentUser.uid);
-              const otherUserSnapshot = chat.participantSnapshots?.[otherUserId!];
-              toast(otherUserSnapshot?.nickname || "Yeni Mesaj", {
+              toast(chat.otherUser.social?.nickname || chat.otherUser.nickname, {
                 description: msg.text || (msg.mediaType === 'image' ? "📷 Fotoğraf" : "🎥 Video"),
                 action: {
                   label: "Görüntüle",
@@ -313,10 +356,10 @@ export default function SocialMessagesScreen({
 
   if (!isSocialEnabled) {
     return (
-      <div className="flex flex-col h-full bg-[#050505] text-zinc-100">
-        <header className="bg-black/40 backdrop-blur-3xl border-b border-white/5 px-6 py-5 flex flex-col gap-1 z-10">
-          <h1 className="text-2xl font-serif font-bold text-white tracking-tight">Mesajlar</h1>
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sohbetler, istekler ve beğeniler</p>
+      <div className="flex flex-col h-full bg-[#F6F4F8] text-body">
+        <header className="header-gradient backdrop-blur-3xl border-b border-black/5 px-6 py-5 flex flex-col gap-1 z-10">
+          <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
+          <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Sohbetler, istekler ve beğeniler</p>
         </header>
         <div className="flex-1 overflow-y-auto no-scrollbar">
           <SocialDisabledView onNavigate={onNavigate} />
@@ -326,20 +369,20 @@ export default function SocialMessagesScreen({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#050505] text-zinc-100">
+    <div className="flex flex-col h-full bg-[#F6F4F8] text-body">
       {/* Header */}
-      <header className="bg-black/40 backdrop-blur-3xl border-b border-white/5 px-6 py-5 flex flex-col gap-1 z-10">
-        <h1 className="text-2xl font-serif font-bold text-white tracking-tight">Mesajlar</h1>
-        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sohbetler, istekler ve beğeniler</p>
+      <header className="header-gradient backdrop-blur-3xl border-b border-black/5 px-6 py-5 flex flex-col gap-1 z-10">
+        <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
+        <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Sohbetler, istekler ve beğeniler</p>
       </header>
 
       {/* Tabs */}
-      <div className="px-4 py-3 bg-black/20 border-b border-white/5">
-        <div className="flex bg-white/[0.03] p-1 rounded-2xl border border-white/5 backdrop-blur-xl">
+      <div className="px-4 py-3 bg-black/5 border-b border-black/5">
+        <div className="flex bg-black/[0.03] p-1 rounded-2xl border border-black/5 backdrop-blur-xl">
           <button 
             onClick={() => setActiveTab('chats')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              activeTab === 'chats' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-zinc-500 hover:text-zinc-300'
+              activeTab === 'chats' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-muted hover:text-body'
             }`}
           >
             <MessageCircle className="w-3.5 h-3.5" />
@@ -348,13 +391,13 @@ export default function SocialMessagesScreen({
           <button 
             onClick={() => setActiveTab('requests')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
-              activeTab === 'requests' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-zinc-500 hover:text-zinc-300'
+              activeTab === 'requests' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-muted hover:text-body'
             }`}
           >
             <UserPlus className="w-3.5 h-3.5" />
             İstekler
             {requests.length > 0 && (
-              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#050505] ${activeTab === 'requests' ? 'bg-white text-black' : 'bg-amber-500 text-black'}`}>
+              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#F6F4F8] ${activeTab === 'requests' ? 'bg-white text-black' : 'bg-amber-500 text-black'}`}>
                 {requests.length}
               </span>
             )}
@@ -362,13 +405,13 @@ export default function SocialMessagesScreen({
           <button 
             onClick={() => setActiveTab('likers')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
-              activeTab === 'likers' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-zinc-500 hover:text-zinc-300'
+              activeTab === 'likers' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-muted hover:text-body'
             }`}
           >
             <Heart className="w-3.5 h-3.5" />
             Beğeniler
             {likers.length > 0 && (
-              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#050505] ${activeTab === 'likers' ? 'bg-white text-black' : 'bg-amber-500 text-black'}`}>
+              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#F6F4F8] ${activeTab === 'likers' ? 'bg-white text-black' : 'bg-amber-500 text-black'}`}>
                 {likers.length}
               </span>
             )}
@@ -378,20 +421,20 @@ export default function SocialMessagesScreen({
 
       {/* Search Bar (Only for Chats) */}
       {activeTab === 'chats' && chats.length > 0 && (
-        <div className="px-4 py-3 border-b border-white/5">
+        <div className="px-4 py-3 border-b border-black/5">
           <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-amber-500 transition-colors" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-amber-600 transition-colors" />
             <input 
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Sohbetlerde ara..."
-              className="w-full bg-white/[0.03] border border-white/5 rounded-xl py-3 pl-11 pr-4 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/30 transition-all"
+              className="w-full bg-black/[0.03] border border-black/5 rounded-xl py-3 pl-11 pr-4 text-xs text-heading placeholder:text-muted focus:outline-none focus:border-amber-500/30 transition-all"
             />
             {searchQuery && (
               <button 
                 onClick={() => setSearchQuery("")}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-white/5 text-zinc-500"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-black/5 text-muted"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -418,21 +461,21 @@ export default function SocialMessagesScreen({
                 <div className="flex flex-col items-center justify-center py-32 px-10 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-amber-500/10 blur-3xl rounded-full" />
-                    <div className="relative p-8 rounded-[2rem] bg-white/[0.03] border border-white/10 backdrop-blur-xl">
-                      <MessageCircle className="w-16 h-16 text-zinc-700" />
+                    <div className="relative p-8 rounded-[2rem] bg-black/[0.03] border border-black/10 backdrop-blur-xl">
+                      <MessageCircle className="w-16 h-16 text-muted" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-white">
+                    <h3 className="text-xl font-serif font-bold text-heading">
                       {searchQuery ? "Sonuç bulunamadı" : "Henüz sohbet yok"}
                     </h3>
-                    <p className="text-sm text-zinc-500 max-w-[200px] mx-auto">
+                    <p className="text-sm text-muted max-w-[200px] mx-auto">
                       {searchQuery ? "Aramanla eşleşen bir sohbet bulamadık." : "Karşılaştığın kişilerle burada sohbet edebilirsin."}
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="divide-y divide-white/5">
+                <div className="divide-y divide-black/5">
                   {filteredChats.map(chat => (
                     <ChatListItem 
                       key={chat.id} 
@@ -458,20 +501,20 @@ export default function SocialMessagesScreen({
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-amber-500/10 blur-3xl rounded-full" />
-                    <div className="relative w-20 h-20 rounded-[1.5rem] bg-white/[0.03] flex items-center justify-center border border-white/10 backdrop-blur-xl">
-                      <UserPlus className="w-10 h-10 text-zinc-700" />
+                    <div className="relative w-20 h-20 rounded-[1.5rem] bg-black/[0.03] flex items-center justify-center border border-black/10 backdrop-blur-xl">
+                      <UserPlus className="w-10 h-10 text-muted" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-white">İstek kutun boş</h3>
-                    <p className="text-sm text-zinc-500 max-w-[200px] mx-auto">Gelen mesaj ve süper like istekleri burada görünür.</p>
+                    <h3 className="text-xl font-serif font-bold text-heading">İstek kutun boş</h3>
+                    <p className="text-sm text-muted max-w-[200px] mx-auto">Gelen mesaj ve süper like istekleri burada görünür.</p>
                   </div>
                 </div>
               ) : (
                 requests.map(request => (
-                  <div key={request.id} className="bg-white/[0.03] rounded-[2rem] p-5 border border-white/10 backdrop-blur-xl shadow-2xl flex flex-col gap-4">
+                  <div key={request.id} className="bg-white rounded-[2rem] p-5 border border-black/5 shadow-sm flex flex-col gap-4">
                     <div className="flex gap-4">
-                      <div className="w-16 h-16 rounded-2xl overflow-hidden bg-zinc-900 flex-shrink-0 border border-white/10">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden bg-black/5 flex-shrink-0 border border-black/5">
                         <img 
                           src={request.senderSnapshot.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${request.fromUserId}`} 
                           alt="User"
@@ -481,28 +524,28 @@ export default function SocialMessagesScreen({
                       </div>
                       <div className="flex-1 flex flex-col justify-center">
                         <div className="flex items-center justify-between mb-1">
-                          <h4 className="font-bold text-base text-white">{request.senderSnapshot.nickname}</h4>
+                          <h4 className="font-bold text-base text-heading">{request.senderSnapshot.nickname}</h4>
                           <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${
-                            request.type === 'message_request' ? 'text-blue-400 bg-blue-400/10 border-blue-400/20' : 'text-amber-400 bg-amber-400/10 border-amber-400/20'
+                            request.type === 'message_request' ? 'text-blue-600 bg-blue-500/10 border-blue-500/20' : 'text-amber-600 bg-amber-500/10 border-amber-500/20'
                           }`}>
                             {request.type === 'message_request' ? 'Mesaj İsteği' : 'Süper Like'}
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-400 line-clamp-2 italic opacity-60">"Sana bir mesaj isteği gönderdi."</p>
+                        <p className="text-xs text-body line-clamp-2 italic opacity-60">"Sana bir mesaj isteği gönderdi."</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-3 pt-4 border-t border-black/5">
                       <button 
                         onClick={() => handleRejectRequest(request.id)} 
                         disabled={isProcessing}
-                        className="flex-1 py-3 rounded-xl bg-white/5 text-zinc-400 text-xs font-bold hover:bg-white/10 transition-all uppercase tracking-widest border border-white/5 disabled:opacity-50"
+                        className="flex-1 py-3 rounded-xl bg-black/5 text-muted text-xs font-bold hover:bg-black/10 transition-all uppercase tracking-widest border border-black/5 disabled:opacity-50"
                       >
                         Reddet
                       </button>
                       <button 
                         onClick={() => handleAcceptRequest(request)} 
                         disabled={isProcessing}
-                        className="flex-1 py-3 rounded-xl bg-amber-500 text-black text-xs font-black hover:bg-amber-600 transition-all uppercase tracking-widest shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                        className="flex-1 py-3 rounded-xl bg-amber-600 text-white text-xs font-black hover:bg-amber-700 transition-all uppercase tracking-widest shadow-lg shadow-amber-500/20 disabled:opacity-50"
                       >
                         Kabul Et
                       </button>
@@ -525,20 +568,20 @@ export default function SocialMessagesScreen({
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-rose-500/10 blur-3xl rounded-full" />
-                    <div className="relative w-20 h-20 rounded-[1.5rem] bg-white/[0.03] flex items-center justify-center border border-white/10 backdrop-blur-xl">
-                      <Heart className="w-10 h-10 text-zinc-700" />
+                    <div className="relative w-20 h-20 rounded-[1.5rem] bg-black/[0.03] flex items-center justify-center border border-black/10 backdrop-blur-xl">
+                      <Heart className="w-10 h-10 text-muted" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-white">Henüz beğenen yok</h3>
-                    <p className="text-sm text-zinc-500 max-w-[200px] mx-auto">Seni beğenenler burada görünecek.</p>
+                    <h3 className="text-xl font-serif font-bold text-heading">Henüz beğenen yok</h3>
+                    <p className="text-sm text-muted max-w-[200px] mx-auto">Seni beğenenler burada görünecek.</p>
                   </div>
                 </div>
               ) : (
                 likers.map(liker => (
-                  <div key={liker.id} className="bg-white/[0.03] rounded-[2rem] p-4 border border-white/10 backdrop-blur-xl shadow-2xl flex items-center gap-4">
+                  <div key={liker.id} className="bg-white rounded-[2rem] p-4 border border-black/5 shadow-sm flex items-center gap-4">
                     <div 
-                      className="w-16 h-16 rounded-2xl overflow-hidden bg-zinc-900 flex-shrink-0 border border-white/10 cursor-pointer"
+                      className="w-16 h-16 rounded-2xl overflow-hidden bg-black/5 flex-shrink-0 border border-black/5 cursor-pointer"
                       onClick={() => setSelectedLiker(liker.user)}
                     >
                       <img 
@@ -549,13 +592,13 @@ export default function SocialMessagesScreen({
                       />
                     </div>
                     <div className="flex-1 cursor-pointer" onClick={() => setSelectedLiker(liker.user)}>
-                      <h4 className="font-bold text-base text-white">{liker.user.social?.nickname || liker.user.nickname}, {liker.user.age}</h4>
-                      <p className="text-xs text-rose-400 font-bold uppercase tracking-widest opacity-80">Seni beğendi!</p>
+                      <h4 className="font-bold text-base text-heading">{liker.user.social?.nickname || liker.user.nickname}, {liker.user.age}</h4>
+                      <p className="text-xs text-rose-600 font-bold uppercase tracking-widest opacity-80">Seni beğendi!</p>
                     </div>
                     <button 
                       onClick={() => handleStartChatFromLiker(liker.user)} 
                       disabled={isProcessing}
-                      className="py-3 px-6 rounded-xl bg-rose-500 text-white text-xs font-black hover:bg-rose-600 transition-all uppercase tracking-widest shadow-lg shadow-rose-500/20 disabled:opacity-50"
+                      className="py-3 px-6 rounded-xl bg-rose-600 text-white text-xs font-black hover:bg-rose-700 transition-all uppercase tracking-widest shadow-lg shadow-rose-500/20 disabled:opacity-50"
                     >
                       Sohbet Başlat
                     </button>
@@ -596,11 +639,9 @@ export default function SocialMessagesScreen({
 }
 
 
-function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () => void, currentUser: UserProfile }) {
-  const otherUserId = chat.participants.find(id => id !== currentUser.uid);
-  const otherUserSnapshot = chat.participantSnapshots?.[otherUserId!];
-  
-  if (!otherUserId) return null;
+function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser: UserProfile }, onClick: () => void, currentUser: UserProfile }) {
+  const otherUser = chat.otherUser;
+  if (!otherUser) return null;
 
   const unreadCount = chat.unreadCount?.[currentUser.uid] || 0;
   const isMe = chat.lastMessageSenderId === currentUser.uid;
@@ -608,7 +649,7 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () 
 
   return (
     <motion.button
-      whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.03)" }}
+      whileHover={{ backgroundColor: "rgba(0, 0, 0, 0.02)" }}
       whileTap={{ scale: 0.995 }}
       onClick={onClick}
       className={`w-full p-5 flex items-center gap-4 transition-all text-left group relative border-l-2 ${
@@ -616,25 +657,28 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () 
       }`}
     >
       <div className="relative">
-        <div className={`w-16 h-16 rounded-2xl overflow-hidden bg-zinc-900 border transition-all duration-300 ${
-          unreadCount > 0 ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'border-white/10 group-hover:border-white/20'
+        <div className={`w-16 h-16 rounded-2xl overflow-hidden bg-black/5 border transition-all duration-300 ${
+          unreadCount > 0 ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-black/5 group-hover:border-black/10'
         }`}>
-          <OptimizedImage 
-            src={otherUserSnapshot?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUserId}`} 
-            alt={otherUserSnapshot?.nickname || "Kullanıcı"}
+          <img 
+            src={otherUser.social?.photos?.[0] || otherUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser.uid}`} 
+            alt={otherUser.social?.nickname || otherUser.nickname}
             className="w-full h-full object-cover"
-            containerClassName="w-full h-full"
+            referrerPolicy="no-referrer"
           />
         </div>
+        {otherUser.social?.isOnline && (
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-[#F6F4F8] rounded-full shadow-[0_0_10px_rgba(16,185,129,0.3)]" />
+        )}
       </div>
       
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-1">
-          <h3 className={`font-bold text-base truncate transition-colors ${unreadCount > 0 ? 'text-white' : 'text-zinc-300'}`}>
-            {otherUserSnapshot?.nickname || "Kullanıcı"}
+          <h3 className={`font-bold text-base truncate transition-colors ${unreadCount > 0 ? 'text-heading' : 'text-body'}`}>
+            {otherUser.social?.nickname || otherUser.nickname}
           </h3>
           {chat.lastMessageAt && (
-            <span className={`text-[10px] font-black whitespace-nowrap ml-2 uppercase tracking-widest ${unreadCount > 0 ? 'text-amber-500 animate-pulse' : 'text-zinc-500'}`}>
+            <span className={`text-[10px] font-black whitespace-nowrap ml-2 uppercase tracking-widest ${unreadCount > 0 ? 'text-amber-600 animate-pulse' : 'text-muted'}`}>
               {format(chat.lastMessageAt.toDate?.() || new Date(), "HH:mm", { locale: tr })}
             </span>
           )}
@@ -644,17 +688,17 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () 
             {isMe && (
               <div className="flex-shrink-0">
                 {status === 'seen' ? (
-                  <CheckCheck className="w-3.5 h-3.5 text-amber-500" />
+                  <CheckCheck className="w-3.5 h-3.5 text-amber-600" />
                 ) : status === 'delivered' ? (
-                  <CheckCheck className="w-3.5 h-3.5 text-zinc-500" />
+                  <CheckCheck className="w-3.5 h-3.5 text-muted" />
                 ) : (
-                  <Check className="w-3.5 h-3.5 text-zinc-700" />
+                  <Check className="w-3.5 h-3.5 text-zinc-300" />
                 )}
               </div>
             )}
-            <p className={`text-xs truncate transition-all ${unreadCount > 0 ? 'text-zinc-100 font-bold' : 'text-zinc-500 font-medium'}`}>
-              {chat.typing?.[otherUserId] ? (
-                <span className="text-amber-500 italic animate-pulse">Yazıyor...</span>
+            <p className={`text-xs truncate transition-all ${unreadCount > 0 ? 'text-heading font-bold' : 'text-muted font-medium'}`}>
+              {chat.typing?.[otherUser.uid] ? (
+                <span className="text-amber-600 italic animate-pulse">Yazıyor...</span>
               ) : chat.lastMessage}
             </p>
           </div>
@@ -673,11 +717,11 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat, onClick: () 
   );
 }
 
-function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, currentUser: UserProfile, onClose: () => void }) {
+function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & { otherUser: UserProfile }, currentUser: UserProfile, onClose: () => void }) {
   const [chat, setChat] = useState(initialChat);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
+  const [otherUser, setOtherUser] = useState<UserProfile>(initialChat.otherUser);
   const [isSending, setIsSending] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -693,14 +737,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
-  const otherUserId = chat.participants.find(id => id !== currentUser.uid)!;
-  const otherUserSnapshot = chat.participantSnapshots?.[otherUserId];
-
   // Sync chat doc updates (typing status, unread counts, etc.)
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, "chats", initialChat.id), (snap) => {
       if (snap.exists()) {
-        setChat({ id: snap.id, ...snap.data() } as Chat);
+        setChat({ ...initialChat, ...snap.data() } as any);
       }
     });
     return () => unsubscribe();
@@ -753,15 +794,15 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Listen for other user updates (online status) - ONLY when detail is open
+  // Listen for other user updates (online status)
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "users", otherUserId), (snap) => {
+    const unsubscribe = onSnapshot(doc(db, "users", chat.otherUser.uid), (snap) => {
       if (snap.exists()) {
         setOtherUser({ uid: snap.id, ...snap.data() } as UserProfile);
       }
     });
     return () => unsubscribe();
-  }, [otherUserId]);
+  }, [chat.otherUser.uid]);
 
   // Listen for messages and handle status updates
   useEffect(() => {
@@ -776,69 +817,56 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
         id: doc.id,
         ...doc.data()
       } as Message));
-
       setMessages(msgs);
       
-      // Mark as seen if detail is open and messages are from other user
-      const hasUnseen = msgs.some(m => m.senderId === otherUserId && m.status !== 'seen');
-      if (hasUnseen) {
-        socialService.markAsSeen(chat.id, currentUser.uid, otherUserId);
-      }
+      // Mark as seen when chat is open
+      socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);
       
       // Mark as delivered if they were just 'sent'
-      const hasSent = msgs.some(m => m.senderId === otherUserId && m.status === 'sent');
-      if (hasSent) {
-        socialService.markAsDelivered(chat.id, currentUser.uid, otherUserId);
-      }
+      socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
+
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "messages");
     });
 
     return () => unsubscribe();
-  }, [chat.id, currentUser.uid, otherUserId]);
+  }, [chat.id, currentUser.uid, otherUser.uid]);
 
-  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!newMessage.trim() && !mediaFile) || isSending) return;
 
     setIsSending(true);
-    const textToSend = newMessage.trim();
+    const messageText = newMessage.trim();
+    const currentMediaFile = mediaFile;
+    
     setNewMessage("");
     setMediaFile(null);
     setMediaPreview(null);
-    setShowEmojiPicker(false);
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      setIsTyping(false);
-      socialService.setTypingStatus(chat.id, currentUser.uid, false);
-    }
+    setIsTyping(false);
+    socialService.setTypingStatus(chat.id, currentUser.uid, false);
 
     try {
       if (editingMessage) {
-        await socialService.editMessage(editingMessage.id, textToSend);
+        await socialService.editMessage(editingMessage.id, messageText);
         setEditingMessage(null);
-      } else if (mediaFile) {
-        const type = mediaFile.type.startsWith('video/') ? 'video' : 'image';
-        await socialService.sendMedia(chat.id, currentUser.uid, otherUserId, mediaFile, type);
+      } else if (currentMediaFile) {
+        const type = currentMediaFile.type.startsWith('image/') ? 'image' : 'video';
+        await socialService.sendMedia(chat.id, currentUser.uid, otherUser.uid, currentMediaFile, type);
       } else {
-        await socialService.sendMessage(chat.id, currentUser.uid, otherUserId, { text: textToSend });
+        await socialService.sendMessage(chat.id, currentUser.uid, otherUser.uid, { text: messageText });
       }
     } catch (error) {
-      console.error("Error sending message:", error);
       toast.error("Mesaj gönderilemedi.");
+      console.error(error);
     } finally {
       setIsSending(false);
+      inputRef.current?.focus();
     }
-  };
-
-  const onEmojiClick = (emojiData: any) => {
-    setNewMessage(prev => prev + emojiData.emoji);
   };
 
   const handleDeleteMessage = async (msg: Message, forEveryone: boolean) => {
@@ -858,9 +886,15 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
     inputRef.current?.focus();
   };
 
+  const onEmojiClick = (emojiData: any) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+    // Keep focus on input
+    inputRef.current?.focus();
+  };
+
   const getPresenceText = () => {
-    if (otherUser?.social?.isOnline) return "Çevrimiçi";
-    if (otherUser?.social?.lastSeen) {
+    if (otherUser.social?.isOnline) return "Çevrimiçi";
+    if (otherUser.social?.lastSeen) {
       try {
         const lastSeenDate = otherUser.social.lastSeen.toDate();
         return `Son görülme: ${formatDistanceToNow(lastSeenDate, { addSuffix: true, locale: tr })}`;
@@ -877,14 +911,14 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
       animate={{ x: 0 }}
       exit={{ x: "100%" }}
       transition={{ type: "spring", damping: 30, stiffness: 300 }}
-      className="fixed inset-0 z-[100] bg-[#050505] flex flex-col h-[100svh]"
+      className="fixed inset-0 z-[100] bg-[#F6F4F8] flex flex-col h-[100svh]"
     >
       {/* Header */}
-      <header className="bg-black/60 backdrop-blur-3xl border-b border-white/5 px-4 py-4 flex items-center justify-between shrink-0 z-10">
+      <header className="bg-white/80 backdrop-blur-3xl border-b border-black/5 px-4 py-4 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
           <button 
             onClick={onClose}
-            className="p-2 -ml-2 rounded-full hover:bg-white/5 text-zinc-400 transition-all"
+            className="p-2 -ml-2 rounded-full hover:bg-black/5 text-muted transition-all"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
@@ -893,21 +927,21 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
             className="flex items-center gap-3 cursor-pointer group"
             onClick={() => setShowProfile(true)}
           >
-            <div className="w-11 h-11 rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 group-hover:border-amber-500/50 transition-all">
-              <OptimizedImage 
-                src={otherUser?.social?.photos?.[0] || otherUserSnapshot?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUserId}`} 
-                alt={otherUserSnapshot?.nickname || "Kullanıcı"}
+            <div className="w-11 h-11 rounded-2xl overflow-hidden bg-black/5 border border-black/5 group-hover:border-amber-500/50 transition-all">
+              <img 
+                src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
+                alt={otherUser?.social?.nickname || otherUser?.nickname}
                 className="w-full h-full object-cover"
-                containerClassName="w-full h-full"
+                referrerPolicy="no-referrer"
               />
             </div>
             <div>
-              <h2 className="font-bold text-base text-white group-hover:text-amber-500 transition-colors">{otherUserSnapshot?.nickname || "Kullanıcı"}</h2>
+              <h2 className="font-bold text-base text-heading group-hover:text-amber-600 transition-colors">{otherUser?.social?.nickname || otherUser?.nickname}</h2>
               <div className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${otherUser?.social?.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-600'}`} />
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  {chat.typing?.[otherUserId] ? (
-                    <span className="text-amber-500 animate-pulse">Yazıyor...</span>
+                <div className={`w-1.5 h-1.5 rounded-full ${otherUser.social?.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-muted'}`} />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted">
+                  {chat.typing?.[otherUser.uid] ? (
+                    <span className="text-amber-600 animate-pulse">Yazıyor...</span>
                   ) : getPresenceText()}
                 </p>
               </div>
@@ -918,11 +952,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
         <div className="flex items-center gap-1">
           <button 
             onClick={() => setShowProfile(true)}
-            className="p-2 rounded-full hover:bg-white/5 text-zinc-400 transition-all"
+            className="p-2 rounded-full hover:bg-black/5 text-muted transition-all"
           >
             <Info className="w-5 h-5" />
           </button>
-          <button className="p-2 rounded-full hover:bg-white/5 text-zinc-400 transition-all">
+          <button className="p-2 rounded-full hover:bg-black/5 text-muted transition-all">
             <MoreVertical className="w-5 h-5" />
           </button>
         </div>
@@ -938,7 +972,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
           if (isSystem) {
             return (
               <div key={msg.id} className="flex justify-center my-6">
-                <span className="px-5 py-2 bg-white/5 rounded-full text-[10px] font-black uppercase tracking-widest text-zinc-500 border border-white/5">
+                <span className="px-5 py-2 bg-black/5 rounded-full text-[10px] font-black uppercase tracking-widest text-muted border border-black/5">
                   {msg.text}
                 </span>
               </div>
@@ -948,7 +982,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
           if (msg.isDeleted && msg.deletedForEveryone) {
             return (
               <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} gap-3`}>
-                <div className="px-5 py-3.5 rounded-[1.5rem] text-xs italic text-zinc-500 bg-white/[0.02] border border-white/5">
+                <div className="px-5 py-3.5 rounded-[1.5rem] text-xs italic text-muted bg-black/5 border border-black/5">
                   Bu mesaj silindi.
                 </div>
               </div>
@@ -963,7 +997,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
                     <img 
                       src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid}`} 
                       alt="avatar"
-                      className="w-9 h-9 rounded-xl object-cover border border-white/10 shadow-lg"
+                      className="w-9 h-9 rounded-xl object-cover border border-black/10 shadow-lg"
                       referrerPolicy="no-referrer"
                     />
                   )}
@@ -978,26 +1012,26 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
                       initial={{ opacity: 0, scale: 0.9, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                      className={`absolute bottom-full mb-2 z-20 bg-zinc-900 border border-white/10 rounded-2xl p-1.5 shadow-2xl flex gap-1 ${isMe ? 'right-0' : 'left-0'}`}
+                      className={`absolute bottom-full mb-2 z-20 bg-white border border-black/10 rounded-2xl p-1.5 shadow-2xl flex gap-1 ${isMe ? 'right-0' : 'left-0'}`}
                     >
                       {isMe && !msg.mediaUrl && (
                         <button 
                           onClick={() => handleEditMessage(msg)}
-                          className="p-2 hover:bg-white/5 rounded-xl text-zinc-400 hover:text-amber-500 transition-all"
+                          className="p-2 hover:bg-black/5 rounded-xl text-muted hover:text-amber-600 transition-all"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                       )}
                       <button 
                         onClick={() => handleDeleteMessage(msg, false)}
-                        className="p-2 hover:bg-white/5 rounded-xl text-zinc-400 hover:text-red-500 transition-all"
+                        className="p-2 hover:bg-black/5 rounded-xl text-muted hover:text-red-500 transition-all"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                       {isMe && (
                         <button 
                           onClick={() => handleDeleteMessage(msg, true)}
-                          className="p-2 hover:bg-white/5 rounded-xl text-zinc-400 hover:text-red-500 transition-all flex items-center gap-1.5 px-3"
+                          className="p-2 hover:bg-black/5 rounded-xl text-muted hover:text-red-500 transition-all flex items-center gap-1.5 px-3"
                         >
                           <Trash2 className="w-4 h-4" />
                           <span className="text-[10px] font-bold uppercase">Herkesten Sil</span>
@@ -1012,11 +1046,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
                   className={`px-5 py-3.5 rounded-[1.5rem] text-sm leading-relaxed shadow-2xl cursor-pointer transition-all active:scale-[0.98] ${
                     isMe 
                       ? 'bg-amber-500 text-black rounded-br-sm shadow-amber-500/10 font-medium' 
-                      : 'bg-white/5 text-zinc-200 rounded-bl-sm border border-white/10 backdrop-blur-xl'
+                      : 'bg-white text-heading rounded-bl-sm border border-black/5 shadow-sm'
                   }`}
                 >
                   {msg.mediaUrl && (
-                    <div className="mb-2 rounded-xl overflow-hidden bg-black/20">
+                    <div className="mb-2 rounded-xl overflow-hidden bg-black/5">
                       {msg.mediaType === 'image' ? (
                         <img 
                           src={msg.mediaUrl} 
@@ -1035,23 +1069,23 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
                   )}
                   {msg.text}
                   {msg.editedAt && (
-                    <span className={`block text-[9px] mt-1 opacity-40 italic ${isMe ? 'text-black' : 'text-zinc-400'}`}>
+                    <span className={`block text-[9px] mt-1 opacity-40 italic ${isMe ? 'text-black' : 'text-muted'}`}>
                       (düzenlendi)
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-2 px-1">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-muted">
                     {msg.createdAt ? format(msg.createdAt.toDate(), "HH:mm", { locale: tr }) : "..."}
                   </span>
                   {isMe && (
                     <div className="flex items-center">
                       {msg.status === 'seen' ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-amber-500" />
+                        <CheckCheck className="w-3.5 h-3.5 text-amber-600" />
                       ) : msg.status === 'delivered' ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-zinc-700" />
+                        <CheckCheck className="w-3.5 h-3.5 text-muted" />
                       ) : (
-                        <Check className="w-3.5 h-3.5 text-zinc-800" />
+                        <Check className="w-3.5 h-3.5 text-muted" />
                       )}
                     </div>
                   )}
@@ -1064,7 +1098,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
       </div>
 
       {/* Input Bar */}
-      <div className="bg-black/40 backdrop-blur-3xl border-t border-white/5 p-4 pb-safe shrink-0 relative">
+      <div className="bg-white/80 backdrop-blur-3xl border-t border-black/5 p-4 pb-safe shrink-0 relative">
         {/* Media Preview */}
         <AnimatePresence>
           {mediaPreview && (
@@ -1072,9 +1106,9 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-full left-4 right-4 mb-4 p-4 bg-zinc-900 border border-white/10 rounded-3xl shadow-2xl flex items-center gap-4"
+              className="absolute bottom-full left-4 right-4 mb-4 p-4 bg-white border border-black/10 rounded-3xl shadow-2xl flex items-center gap-4"
             >
-              <div className="w-20 h-20 rounded-2xl overflow-hidden bg-black border border-white/10 relative">
+              <div className="w-20 h-20 rounded-2xl overflow-hidden bg-black/5 border border-black/5 relative">
                 {mediaFile?.type.startsWith('image/') ? (
                   <img src={mediaPreview} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
@@ -1088,8 +1122,8 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
                 </button>
               </div>
               <div className="flex-1">
-                <p className="text-xs font-bold text-white truncate">{mediaFile?.name}</p>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Gönderilmeye hazır</p>
+                <p className="text-xs font-bold text-heading truncate">{mediaFile?.name}</p>
+                <p className="text-[10px] text-muted uppercase tracking-widest">Gönderilmeye hazır</p>
               </div>
             </motion.div>
           )}
@@ -1129,10 +1163,10 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               className="absolute bottom-full left-4 mb-4 z-[110] shadow-2xl"
             >
-              <div className="rounded-2xl overflow-hidden border border-white/10">
+              <div className="rounded-2xl overflow-hidden border border-black/10 shadow-2xl">
                 <EmojiPicker
                   onEmojiClick={onEmojiClick}
-                  theme={Theme.DARK}
+                  theme={Theme.LIGHT}
                   emojiStyle={EmojiStyle.NATIVE}
                   lazyLoadEmojis={true}
                   searchPlaceholder="Emoji ara..."
@@ -1146,7 +1180,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
           )}
         </AnimatePresence>
 
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
+        <form onSubmit={handleSend} className="flex items-center gap-2 max-w-4xl mx-auto">
           <div className="flex items-center gap-1">
             <button 
               type="button"
@@ -1154,7 +1188,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
               className={`p-3 rounded-2xl border transition-all ${
                 showEmojiPicker 
                   ? 'bg-amber-500 border-amber-500 text-black shadow-lg shadow-amber-500/20' 
-                  : 'bg-white/[0.03] border-white/10 text-zinc-500 hover:text-amber-500'
+                  : 'bg-black/5 border-black/5 text-muted hover:text-amber-600'
               }`}
             >
               <Smile className="w-6 h-6" />
@@ -1163,7 +1197,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
             <button 
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-3 rounded-2xl bg-white/[0.03] border border-white/10 text-zinc-500 hover:text-amber-500 transition-all"
+              className="p-3 rounded-2xl bg-black/5 border border-black/5 text-muted hover:text-amber-600 transition-all"
             >
               <Paperclip className="w-6 h-6" />
             </button>
@@ -1183,7 +1217,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat, c
               value={newMessage}
               onChange={handleTyping}
               placeholder={editingMessage ? "Mesajı düzenle..." : "Bir şeyler yaz..."}
-              className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all text-white placeholder:text-zinc-600"
+              className="w-full bg-black/5 border border-black/5 rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all text-heading placeholder:text-muted"
             />
           </div>
 

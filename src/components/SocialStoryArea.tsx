@@ -52,7 +52,7 @@ export default function SocialStoryArea({ featuredUsers, onSelect }: SocialStory
                 />
               </div>
             </div>
-            <span className="text-[10px] font-black text-zinc-400 group-hover:text-white truncate w-16 text-center transition-colors uppercase tracking-tighter">
+            <span className="text-[10px] font-black text-muted group-hover:text-heading truncate w-16 text-center transition-colors uppercase tracking-tighter">
               {user.social?.nickname || user.nickname || user.displayName}
             </span>
           </motion.button>
