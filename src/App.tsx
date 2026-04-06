@@ -132,20 +132,8 @@ export default function App() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          const notification = change.doc.data();
-          // Only show if it's recent (e.g., within last 5 minutes)
-          const now = new Date().getTime();
-          const createdAt = notification.createdAt?.toMillis?.() || 0;
-          if (now - createdAt < 300000) {
-            toast(notification.title, {
-              description: notification.message,
-              duration: 10000,
-            });
-          }
-        }
-      });
+      // Notifications are written to the database and visible in the Notifications screen.
+      // Toast notifications are disabled to prevent spam.
     }, (error) => {
       console.error('Notification listener error:', error);
     });

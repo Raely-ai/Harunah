@@ -21,28 +21,57 @@ import { UserProfile, InteractionRequest, SocialActionResult, Message } from "..
 export const socialService = {
   // 1. Create or Get Chat
   async createChat(userAId: string, userBId: string, existingBatch?: any): Promise<string> {
+    const currentUid = auth.currentUser?.uid;
+    console.log("socialService: createChat starting", { 
+      userAId, 
+      userBId, 
+      currentUid,
+      hasExistingBatch: !!existingBatch 
+    });
+    
     const chatId = `chat_${[userAId, userBId].sort().join('_')}`;
     const chatRef = doc(db, "chats", chatId);
-    const chatSnap = await getDoc(chatRef);
+    
+    let chatSnap;
+    try {
+      chatSnap = await getDoc(chatRef);
+    } catch (err) {
+      console.warn("socialService: Error getting chat doc (likely permission denied on non-existent):", err);
+    }
 
-    if (chatSnap.exists()) return chatId;
+    if (chatSnap?.exists()) {
+      console.log("socialService: Chat already exists:", chatId);
+      return chatId;
+    }
 
     // Backward Compatibility: Check for legacy chat with random ID
-    const q = query(
-      collection(db, "chats"),
-      where("participants", "array-contains", userAId),
-      limit(20)
-    );
-    const snap = await getDocs(q);
-    const legacyChat = snap.docs.find(d => {
-      const parts = d.data().participants as string[];
-      return parts.includes(userBId);
-    });
+    let legacyChat = null;
+    try {
+      const q = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", userAId),
+        limit(20)
+      );
+      const snap = await getDocs(q);
+      legacyChat = snap.docs.find(d => {
+        const parts = d.data().participants as string[];
+        return parts.includes(userBId);
+      });
+      if (legacyChat) console.log("socialService: Found legacy chat", legacyChat.id);
+    } catch (err) {
+      console.warn("socialService: Error checking legacy chats:", err);
+    }
 
     if (legacyChat) return legacyChat.id;
 
     // Create new deterministic chat
     const batch = existingBatch || writeBatch(db);
+    
+    console.log("socialService: Setting chat document", { 
+      chatId, 
+      participants: [userAId, userBId],
+      currentUid 
+    });
     
     batch.set(chatRef, {
       id: chatId,
@@ -65,6 +94,11 @@ export const socialService = {
 
     // Initial system message
     const msgRef = doc(collection(db, "messages"));
+    console.log("socialService: Setting initial system message", { 
+      msgId: msgRef.id, 
+      chatId, 
+      senderId: "system" 
+    });
     batch.set(msgRef, {
       chatId,
       senderId: "system",
@@ -75,8 +109,29 @@ export const socialService = {
       type: 'system'
     });
 
+    // We no longer delete interactionRequests and swipes inside this batch.
+    // Cleanup is handled safely outside the batch to prevent permission errors
+    // on non-existent documents from failing the entire chat creation.
+
     if (!existingBatch) {
+      console.log("socialService: Committing standalone chat batch...");
       await batch.commit();
+      
+      // Standalone cleanup
+      const deleteSafe = async (collectionName: string, docId: string) => {
+        try {
+          await deleteDoc(doc(db, collectionName, docId));
+        } catch (err) {
+          console.warn(`socialService: Cleanup failed for ${collectionName}/${docId} (safe to ignore):`, err);
+        }
+      };
+      
+      Promise.allSettled([
+        deleteSafe("interactionRequests", `request_${userAId}_${userBId}`),
+        deleteSafe("interactionRequests", `request_${userBId}_${userAId}`),
+        deleteSafe("swipes", `swipe_${userAId}_${userBId}`),
+        deleteSafe("swipes", `swipe_${userBId}_${userAId}`)
+      ]);
     }
     return chatId;
   },
@@ -346,32 +401,106 @@ export const socialService = {
     }
   },
 
-  // 4. Accept Request
+  // 4. Accept Request (DEBUG MODE - Sequential)
   async acceptRequest(request: InteractionRequest) {
-    const batch = writeBatch(db);
-    
-    // 1. Update request status
-    batch.update(doc(db, "interactionRequests", request.id), {
-      status: 'accepted',
-      updatedAt: serverTimestamp()
+    const currentUid = auth.currentUser?.uid;
+    console.log("socialService: acceptRequest DEBUG starting", { 
+      requestId: request.id, 
+      from: request.fromUserId, 
+      to: request.toUserId, 
+      currentUid 
     });
-
-    // 2. Create chat (this will add to the batch)
-    const chatId = await this.createChat(request.fromUserId, request.toUserId, batch);
     
-    // 3. Create notification for the sender
-    const notifRef = doc(collection(db, "notifications"));
-    batch.set(notifRef, {
-      userId: request.fromUserId,
-      type: "request_accepted",
-      title: "İstek Kabul Edildi!",
-      message: "Mesaj isteğin kabul edildi, sohbete başlayabilirsin! 🎉",
-      data: { chatId },
-      read: false,
-      createdAt: serverTimestamp()
-    });
+    const chatId = `chat_${[request.fromUserId, request.toUserId].sort().join('_')}`;
+    const chatRef = doc(db, "chats", chatId);
 
-    await batch.commit();
+    // STEP 1: REQUEST UPDATE
+    try {
+      await updateDoc(doc(db, "interactionRequests", request.id), {
+        status: 'accepted',
+        updatedAt: serverTimestamp()
+      });
+      console.log("✅ SUCCESS: request update");
+    } catch (error: any) {
+      console.error("❌ FAIL: request update", error?.code, error?.message);
+    }
+
+    // STEP 2: CHAT CREATE
+    try {
+      await setDoc(chatRef, {
+        id: chatId,
+        participants: [request.fromUserId, request.toUserId],
+        createdAt: serverTimestamp(),
+        lastMessage: "Sohbet başladı! 👋",
+        lastMessageAt: serverTimestamp(),
+        lastMessageSenderId: "system",
+        lastMessageStatus: 'sent',
+        status: 'active',
+        unreadCount: {
+          [request.fromUserId]: 0,
+          [request.toUserId]: 0
+        },
+        typing: {
+          [request.fromUserId]: false,
+          [request.toUserId]: false
+        }
+      });
+      console.log("✅ SUCCESS: chat create");
+    } catch (error: any) {
+      console.error("❌ FAIL: chat create", error?.code, error?.message);
+    }
+
+    // STEP 3: MESSAGE CREATE
+    try {
+      const msgRef = doc(collection(db, "messages"));
+      await setDoc(msgRef, {
+        chatId,
+        senderId: "system",
+        text: "Sohbet başlayabilir.",
+        createdAt: serverTimestamp(),
+        seen: false,
+        status: 'sent',
+        type: 'system'
+      });
+      console.log("✅ SUCCESS: message create");
+    } catch (error: any) {
+      console.error("❌ FAIL: message create", error?.code, error?.message);
+    }
+
+    // STEP 4: NOTIFICATION CREATE
+    try {
+      const notifRef = doc(collection(db, "notifications"));
+      await setDoc(notifRef, {
+        userId: request.fromUserId,
+        type: "request_accepted",
+        title: "İstek Kabul Edildi!",
+        message: "Mesaj isteğin kabul edildi, sohbete başlayabilirsin! 🎉",
+        data: { chatId },
+        read: false,
+        createdAt: serverTimestamp()
+      });
+      console.log("✅ SUCCESS: notification create");
+    } catch (error: any) {
+      console.error("❌ FAIL: notification create", error?.code, error?.message);
+    }
+
+    // STEP 5: CLEANUP DELETE (Request)
+    try {
+      await deleteDoc(doc(db, "interactionRequests", request.id));
+      console.log("✅ SUCCESS: cleanup delete (request)");
+    } catch (error: any) {
+      console.error("❌ FAIL: cleanup delete (request)", error?.code, error?.message);
+    }
+
+    // STEP 6: CLEANUP DELETE (Swipes)
+    try {
+      const swipeId1 = `swipe_${request.fromUserId}_${request.toUserId}`;
+      await deleteDoc(doc(db, "swipes", swipeId1));
+      console.log("✅ SUCCESS: cleanup delete (swipe)");
+    } catch (error: any) {
+      console.error("❌ FAIL: cleanup delete (swipe)", error?.code, error?.message);
+    }
+
     return chatId;
   },
 

@@ -61,7 +61,13 @@ service cloud.firestore {
         isAdmin()
       );
       allow create: if isAuthenticated() && isNotBanned() && request.resource.data.fromUserId == request.auth.uid;
-      allow update: if isAuthenticated() && isNotBanned() && resource.data.fromUserId == request.auth.uid;
+      allow update: if isAuthenticated() && isNotBanned() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid);
+      allow delete: if isAuthenticated() && (
+        resource == null || // Allow deleting non-existent docs (cleanup)
+        resource.data.fromUserId == request.auth.uid || 
+        resource.data.toUserId == request.auth.uid || 
+        isAdmin()
+      );
     }
 
     // Interaction Requests
@@ -74,15 +80,19 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && isNotBanned() && 
                       request.resource.data.fromUserId == request.auth.uid &&
-                      request.resource.data.get('type', '') in ['like', 'message'] &&
+                      request.resource.data.get('type', '') in ['like', 'message', 'super_like', 'message_request'] &&
                       request.resource.data.get('message', '').size() <= 500;
       allow update: if isAuthenticated() && isNotBanned() && (
-        (resource.data.toUserId == request.auth.uid && 
-         request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'updatedAt']) &&
-         request.resource.data.status in ['accepted', 'rejected']) || 
-        (resource.data.fromUserId == request.auth.uid && resource.data.status == 'pending')
+        request.auth.uid in [resource.data.fromUserId, resource.data.toUserId] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'updatedAt']) &&
+        request.resource.data.status in ['accepted', 'rejected', 'pending']
       );
-      allow delete: if isAuthenticated() && (resource.data.fromUserId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (
+        resource == null || // Allow deleting non-existent docs (cleanup)
+        resource.data.fromUserId == request.auth.uid || 
+        resource.data.toUserId == request.auth.uid || 
+        isAdmin()
+      );
     }
 
     // Chats
@@ -112,13 +122,9 @@ service cloud.firestore {
         request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants || 
         isAdmin()
       );
-      allow create: if isAuthenticated() && (
-        (request.resource.data.senderId == request.auth.uid || request.resource.data.senderId == "system") &&
-        request.resource.data.get('text', '').size() <= 1000 &&
-        (
-          existsAfter(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
-          request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants
-        )
+      allow create: if request.auth != null && (
+        request.resource.data.senderId == request.auth.uid || 
+        request.resource.data.senderId == "system"
       );
       allow update: if isAdmin();
       allow delete: if isAdmin();

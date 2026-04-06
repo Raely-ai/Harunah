@@ -315,42 +315,7 @@ export default function SocialMessagesScreen({
     return () => unsubscribe();
   }, [chats, currentUser]);
 
-  // In-app notifications for new messages
-  useEffect(() => {
-    if (!currentUser || chats.length === 0) return;
 
-    const chatIds = chats.map(c => c.id);
-    const q = query(
-      collection(db, "messages"),
-      where("chatId", "in", chatIds),
-      where("status", "==", "sent"),
-      orderBy("createdAt", "desc"),
-      limit(1)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach(change => {
-        if (change.type === "added") {
-          const msg = change.doc.data() as Message;
-          // Only notify if it's not from me and not in the currently open chat
-          if (msg.senderId !== currentUser.uid && selectedChat?.id !== msg.chatId) {
-            const chat = chats.find(c => c.id === msg.chatId);
-            if (chat) {
-              toast(chat.otherUser.social?.nickname || chat.otherUser.nickname, {
-                description: msg.text || (msg.mediaType === 'image' ? "📷 Fotoğraf" : "🎥 Video"),
-                action: {
-                  label: "Görüntüle",
-                  onClick: () => setSelectedChat(chat)
-                }
-              });
-            }
-          }
-        }
-      });
-    });
-
-    return () => unsubscribe();
-  }, [chats, currentUser, selectedChat]);
 
   const isSocialEnabled = isSocialProfileReady(currentUser);
 
