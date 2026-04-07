@@ -65,7 +65,7 @@ export default function TarotFlow({ userProfile, config, onUpdateProfile, onComp
         </div>
         <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
           <CreditCard className="w-3 h-3 text-amber-400" />
-          <span className="text-xs font-bold text-amber-400">{userProfile.credits}</span>
+          <span className="text-xs font-bold text-amber-400">{userProfile.mainCoins || 0}</span>
         </div>
       </header>
 

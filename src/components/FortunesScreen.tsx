@@ -253,11 +253,11 @@ export default function FortunesScreen({
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-500/5 border border-amber-500/10">
                           {renderBalanceIcon('main')}
-                          <span className="text-sm font-bold text-amber-700 tracking-tight">{userProfile.credits}</span>
+                          <span className="text-sm font-bold text-amber-700 tracking-tight">{userProfile.mainCoins || 0}</span>
                         </div>
                         <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-purple-500/5 border border-purple-500/10">
                           {renderBalanceIcon('ad')}
-                          <span className="text-sm font-bold text-purple-700 tracking-tight">{userProfile.adCredits}</span>
+                          <span className="text-sm font-bold text-purple-700 tracking-tight">{userProfile.energy || 0}</span>
                         </div>
                       </div>
                     </div>

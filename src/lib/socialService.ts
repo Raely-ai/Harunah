@@ -18,6 +18,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, handleFirestoreError, OperationType } from "./firebase";
 import { UserProfile, InteractionRequest, SocialActionResult, Message } from "../types";
+import { walletService } from "./walletService";
 
 export const socialService = {
   // 1. Create or Get Chat
@@ -150,6 +151,11 @@ export const socialService = {
     }
 
     try {
+      if (type === 'super_like') {
+        const consumed = await walletService.consumeSocialFeature(fromUser.uid, 'superLike');
+        if (!consumed) return 'TECHNICAL_ERROR'; // Or a custom 'NOT_ENOUGH_CREDITS' if I had one
+      }
+
       const swipeId = `swipe_${fromUser.uid}_${toUserId}`;
       let swipeRef = doc(db, "swipes", swipeId);
       console.log("socialService: Checking swipe existence:", swipeId);

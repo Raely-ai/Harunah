@@ -47,10 +47,13 @@ export interface UserProfile {
   extraInfo?: string;
   horoscope?: string;
   createdAt: string;
-  credits: number;
-  adCredits: number;
-  dailyAdCount: number;
-  lastAdDate: string;
+  mainCoins: number;
+  energy: number;
+  superLikes: number;
+  refreshCount: number;
+  compatibilityCount: number;
+  dailyAdWatchCount: number;
+  lastAdReset: string;
   dailyAdReadingsUsed?: {
     coffee: number;
     tarot: number;
@@ -131,17 +134,105 @@ export interface UserProfile {
   boostExpiresAt?: string;
   socialSubscriptionType?: 'none' | 'daily' | 'weekly' | 'monthly';
   socialSubscriptionExpireAt?: string;
-  
+
+  socialSubscription?: {
+    status: 'active' | 'inactive' | 'expired' | 'none';
+    type: 'weekly' | 'monthly' | 'none';
+    expiresAt: string;
+    dailyUsage: {
+      superLikes: number;
+      refreshes: number;
+      compatibility: number;
+      lastResetDate: string;
+    };
+  };
+
   subscription?: {
     status: 'active' | 'inactive' | 'expired' | 'none';
     type: 'none' | 'daily' | 'weekly' | 'monthly';
     expiresAt?: string;
-    dailyReadingsUsed: {
+    dailyLimitUsed: number;
+    dailyLimit?: number;
+    lastResetAt?: string;
+    dailyReadingsUsed?: {
       coffee: number;
       tarot: number;
       advanced: number;
     };
   };
+}
+
+export interface WalletTransaction {
+  id: string;
+  userId: string;
+  type: 'earn' | 'spend' | 'purchase' | 'expire';
+  source: 'ad' | 'daily_login' | 'admin_promo' | 'purchase' | 'fortune_reading' | 'social_action' | 'subscription_bonus';
+  amount: number;
+  balanceType: 'main' | 'energy';
+  createdAt: string;
+  expiresAt: string | null; // null for permanent (main coins)
+  remainingAmount: number;
+  status: 'active' | 'spent' | 'expired';
+  description?: string;
+  metadata?: any;
+}
+
+export interface AdminWalletConfig {
+  adRewardEnergy: number;
+  maxDailyAds: number;
+  adRewardExpiryDays: number;
+  dailyLoginRewardEnergy: number;
+  dailyLoginExpiryDays: number;
+  
+  // Fortune Subscriptions (TL)
+  fortuneSubscriptions: {
+    daily: { price: number, dailyLimit: number, description: string };
+    weekly: { price: number, dailyLimit: number, description: string };
+    monthly: { price: number, dailyLimit: number, description: string };
+  };
+
+  // Social Subscriptions (TL)
+  socialSubscriptions: {
+    weekly: { 
+      price: number, 
+      dailyLimits: { superLikes: number, refreshes: number, compatibility: number },
+      description: string 
+    };
+    monthly: { 
+      price: number, 
+      dailyLimits: { superLikes: number, refreshes: number, compatibility: number },
+      description: string 
+    };
+  };
+
+  // Social Rights (Bought with Main Coins)
+  socialRightsPrices: {
+    superLike: number;
+    refresh: number;
+    compatibility: number;
+  };
+
+  // Social Bundles (Bought with Main Coins)
+  socialBundles: {
+    id: string;
+    name: string;
+    description: string;
+    price: number;
+    contents: {
+      superLikes: number;
+      refreshes: number;
+      compatibility: number;
+      boostDays: number;
+    };
+  }[];
+  
+  // Main Coin Packages (TL)
+  coinPackages: {
+    id: string;
+    coins: number;
+    price: number;
+    bonus: number;
+  }[];
 }
 
 export interface DailyMessage {
@@ -172,7 +263,7 @@ export interface AppConfig {
     adBalance: string;
   };
   dailyMessagePrompt: string;
-  adRewardAmount: number;
+  adRewardEnergy: number;
   maxDailyAds: number;
   subscriptionLimits: {
     coffee: number;

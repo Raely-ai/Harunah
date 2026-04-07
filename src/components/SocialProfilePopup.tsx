@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin } from 'lucide-react';
 import { UserProfile } from '../types';
+import { walletService } from '../lib/walletService';
+import { toast } from 'sonner';
 
 interface SocialProfilePopupProps {
   user: UserProfile;
@@ -9,6 +11,7 @@ interface SocialProfilePopupProps {
   onClose: () => void;
   onCompatibilityCheck: (user: UserProfile) => void;
   onSendMessage: (user: UserProfile) => void;
+  onNavigate: (tab: any) => void;
   onStartChat?: (user: UserProfile) => void;
   context?: 'discover' | 'likers' | 'match';
 }
@@ -19,13 +22,28 @@ export default function SocialProfilePopup({
   onClose, 
   onCompatibilityCheck, 
   onSendMessage, 
+  onNavigate,
   onStartChat,
   context = 'discover' 
 }: SocialProfilePopupProps) {
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const photos = user.social?.photos || [user.photoURL].filter(Boolean) as string[];
-  const credits = currentUser.social?.compatibilityCredits || 0;
+  const credits = currentUser.compatibilityCount || 0;
+
+  const handleCompatibilityCheck = async () => {
+    if (isProcessing) return;
+    
+    const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'compatibility');
+    if (!consumed) {
+      toast.info("Uyum analizi hakkın bitti. Cüzdandan alabilirsin.");
+      onClose();
+      onNavigate('wallet');
+      return;
+    }
+
+    onCompatibilityCheck(user);
+  };
 
   const handleAction = async () => {
     if (isProcessing) return;
@@ -192,7 +210,7 @@ export default function SocialProfilePopup({
       <div className="absolute bottom-0 left-0 right-0 p-6 pt-10 bg-gradient-to-t from-[#F6F4F8] via-[#F6F4F8]/95 to-transparent z-40">
         <div className="max-w-md mx-auto grid grid-cols-2 gap-4">
           <button 
-            onClick={() => onCompatibilityCheck(user)}
+            onClick={handleCompatibilityCheck}
             className="flex items-center justify-center gap-3 py-4.5 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-[2rem] font-bold text-base shadow-xl shadow-rose-900/20 border border-rose-400/20 active:scale-[0.98] transition-transform duration-150"
           >
             <Heart className="w-5 h-5 fill-white" />

@@ -26,17 +26,79 @@
         },
         "isBanned": { "type": "boolean", "default": false },
         "role": { "type": "string", "enum": ["user", "admin"], "default": "user" },
+        "mainCoins": { "type": "integer", "default": 0 },
+        "energy": { "type": "integer", "default": 0 },
+        "superLikes": { "type": "integer", "default": 0 },
+        "refreshCount": { "type": "integer", "default": 0 },
+        "compatibilityCount": { "type": "integer", "default": 0 },
+        "dailyAdWatchCount": { "type": "integer", "default": 0 },
+        "lastAdReset": { "type": "string", "format": "date-time" },
         "subscription": {
           "type": "object",
           "properties": {
-            "status": { "type": "string", "enum": ["active", "expired", "none"] },
-            "type": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+            "status": { "type": "string", "enum": ["active", "inactive", "expired", "none"] },
+            "type": { "type": "string", "enum": ["none", "daily", "weekly", "monthly"] },
             "expiresAt": { "type": "string", "format": "date-time" },
-            "dailyReadingsUsed": { "type": "integer" }
+            "dailyLimitUsed": { "type": "integer", "default": 0 }
           }
         }
       },
       "required": ["uid", "email", "credits", "adCredits", "dailyAdCount"]
+    },
+    "AdminWalletConfig": {
+      "title": "Admin Wallet Config",
+      "description": "Configuration for wallet prices and ad rewards.",
+      "type": "object",
+      "properties": {
+        "adRewardEnergy": { "type": "integer" },
+        "maxDailyAds": { "type": "integer" },
+        "adRewardExpiryDays": { "type": "integer" },
+        "dailyLoginRewardEnergy": { "type": "integer" },
+        "dailyLoginExpiryDays": { "type": "integer" },
+        "fortuneSubscriptions": {
+          "type": "object",
+          "properties": {
+            "daily": { "type": "object" },
+            "weekly": { "type": "object" },
+            "monthly": { "type": "object" }
+          }
+        },
+        "socialRightsPrices": {
+          "type": "object",
+          "properties": {
+            "superLike": { "type": "integer" },
+            "refresh": { "type": "integer" },
+            "compatibility": { "type": "integer" }
+          }
+        },
+        "socialBundles": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "coinPackages": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    },
+    "WalletTransaction": {
+      "title": "Wallet Transaction",
+      "description": "A single credit or energy transaction record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["earn", "spend", "purchase", "expire"] },
+        "source": { "type": "string", "enum": ["ad", "daily_login", "admin_promo", "purchase", "fortune_reading", "social_action", "subscription_bonus"] },
+        "amount": { "type": "integer" },
+        "balanceType": { "type": "string", "enum": ["main", "energy"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "remainingAmount": { "type": "integer" },
+        "status": { "type": "string", "enum": ["active", "spent", "expired"] },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "source", "amount", "balanceType", "createdAt", "remainingAmount", "status"]
     },
     "AppConfig": {
       "title": "App Configuration",
@@ -212,6 +274,10 @@
       "schema": "AppConfig",
       "description": "Global app settings"
     },
+    "/adminSettings/wallet": {
+      "schema": "AdminWalletConfig",
+      "description": "Wallet prices and ad settings"
+    },
     "/readings/{readingId}": {
       "schema": "Reading",
       "description": "Fortune readings"
@@ -243,6 +309,10 @@
     "/reports/{reportId}": {
       "schema": "Report",
       "description": "User reports"
+    },
+    "/walletTransactions/{transactionId}": {
+      "schema": "WalletTransaction",
+      "description": "Credit and energy transaction history"
     }
   }
 }

@@ -19,6 +19,19 @@ service cloud.firestore {
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "hpferdicakir@gmail.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // ===============================================================
+    // Connection Test (Public)
+    // ===============================================================
+    match /test/{testId} {
+      allow read, list: if true;
+    }
 
     // ===============================================================
     // User Profiles
@@ -26,7 +39,15 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated(); // Allow reading profiles for social features
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+    }
+
+    // ===============================================================
+    // Admin Settings
+    // ===============================================================
+    match /adminSettings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // ===============================================================
@@ -98,11 +119,28 @@ service cloud.firestore {
     // ===============================================================
     match /config/{configId} {
       allow read: if true;
-      allow write: if false; // Admin only (manual)
+      allow write: if isAdmin();
     }
     match /horoscopes/{horoscopeId} {
       allow read: if true;
-      allow write: if false; // Admin only (manual)
+      allow write: if isAdmin();
+    }
+    match /prompts/{promptId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+    }
+    match /walletTransactions/{transactionId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+    }
+    match /test/{testId} {
+      allow read, list: if true;
     }
   }
 }

@@ -9,6 +9,21 @@
         "displayName": { "type": "string", "description": "User's full name." },
         "email": { "type": "string", "format": "email", "description": "User's email address." },
         "photoURL": { "type": "string", "format": "uri", "description": "URL to user's profile picture." },
+        "mainCoins": { "type": "number", "description": "Main currency for purchases." },
+        "energy": { "type": "number", "description": "Energy for daily actions, earned via ads." },
+        "superLikes": { "type": "number", "description": "Count of super likes available." },
+        "refreshCount": { "type": "number", "description": "Count of profile refreshes available." },
+        "compatibilityCount": { "type": "number", "description": "Count of compatibility analyses available." },
+        "dailyAdWatchCount": { "type": "number", "description": "Number of ads watched today." },
+        "lastAdReset": { "type": "string", "format": "date-time", "description": "Last time the daily ad count was reset." },
+        "subscription": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["none", "daily", "weekly", "monthly"] },
+            "expiresAt": { "type": "string", "format": "date-time" },
+            "dailyLimitUsed": { "type": "number" }
+          }
+        },
         "socialEnabled": { "type": "boolean", "description": "Whether the user has enabled social features." },
         "socialProfileCompleted": { "type": "boolean", "description": "Whether the user has completed their social profile." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." }

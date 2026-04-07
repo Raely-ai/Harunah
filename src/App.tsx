@@ -32,7 +32,6 @@ import SocialMessagesScreen from "./components/SocialMessagesScreen";
 import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
-import WalletScreen from "./components/WalletScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
 import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope } from "./types";
 import { generateFortune } from "./services/geminiService";
@@ -96,10 +95,10 @@ export default function App() {
           prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
           icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
           dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-          adRewardAmount: 5,
+          adRewardEnergy: 5,
           maxDailyAds: 5,
           subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-          packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
+          packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
         };
         setAppConfig(defaultConfig);
       }
@@ -110,10 +109,10 @@ export default function App() {
         prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
         icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
         dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-        adRewardAmount: 5,
+        adRewardEnergy: 5,
         maxDailyAds: 5,
         subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-        packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
+        packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
       });
     });
     return () => unsubscribe();
@@ -227,10 +226,6 @@ export default function App() {
           email: user.email || "",
           displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
           photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault", // Use Google photo if available, else default
-          credits: 0,
-          adCredits: 50,
-          dailyAdCount: 0,
-          lastAdDate: new Date().toISOString(),
           horoscope: 'Koç', // Default horoscope
           dailyAdReadingsUsed: {
             coffee: 0,
@@ -240,6 +235,13 @@ export default function App() {
           createdAt: new Date().toISOString(),
           isBanned: false,
           role: 'user',
+          mainCoins: 0,
+          energy: 0,
+          superLikes: 0,
+          refreshCount: 0,
+          compatibilityCount: 0,
+          dailyAdWatchCount: 0,
+          lastAdReset: new Date().toISOString(),
           social: {
             enabled: false,
             profileCompleted: false,
@@ -265,6 +267,7 @@ export default function App() {
           subscription: {
             status: 'none',
             type: 'none',
+            dailyLimitUsed: 0,
             dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
           }
         };
@@ -391,14 +394,14 @@ export default function App() {
       const adLimit = 2; // User specified 2 coffee, 2 tarot limit for ad credits
       const used = adUsage[type as 'coffee' | 'tarot'];
       
-      if (userProfile.adCredits >= price && used < adLimit) {
+      if ((userProfile.energy || 0) >= price && used < adLimit) {
         setActiveFortune(type);
         return;
       }
     }
 
     // Check Main Credits
-    if (userProfile.credits < price) {
+    if ((userProfile.mainCoins || 0) < price) {
       toast.error("Bakiyen yetersiz!", {
         description: isAdEligible 
           ? "Reklam izleyerek kredi kazanabilir veya bakiye yükleyebilirsin."
@@ -616,8 +619,8 @@ export default function App() {
         const currentUser = userDoc.data() as UserProfile;
         const isSubscribed = currentUser.subscription?.status === 'active';
 
-        let currentCredits = currentUser.credits;
-        let currentAdCredits = currentUser.adCredits || 0;
+        let currentCoins = currentUser.mainCoins || 0;
+        let currentEnergy = currentUser.energy || 0;
         let balanceType: 'main' | 'ad' | 'subscription' = 'main';
         let creditsUsed = totalPrice;
 
@@ -635,6 +638,14 @@ export default function App() {
         if (isSubscribed) {
           const subLimits = appConfig.subscriptionLimits;
           const subUsed = { ...(currentUser.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 }) };
+          const lastResetAt = currentUser.subscription?.lastResetAt || today;
+          
+          if (lastResetAt !== today) {
+            subUsed.coffee = 0;
+            subUsed.tarot = 0;
+            subUsed.advanced = 0;
+          }
+
           const limit = ['coffee', 'tarot'].includes(type) ? subLimits[type as 'coffee' | 'tarot'] : subLimits.advanced;
           const used = ['coffee', 'tarot'].includes(type) ? subUsed[type as 'coffee' | 'tarot'] : subUsed.advanced;
 
@@ -648,7 +659,8 @@ export default function App() {
             }
             transUpdates.subscription = {
               ...currentUser.subscription!,
-              dailyReadingsUsed: subUsed
+              dailyReadingsUsed: subUsed,
+              lastResetAt: today
             };
           }
         }
@@ -657,20 +669,20 @@ export default function App() {
         if (balanceType === 'main' && isAdEligible) {
           const adLimit = 2;
           const used = adUsage[type as 'coffee' | 'tarot'];
-          if (currentAdCredits >= totalPrice && used < adLimit) {
+          if (currentEnergy >= totalPrice && used < adLimit) {
             balanceType = 'ad';
-            currentAdCredits -= totalPrice;
+            currentEnergy -= totalPrice;
             adUsage[type as 'coffee' | 'tarot']++;
-            transUpdates.adCredits = currentAdCredits;
+            transUpdates.energy = currentEnergy;
             transUpdates.dailyAdReadingsUsed = adUsage;
           }
         }
 
         // Main Credits Logic
         if (balanceType === 'main') {
-          if (currentCredits >= totalPrice) {
-            currentCredits -= totalPrice;
-            transUpdates.credits = currentCredits;
+          if (currentCoins >= totalPrice) {
+            currentCoins -= totalPrice;
+            transUpdates.mainCoins = currentCoins;
           } else {
             throw new Error("Yetersiz bakiye!");
           }
@@ -776,18 +788,18 @@ export default function App() {
 
   const handlePriorityInterpretation = (id: string) => {
     const cost = 100;
-    let newCredits = userProfile.credits;
+    let newMainCoins = userProfile.mainCoins || 0;
 
-    if (newCredits >= cost) {
-      newCredits -= cost;
+    if (newMainCoins >= cost) {
+      newMainCoins -= cost;
     } else {
-      toast.error("Kredin yetersiz!");
+      toast.error("Jetonun yetersiz!");
       return;
     }
 
     if (userProfile) {
       updateDoc(doc(db, "users", userProfile.uid), {
-        credits: newCredits
+        mainCoins: newMainCoins
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
     }
     
@@ -1087,46 +1099,18 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'wallet' && (
+          {activeTab === 'wallet' && userProfile && (
             <motion.div
               key="wallet"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="pt-8"
+              className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
-              <WalletScreen 
-                user={userProfile}
-                config={appConfig}
-                onBuyCredits={() => toast.info("Kredi satın alma yakında aktif!")}
-                onSubscribe={() => setIsSubscriptionOpen(true)}
-                onWatchAd={() => {
-                  if (userProfile.dailyAdCount < (appConfig?.maxDailyAds || 10)) {
-                    toast.promise(
-                      new Promise(resolve => setTimeout(resolve, 3000)),
-                      {
-                        loading: 'Reklam izleniyor...',
-                        success: () => {
-                          const reward = appConfig?.adRewardAmount || 1;
-                          const newAdCredits = (userProfile.adCredits || 0) + reward;
-                          const newAdCount = userProfile.dailyAdCount + 1;
-                          
-                          // Update Firestore
-                          updateDoc(doc(db, "users", user.uid), {
-                            adCredits: newAdCredits,
-                            dailyAdCount: newAdCount
-                          });
-
-                          return `Tebrikler! ${reward} Enerji Kredisi kazandın.`;
-                        },
-                        error: 'Reklam yüklenemedi.'
-                      }
-                    );
-                  } else {
-                    toast.error("Günlük reklam izleme limitine ulaştın!");
-                  }
-                }}
+              <SocialWalletScreen 
+                currentUser={userProfile}
+                onNavigate={handleNavigate}
               />
             </motion.div>
           )}
@@ -1269,6 +1253,7 @@ export default function App() {
                   status: 'active',
                   type: planId as any,
                   expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                  dailyLimitUsed: 0,
                   dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
                 }
               }));

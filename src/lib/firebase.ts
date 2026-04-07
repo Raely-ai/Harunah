@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
-import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache, doc, getDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from "../../firebase-applet-config.json";
 
@@ -14,6 +14,30 @@ export const db = initializeFirestore(app, {
   localCache: memoryLocalCache(), // Disable offline persistence
   experimentalForceLongPolling: true // Stabilize network connection in restricted environments
 }, firebaseConfig.firestoreDatabaseId);
+
+console.log("Firestore initialized with databaseId:", firebaseConfig.firestoreDatabaseId);
+
+// Test connection on boot
+async function testConnection() {
+  try {
+    console.log("Testing Firestore connection (test/connection)...");
+    await getDoc(doc(db, 'test', 'connection'));
+    console.log("Firestore connection successful via test/connection");
+  } catch (error) {
+    console.warn("test/connection failed, trying config/general...", error);
+    try {
+      await getDoc(doc(db, 'config', 'general'));
+      console.log("Firestore connection successful via config/general");
+    } catch (innerError) {
+      if(innerError instanceof Error && innerError.message.includes('the client is offline')) {
+        console.error("Please check your Firebase configuration. The client is offline.");
+      } else {
+        console.error("Firestore connection test error (all attempts failed):", innerError);
+      }
+    }
+  }
+}
+testConnection();
 
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();

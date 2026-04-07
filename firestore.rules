@@ -50,21 +50,24 @@ service cloud.firestore {
     // User Profile
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
-                      request.resource.data.get('role', 'user') == 'user' && 
-                      request.resource.data.get('isBanned', false) == false;
-      allow update: if hasElevatedAccess() || (
-        isOwner(userId) && 
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAdmin() || (
+        isAuthenticated() && request.auth.uid == userId && 
         (resource.data.get('isBanned', false) == false) &&
         isValidUser(request.resource.data) &&
         // 1. Prevent self-promotion or unbanning
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned', 'subscription']) &&
-        // 2. Protect credits (only allow decreasing)
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['credits']) || 
-         request.resource.data.get('credits', 0) <= resource.data.get('credits', 0)) &&
-        // 3. Protect adCredits (only allow increasing)
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['adCredits']) || 
-         request.resource.data.get('adCredits', 0) >= resource.data.get('adCredits', 0))
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned']) &&
+        // 2. PRODUCTION HARDENING: Prevent direct modification of wallet/subscription fields
+        // These fields MUST only be updated via Cloud Functions (Admin SDK) in production.
+        // For this preview, we allow the owner (admin) to bypass for testing.
+        (
+          isAdmin() || 
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
+            'subscription', 'socialSubscription', 'dailyAdWatchCount', 'lastAdReset',
+            'boostExpiresAt', 'isManagedProfile', 'operatorId'
+          ])
+        )
       );
       allow delete: if isAdmin();
     }
@@ -173,12 +176,69 @@ service cloud.firestore {
       allow update: if isAdmin() || hasElevatedAccess();
     }
 
+    // Social Transactions
+    match /socialTransactions/{txId} {
+      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || hasElevatedAccess();
+    }
+
+    // Withdrawal Requests
+    match /withdrawalRequests/{requestId} {
+      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || hasElevatedAccess();
+    }
+
+    // Social Gift Transactions
+    match /socialGiftTransactions/{txId} {
+      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid));
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || hasElevatedAccess();
+    }
+
+    // Hosting Packages
+    match /hostingPackages/{packageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasElevatedAccess();
+    }
+
+    // Moderation Logs
+    match /moderationLogs/{logId} {
+      allow read: if isAdmin() || hasElevatedAccess();
+      allow create: if isAdmin() || hasElevatedAccess();
+      allow update, delete: if isAdmin() || hasElevatedAccess();
+    }
+
     // Readings
     match /readings/{readingId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isNotBanned() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && isNotBanned() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin() || (isAuthenticated() && isNotBanned() && resource.data.userId == request.auth.uid);
+    }
+
+    // Wallet Transactions
+    match /walletTransactions/{txId} {
+      // Use request.auth.uid directly for query compatibility if possible, 
+      // but resource.data is needed for single doc reads and general security.
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      // PRODUCTION HARDENING: Only system/admin should create transactions.
+      // In a real app, this would be done via Admin SDK in Cloud Functions.
+      allow create: if isAdmin(); 
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Social Rooms
+    match /socialRooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow write: if hasElevatedAccess();
+    }
+
+    // Test Connection
+    match /test/{testId} {
+      allow read: if true;
     }
 
     // Horoscopes
@@ -204,6 +264,12 @@ service cloud.firestore {
     // Global Config
     match /config/{configId} {
       allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Admin Settings
+    match /adminSettings/{settingId} {
+      allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
   }

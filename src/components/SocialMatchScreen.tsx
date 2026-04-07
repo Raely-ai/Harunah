@@ -31,6 +31,7 @@ import { calculateCompatibility } from "../lib/compatibilityEngine";
 import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
 import { canSwipe, getRemainingSwipes, FREE_DAILY_LIMIT } from "../lib/swipeHelper";
 import { socialService } from "../lib/socialService";
+import { walletService } from "../lib/walletService";
 
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
@@ -112,7 +113,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     if (!activeUser || isAnimating || isProcessing) return;
     
     // Super Like Check
-    if (type === 'super_like' && (currentUser.superLikeCount || 0) <= 0) {
+    if (type === 'super_like' && (currentUser.superLikes || 0) <= 0) {
       onNavigate('wallet');
       return;
     }
@@ -149,7 +150,12 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
       };
 
       if (type === 'super_like') {
-        updateData.superLikeCount = increment(-1);
+        const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'superLike');
+        if (!consumed) {
+          toast.error("Süper Like hakkın bitti!");
+          onNavigate('wallet');
+          return;
+        }
       }
 
       await updateDoc(doc(db, "users", currentUser.uid), updateData);
@@ -323,7 +329,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
               </div>
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white shadow-lg">
                 <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
-                <span className="text-[10px] font-black tabular-nums">{currentUser.superLikeCount || 0}</span>
+                <span className="text-[10px] font-black tabular-nums">{currentUser.superLikes || 0}</span>
               </div>
             </div>
 
@@ -424,7 +430,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                   >
                     <Sparkles className="w-7 h-7" />
                     <div className="absolute -bottom-1 bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-white shadow-sm">
-                      {currentUser.superLikeCount || 0} kaldı
+                      {currentUser.superLikes || 0} kaldı
                     </div>
                   </motion.button>
                   <span className="text-[8px] font-black uppercase tracking-widest text-amber-600/60 mt-1">Süper</span>

@@ -18,6 +18,7 @@ import { Sparkles, Heart, Users, Star, Zap, RefreshCw, Plus, Lock, Eye } from "l
 import SocialStoryArea from "./SocialStoryArea";
 import SocialProfilePopup from "./SocialProfilePopup";
 import { socialService } from "../lib/socialService";
+import { walletService } from "../lib/walletService";
 
 interface SocialDiscoverScreenProps {
   currentUser: UserProfile;
@@ -247,6 +248,37 @@ export default function SocialDiscoverScreen({
     }
   };
 
+  const handleRefresh = async () => {
+    if (isProcessing) return;
+    
+    // Check if free refresh is available (24h)
+    const lastRefresh = currentUser.social?.lastDiscoverRefreshAt ? new Date(currentUser.social.lastDiscoverRefreshAt).getTime() : 0;
+    const isFreeAvailable = Date.now() - lastRefresh > 24 * 60 * 60 * 1000;
+
+    if (!isFreeAvailable) {
+      // Try to use refreshCount
+      const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'refresh');
+      if (!consumed) {
+        toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
+        onNavigate('wallet');
+        return;
+      }
+    }
+
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        "social.lastDiscoverRefreshAt": new Date().toISOString()
+      });
+      toast.success("Keşfet yenilendi! ✨");
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Refresh error:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="w-full text-body relative">
       <div className="pb-28 relative z-10">
@@ -260,8 +292,13 @@ export default function SocialDiscoverScreen({
               <h3 className="text-base font-serif font-bold text-heading tracking-tight">Sana Yakın Enerjiler</h3>
               <p className="text-[9px] font-bold text-muted uppercase tracking-widest">Frekansına en yakın ruhlar</p>
             </div>
-            <button onClick={onRefresh} className="p-2 rounded-xl bg-black/5 text-muted hover:text-amber-600 transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" />
+            <button 
+              onClick={handleRefresh} 
+              disabled={isProcessing}
+              className="p-2 rounded-xl bg-black/5 text-muted hover:text-amber-600 transition-colors flex items-center gap-2"
+            >
+              <span className="text-[10px] font-black">{currentUser.refreshCount || 0}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
             </button>
           </div>
           <div className="space-y-4">
@@ -329,6 +366,7 @@ export default function SocialDiscoverScreen({
             onClose={() => setSelectedUser(null)} 
             onCompatibilityCheck={handleCompatibilityCheck}
             onSendMessage={handleSendMessage}
+            onNavigate={onNavigate}
             context="discover"
           />
         )}

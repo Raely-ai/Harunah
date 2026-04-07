@@ -9,15 +9,16 @@ import {
   Star, Trash2, Ban, CheckCircle2, AlertCircle, History,
   ImageIcon, DollarSign, Zap, Clock, Sparkles, Plus,
   User, MapPin, Heart, MessageCircle, Globe, Flag, ShieldAlert, Gavel,
-  Shield, Eye, EyeOff
+  Shield, Eye, EyeOff, ShoppingBag, Crown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
   UserProfile, AppConfig, Horoscope, FortuneType, FortuneReading,
   SocialTransaction, WithdrawalRequest, SocialReport,
   ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
-  SocialCommerceConfig
+  SocialCommerceConfig, AdminWalletConfig
 } from '../types';
+import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
 import { GoogleGenAI, Type } from "@google/genai";
 import SocialSettingsModal from './SocialSettingsModal';
 
@@ -52,6 +53,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [walletConfig, setWalletConfig] = useState<AdminWalletConfig | null>(null);
   const [horoscopes, setHoroscopes] = useState<Horoscope[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -148,12 +150,12 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           } else {
             const defaultConfig: AppConfig = {
               prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
-              icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '📺' },
+              icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '⚡' },
               dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-              adRewardAmount: 5,
+              adRewardEnergy: 5,
               maxDailyAds: 5,
               subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-              packagePrices: { "100_credits": 49.99, "500_credits": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 },
+              packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 },
               hostPackagePrices: { daily: 300, weekly: 1200, monthly: 3000 }
             };
             setConfig(defaultConfig);
@@ -161,6 +163,15 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setLoading(false);
         }, (error) => handleFirestoreError(error, OperationType.GET, 'config/global'));
         unsubscribes.push(unsub);
+
+        const unsubWallet = onSnapshot(doc(db, 'adminSettings', 'wallet'), (docSnap) => {
+          if (docSnap.exists()) {
+            setWalletConfig(docSnap.data() as AdminWalletConfig);
+          } else {
+            setWalletConfig(DEFAULT_ADMIN_WALLET_CONFIG);
+          }
+        }, (error) => handleFirestoreError(error, OperationType.GET, 'adminSettings/wallet'));
+        unsubscribes.push(unsubWallet);
       } else if (activeTab === 'horoscopes') {
         const unsub = onSnapshot(collection(db, 'horoscopes'), (snapshot) => {
           const fetchedHoroscopes: Horoscope[] = [];
@@ -265,11 +276,14 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleSaveConfig = async () => {
-    if (!config) return;
+    if (!config || !walletConfig) return;
     setSaving('config');
     try {
-      await setDoc(doc(db, 'config', 'global'), config);
-      toast.success("Global ayarlar kaydedildi.");
+      await Promise.all([
+        setDoc(doc(db, 'config', 'global'), config),
+        setDoc(doc(db, 'adminSettings', 'wallet'), walletConfig)
+      ]);
+      toast.success("Tüm ayarlar kaydedildi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'config/global');
     } finally {
@@ -669,11 +683,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <div className="flex flex-col items-end gap-1">
                           <div className="flex items-center gap-1 text-amber-400 text-xs font-bold">
                             <CreditCard className="w-3 h-3" />
-                            <span>{u.credits} Ana</span>
+                            <span>{u.mainCoins || 0} Ana</span>
                           </div>
                           <div className="flex items-center gap-1 text-purple-400 text-[10px] font-bold">
                             <Zap className="w-3 h-3" />
-                            <span>{u.adCredits || 0} Reklam</span>
+                            <span>{u.energy || 0} Enerji</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-1 text-purple-200/40 text-[10px] font-medium uppercase tracking-tighter mt-1">
@@ -693,7 +707,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           ...u,
                           role: u.role || 'user',
                           isBanned: u.isBanned || false,
-                          credits: u.credits || 0
+                          mainCoins: u.mainCoins || 0
                         })}
                         className="p-3 rounded-xl bg-white/5 text-purple-200/40 hover:bg-amber-500 hover:text-black transition-all"
                         title="Düzenle"
@@ -708,7 +722,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </>
         )}
 
-        {activeTab === 'config' && config && (
+        {activeTab === 'config' && config && walletConfig && (
           <div className="space-y-8">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-serif font-bold text-amber-50">Global Ayarlar</h2>
@@ -720,6 +734,282 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 {saving === 'config' ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                 <span>Ayarları Kaydet</span>
               </button>
+            </div>
+
+            {/* Wallet & Rewards */}
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Zap className="w-6 h-6 text-amber-400" />
+                <h3 className="text-lg font-bold text-amber-50">Cüzdan & Ödül Ayarları</h3>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Reklam Ödülü (Enerji)</label>
+                  <input 
+                    type="number"
+                    value={walletConfig.adRewardEnergy}
+                    onChange={(e) => setWalletConfig({ ...walletConfig, adRewardEnergy: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Günlük Max Reklam</label>
+                  <input 
+                    type="number"
+                    value={walletConfig.maxDailyAds}
+                    onChange={(e) => setWalletConfig({ ...walletConfig, maxDailyAds: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Reklam Ödül Skt (Gün)</label>
+                  <input 
+                    type="number"
+                    value={walletConfig.adRewardExpiryDays}
+                    onChange={(e) => setWalletConfig({ ...walletConfig, adRewardExpiryDays: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Giriş Ödülü (Enerji)</label>
+                  <input 
+                    type="number"
+                    value={walletConfig.dailyLoginRewardEnergy}
+                    onChange={(e) => setWalletConfig({ ...walletConfig, dailyLoginRewardEnergy: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Social Rights Prices */}
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Heart className="w-6 h-6 text-rose-400" />
+                <h3 className="text-lg font-bold text-amber-50">Sosyal Hak Ücretleri (Jeton)</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-6">
+                {Object.entries(walletConfig.socialRightsPrices).map(([key, val]) => (
+                  <div key={key} className="space-y-2">
+                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{key}</label>
+                    <input 
+                      type="number"
+                      value={val}
+                      onChange={(e) => setWalletConfig({ 
+                        ...walletConfig, 
+                        socialRightsPrices: { ...walletConfig.socialRightsPrices, [key]: parseInt(e.target.value) || 0 } 
+                      })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Fortune Subscriptions */}
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Star className="w-6 h-6 text-amber-400" />
+                <h3 className="text-lg font-bold text-amber-50">Fal Abonelik Ücretleri (TL)</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-6">
+                {Object.entries(walletConfig.fortuneSubscriptions).map(([type, sub]) => (
+                  <div key={type} className="space-y-4 p-4 rounded-2xl bg-black/20 border border-white/5">
+                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{type}</label>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
+                        <input 
+                          type="number"
+                          value={sub.price}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            fortuneSubscriptions: { 
+                              ...walletConfig.fortuneSubscriptions, 
+                              [type]: { ...sub, price: parseInt(e.target.value) || 0 } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Günlük Limit</span>
+                        <input 
+                          type="number"
+                          value={sub.dailyLimit}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            fortuneSubscriptions: { 
+                              ...walletConfig.fortuneSubscriptions, 
+                              [type]: { ...sub, dailyLimit: parseInt(e.target.value) || 0 } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Social Subscriptions */}
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Crown className="w-6 h-6 text-indigo-400" />
+                <h3 className="text-lg font-bold text-amber-50">Social Premium Abonelikleri (TL)</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                {Object.entries(walletConfig.socialSubscriptions).map(([type, sub]) => (
+                  <div key={type} className="space-y-4 p-6 rounded-2xl bg-black/20 border border-white/5">
+                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{type}</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
+                        <input 
+                          type="number"
+                          value={sub.price}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            socialSubscriptions: { 
+                              ...walletConfig.socialSubscriptions, 
+                              [type]: { ...sub, price: parseInt(e.target.value) || 0 } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Süper Like (Günlük)</span>
+                        <input 
+                          type="number"
+                          value={sub.dailyLimits.superLikes}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            socialSubscriptions: { 
+                              ...walletConfig.socialSubscriptions, 
+                              [type]: { 
+                                ...sub, 
+                                dailyLimits: { ...sub.dailyLimits, superLikes: parseInt(e.target.value) || 0 } 
+                              } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Yenileme (Günlük)</span>
+                        <input 
+                          type="number"
+                          value={sub.dailyLimits.refreshes}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            socialSubscriptions: { 
+                              ...walletConfig.socialSubscriptions, 
+                              [type]: { 
+                                ...sub, 
+                                dailyLimits: { ...sub.dailyLimits, refreshes: parseInt(e.target.value) || 0 } 
+                              } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Analiz (Günlük)</span>
+                        <input 
+                          type="number"
+                          value={sub.dailyLimits.compatibility}
+                          onChange={(e) => setWalletConfig({ 
+                            ...walletConfig, 
+                            socialSubscriptions: { 
+                              ...walletConfig.socialSubscriptions, 
+                              [type]: { 
+                                ...sub, 
+                                dailyLimits: { ...sub.dailyLimits, compatibility: parseInt(e.target.value) || 0 } 
+                              } 
+                            } 
+                          })}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-purple-200/20 px-1">Açıklama</span>
+                      <textarea 
+                        value={sub.description}
+                        onChange={(e) => setWalletConfig({ 
+                          ...walletConfig, 
+                          socialSubscriptions: { 
+                            ...walletConfig.socialSubscriptions, 
+                            [type]: { ...sub, description: e.target.value } 
+                          } 
+                        })}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-xs h-20 resize-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Coin Packages */}
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <ShoppingBag className="w-6 h-6 text-indigo-400" />
+                <h3 className="text-lg font-bold text-amber-50">Jeton Paketleri</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {walletConfig.coinPackages.map((pkg, idx) => (
+                  <div key={pkg.id} className="p-6 rounded-2xl bg-black/20 border border-white/5 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-amber-400">Paket {idx + 1}</span>
+                      <span className="text-[10px] text-purple-200/20">{pkg.id}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Jeton</span>
+                        <input 
+                          type="number"
+                          value={pkg.coins}
+                          onChange={(e) => {
+                            const newPkgs = [...walletConfig.coinPackages];
+                            newPkgs[idx] = { ...pkg, coins: parseInt(e.target.value) || 0 };
+                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
+                          }}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Bonus</span>
+                        <input 
+                          type="number"
+                          value={pkg.bonus}
+                          onChange={(e) => {
+                            const newPkgs = [...walletConfig.coinPackages];
+                            newPkgs[idx] = { ...pkg, bonus: parseInt(e.target.value) || 0 };
+                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
+                          }}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
+                        <input 
+                          type="number"
+                          value={pkg.price}
+                          onChange={(e) => {
+                            const newPkgs = [...walletConfig.coinPackages];
+                            newPkgs[idx] = { ...pkg, price: parseInt(e.target.value) || 0 };
+                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
+                          }}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Prices */}
@@ -744,8 +1034,8 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">Reklam Ödülü</label>
                   <input 
                     type="number"
-                    value={config.adRewardAmount}
-                    onChange={(e) => setConfig({ ...config, adRewardAmount: parseInt(e.target.value) || 0 })}
+                    value={config.adRewardEnergy}
+                    onChange={(e) => setConfig({ ...config, adRewardEnergy: parseInt(e.target.value) || 0 })}
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
                   />
                 </div>
@@ -2461,20 +2751,50 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Ana Kredi</label>
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Ana Jeton</label>
                         <input 
                           type="number"
-                          value={editingUser.credits}
-                          onChange={(e) => setEditingUser({ ...editingUser, credits: parseInt(e.target.value) || 0 })}
+                          value={editingUser.mainCoins || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, mainCoins: parseInt(e.target.value) || 0 })}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Enerji Kredisi</label>
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Enerji</label>
                         <input 
                           type="number"
-                          value={editingUser.adCredits || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, adCredits: parseInt(e.target.value) || 0 })}
+                          value={editingUser.energy || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, energy: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Super Like</label>
+                        <input 
+                          type="number"
+                          value={editingUser.superLikes || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, superLikes: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yenileme</label>
+                        <input 
+                          type="number"
+                          value={editingUser.refreshCount || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, refreshCount: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Uyum Analizi</label>
+                        <input 
+                          type="number"
+                          value={editingUser.compatibilityCount || 0}
+                          onChange={(e) => setEditingUser({ ...editingUser, compatibilityCount: parseInt(e.target.value) || 0 })}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
                         />
                       </div>
@@ -2699,8 +3019,12 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <button
                     onClick={() => {
                       const updates: any = {
-                        credits: editingUser.credits || 0,
-                        adCredits: editingUser.adCredits || 0,
+                        mainCoins: editingUser.mainCoins || 0,
+                        energy: editingUser.energy || 0,
+                        superLikes: editingUser.superLikes || 0,
+                        refreshCount: editingUser.refreshCount || 0,
+                        compatibilityCount: editingUser.compatibilityCount || 0,
+                        dailyAdWatchCount: editingUser.dailyAdWatchCount || 0,
                         dailyAdReadingsUsed: editingUser.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() },
                         role: editingUser.role || 'user',
                         isBanned: editingUser.isBanned || false,
@@ -2793,7 +3117,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         {reading.creditsUsed !== undefined && (
                           <div className="flex items-center gap-1">
                             <DollarSign className="w-3 h-3" />
-                            <span>{reading.creditsUsed} Kredi</span>
+                            <span>{reading.creditsUsed} Jeton</span>
                           </div>
                         )}
                       </div>

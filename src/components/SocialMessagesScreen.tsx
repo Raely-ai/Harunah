@@ -585,6 +585,7 @@ export default function SocialMessagesScreen({
             chat={selectedChat} 
             currentUser={currentUser} 
             onClose={() => setSelectedChat(null)} 
+            onNavigate={onNavigate}
           />
         )}
       </AnimatePresence>
@@ -598,6 +599,7 @@ export default function SocialMessagesScreen({
             onClose={() => setSelectedLiker(null)}
             onCompatibilityCheck={() => {}} 
             onSendMessage={() => {}} 
+            onNavigate={onNavigate}
             onStartChat={handleStartChatFromLiker}
             context="likers"
           />
@@ -686,7 +688,7 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
   );
 }
 
-function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & { otherUser: UserProfile }, currentUser: UserProfile, onClose: () => void }) {
+function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { chat: Chat & { otherUser: UserProfile }, currentUser: UserProfile, onClose: () => void, onNavigate: (tab: any) => void }) {
   const [chat, setChat] = useState(initialChat);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -1289,6 +1291,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & 
             onClose={() => setShowProfile(false)}
             onCompatibilityCheck={() => {}}
             onSendMessage={() => setShowProfile(false)}
+            onNavigate={onNavigate}
             context="match"
           />
         )}
