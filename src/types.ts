@@ -2,7 +2,7 @@ export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' 
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
-export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-onboarding' | 'social-profile';
+export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-onboarding' | 'social-profile' | 'social-management';
 
 export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error';
 
@@ -57,7 +57,11 @@ export interface UserProfile {
     lastResetDate: string;
   };
   isBanned?: boolean;
-  role?: 'user' | 'admin';
+  role?: 'user' | 'admin' | 'social_operator';
+  
+  // Managed Profiles for Social Operators
+  isManagedProfile?: boolean;
+  profileType?: 'operator' | 'user';
   
   // Social Fields (Deprecated, use 'social' object)
   socialEnabled?: boolean;
@@ -241,6 +245,7 @@ export interface SocialReport {
   id: string;
   fromUid: string;
   toUid: string;
+  chatId?: string;
   reason: string;
   description?: string;
   context: 'explore' | 'profile' | 'chat' | 'room';
@@ -392,6 +397,7 @@ export interface Chat {
   type?: 'direct' | 'group';
   unreadCount?: Record<string, number>;
   typing?: Record<string, boolean>;
+  deletedFor?: string[];
 }
 
 export interface Message {

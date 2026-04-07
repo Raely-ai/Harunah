@@ -5,7 +5,12 @@ import {
   Sparkles,
   X,
   Plus,
-  AlertCircle
+  AlertCircle,
+  Flag,
+  MoreVertical,
+  ShieldAlert,
+  ChevronRight,
+  Users
 } from "lucide-react";
 import { 
   collection, 
@@ -14,7 +19,10 @@ import {
   onSnapshot, 
   doc, 
   limit,
-  updateDoc
+  updateDoc,
+  increment,
+  setDoc,
+  serverTimestamp
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile } from "../types";
@@ -31,6 +39,8 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("");
 
   const displayMatches = useMemo(() => {
     return potentialMatches.filter(u => !swipedUserIds.has(u.uid));
@@ -101,7 +111,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
     if (!activeUser || isAnimating || isProcessing) return;
     
-    if (!canSwipe(currentUser)) {
+    // Super Like Check
+    if (type === 'super_like' && (currentUser.superLikeCount || 0) <= 0) {
+      onNavigate('wallet');
+      return;
+    }
+
+    if (type !== 'pass' && !canSwipe(currentUser)) {
       toast.error("Günlük swipe hakkın bitti!");
       onNavigate('wallet');
       return;
@@ -127,10 +143,16 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     }, 400);
 
     try {
-      await updateDoc(doc(db, "users", currentUser.uid), {
+      const updateData: any = {
         dailySwipeUsed: newUsed,
         dailySwipeDate: today
-      });
+      };
+
+      if (type === 'super_like') {
+        updateData.superLikeCount = increment(-1);
+      }
+
+      await updateDoc(doc(db, "users", currentUser.uid), updateData);
       
       await socialService.sendLike(currentUser, targetUser.uid, type);
       
@@ -140,6 +162,20 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     } catch (error) {
       console.error("Swipe error:", error);
       setIsProcessing(false);
+    }
+  };
+
+  const handleReport = async (reason: string) => {
+    if (!activeUser) return;
+    try {
+      await socialService.reportUser(currentUser.uid, activeUser.uid, 'explore', reason);
+      toast.success("Bildirimin alındı, teşekkürler.");
+      setShowReportModal(false);
+      // Skip user after report
+      handleSwipe('pass');
+    } catch (error) {
+      console.error("Report error:", error);
+      toast.error("Bildirim gönderilirken bir hata oluştu.");
     }
   };
 
@@ -176,7 +212,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   };
 
   return (
-    <div className="h-full w-full bg-[#F6F4F8] relative overflow-hidden">
+    <div className="h-full w-full relative">
       {loading ? (
         <div className="flex flex-col items-center justify-center h-full space-y-4">
           <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
@@ -250,7 +286,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
               {/* Photo Navigation Indicators */}
               {photos.length > 1 && (
                 <>
-                  <div className="absolute top-24 left-6 right-6 flex gap-1.5 z-30">
+                  <div className="absolute top-32 left-6 right-6 flex gap-1.5 z-30">
                     {photos.map((_, idx) => (
                       <div key={idx} className={`h-1 flex-1 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'bg-white/30'}`} />
                     ))}
@@ -266,55 +302,117 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
             <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#F6F4F8] via-[#F6F4F8]/40 to-transparent pointer-events-none z-10" />
 
             {/* Report Button */}
-            <button className="absolute top-28 right-6 p-3 bg-white/40 backdrop-blur-xl rounded-2xl text-muted hover:text-heading hover:bg-white/60 transition-all border border-black/5 z-30 shadow-xl">
-              <AlertCircle className="w-5 h-5" />
+            <button 
+              onClick={() => setShowReportModal(true)}
+              className="absolute top-32 right-6 p-2.5 bg-white/20 backdrop-blur-md rounded-xl text-white/80 hover:text-white hover:bg-white/30 transition-all border border-white/10 z-30 shadow-lg"
+            >
+              <Flag className="w-4 h-4" />
             </button>
 
+            {/* User Limit Display (Top Center) */}
+            <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white shadow-lg">
+                <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />
+                <span className="text-[10px] font-black tabular-nums">{getRemainingSwipes(currentUser)}</span>
+                <button 
+                  onClick={() => onNavigate('wallet')}
+                  className="ml-1 p-0.5 rounded-full bg-white/20 hover:bg-white/40 transition-colors"
+                >
+                  <Plus className="w-2.5 h-2.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white shadow-lg">
+                <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
+                <span className="text-[10px] font-black tabular-nums">{currentUser.superLikeCount || 0}</span>
+              </div>
+            </div>
+
             {/* Scores (Top Overlay) */}
-            <div className="absolute top-36 left-6 right-6 flex gap-2.5 z-30 pointer-events-none">
-              <div className="flex-1 bg-rose-500/10 backdrop-blur-xl rounded-2xl p-2.5 text-center border border-rose-500/20 shadow-lg">
-                <div className="text-[8px] uppercase text-rose-600/60 font-black tracking-widest mb-0.5">Aşk</div>
-                <div className="text-xl font-black text-rose-600">%{compatibility?.love || 0}</div>
+            <div className="absolute top-44 left-6 right-6 flex flex-col gap-3 z-30">
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-3 border border-white/10 shadow-2xl flex items-center justify-around">
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Heart className="w-2.5 h-2.5 text-rose-500 fill-rose-500" />
+                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Aşk</span>
+                  </div>
+                  <div className={`text-lg font-black ${
+                    (compatibility?.love || 0) < 50 ? 'text-rose-400' : 
+                    (compatibility?.love || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
+                  }`}>
+                    %{compatibility?.love || 0}
+                  </div>
+                </div>
+                
+                <div className="w-px h-8 bg-white/10" />
+
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Users className="w-2.5 h-2.5 text-blue-400 fill-blue-400" />
+                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Dost</span>
+                  </div>
+                  <div className={`text-lg font-black ${
+                    (compatibility?.friendship || 0) < 50 ? 'text-rose-400' : 
+                    (compatibility?.friendship || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
+                  }`}>
+                    %{compatibility?.friendship || 0}
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-white/10" />
+
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Sparkles className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Uyum</span>
+                  </div>
+                  <div className={`text-lg font-black ${
+                    (compatibility?.understanding || 0) < 50 ? 'text-rose-400' : 
+                    (compatibility?.understanding || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
+                  }`}>
+                    %{compatibility?.understanding || 0}
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 bg-blue-500/10 backdrop-blur-xl rounded-2xl p-2.5 text-center border border-blue-500/20 shadow-lg">
-                <div className="text-[8px] uppercase text-blue-600/60 font-black tracking-widest mb-0.5">Dost</div>
-                <div className="text-xl font-black text-blue-600">%{compatibility?.friendship || 0}</div>
-              </div>
-              <div className="flex-1 bg-amber-500/10 backdrop-blur-xl rounded-2xl p-2.5 text-center border border-amber-500/20 shadow-lg">
-                <div className="text-[8px] uppercase text-amber-600/60 font-black tracking-widest mb-0.5">Uyum</div>
-                <div className="text-xl font-black text-amber-600">%{compatibility?.understanding || 0}</div>
+
+              {/* Emotional Hint Text */}
+              <div className="text-center">
+                <p className="text-[10px] font-medium text-white/80 italic drop-shadow-sm">
+                  { (compatibility?.overallScore || 0) > 80 ? "Aranızda gerçek bir kıvılcım var!" :
+                    (compatibility?.overallScore || 0) > 60 ? "Enerjiniz kararsız ama açık." :
+                    "Düşük ama sürpriz olabilir." }
+                </p>
               </div>
             </div>
 
             {/* Info & Actions Container */}
-            <div className="absolute bottom-32 left-0 right-0 px-8 z-30 flex flex-col gap-8">
+            <div className="absolute bottom-32 left-0 right-0 px-8 z-30 flex flex-col gap-6">
               {/* User Info */}
               <div className="text-heading">
-                <div className="flex items-center gap-3 mb-3">
-                  <h2 className="text-4xl font-serif font-bold tracking-tight drop-shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-3xl font-serif font-bold tracking-tight drop-shadow-sm">
                     {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age}
                   </h2>
-                  <span className="text-[10px] font-black uppercase tracking-widest bg-black/5 backdrop-blur-xl px-3 py-1.5 rounded-full border border-black/5">
+                  <span className="text-[9px] font-black uppercase tracking-widest bg-black/5 backdrop-blur-xl px-2.5 py-1 rounded-full border border-black/5">
                     {activeUser.zodiacSign || "Burç"}
                   </span>
                 </div>
-                <p className="text-base text-body line-clamp-2 leading-relaxed font-medium drop-shadow-sm">
+                <p className="text-sm text-body line-clamp-2 leading-relaxed font-medium drop-shadow-sm">
                   {activeUser.social?.bio || activeUser.bio || "Bio henüz eklenmemiş."}
                 </p>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-center gap-6">
+              <div className="flex items-center justify-center gap-8">
                 <div className="flex flex-col items-center gap-2">
                   <motion.button 
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={() => handleSwipe('pass')} 
-                    className="w-16 h-16 rounded-full bg-white/40 backdrop-blur-2xl border border-black/5 text-muted flex items-center justify-center hover:bg-white/60 transition-all shadow-2xl"
+                    className="w-14 h-14 rounded-full bg-white/40 backdrop-blur-2xl border border-black/5 text-muted flex items-center justify-center hover:bg-white/60 transition-all shadow-xl"
                   >
-                    <X className="w-8 h-8" />
+                    <X className="w-7 h-7" />
                   </motion.button>
-                  <span className="text-[9px] font-black uppercase tracking-widest text-muted">Geç</span>
+                  <span className="text-[8px] font-black uppercase tracking-widest text-muted">Geç</span>
                 </div>
 
                 <div className="flex flex-col items-center gap-2">
@@ -322,11 +420,14 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={() => handleSwipe('super_like')} 
-                    className="w-14 h-14 rounded-full bg-amber-500/10 backdrop-blur-2xl border border-amber-500/20 text-amber-600 flex items-center justify-center hover:bg-amber-500/20 transition-all shadow-2xl"
+                    className="w-16 h-16 rounded-full bg-amber-500/10 backdrop-blur-2xl border border-amber-500/20 text-amber-600 flex items-center justify-center hover:bg-amber-500/20 transition-all shadow-2xl relative"
                   >
-                    <Sparkles className="w-6 h-6" />
+                    <Sparkles className="w-7 h-7" />
+                    <div className="absolute -bottom-1 bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-white shadow-sm">
+                      {currentUser.superLikeCount || 0} kaldı
+                    </div>
                   </motion.button>
-                  <span className="text-[9px] font-black uppercase tracking-widest text-amber-600/60">Süper</span>
+                  <span className="text-[8px] font-black uppercase tracking-widest text-amber-600/60 mt-1">Süper</span>
                 </div>
 
                 <div className="flex flex-col items-center gap-2">
@@ -338,17 +439,61 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                     }}
                     transition={{ repeat: Infinity, duration: 3 }}
                     onClick={() => handleSwipe('like')} 
-                    className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-600 to-rose-500 text-white flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)] border border-rose-400/20 transition-all"
+                    className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-600 to-rose-500 text-white flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)] border border-rose-400/20 transition-all"
                   >
-                    <Heart className="w-8 h-8 fill-white" />
+                    <Heart className="w-7 h-7 fill-white" />
                   </motion.button>
-                  <span className="text-[9px] font-black uppercase tracking-widest text-rose-600">Beğen</span>
+                  <span className="text-[8px] font-black uppercase tracking-widest text-rose-600">Beğen</span>
                 </div>
               </div>
             </div>
           </motion.div>
         </AnimatePresence>
       )}
+
+      {/* Report Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-xs bg-white rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 text-center border-b border-black/5">
+                <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-serif font-bold text-heading">Kullanıcıyı Bildir</h3>
+                <p className="text-xs text-body mt-1">Lütfen bildirme nedenini seçin</p>
+              </div>
+              
+              <div className="p-2">
+                {['Spam', 'Sahte profil', 'Rahatsız edici', 'Diğer'].map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={() => handleReport(reason)}
+                    className="w-full px-6 py-4 text-left text-sm font-bold text-heading hover:bg-black/5 transition-colors rounded-2xl flex items-center justify-between group"
+                  >
+                    {reason}
+                    <ChevronRight className="w-4 h-4 text-muted group-hover:text-heading transition-colors" />
+                  </button>
+                ))}
+              </div>
+              
+              <div className="p-4 bg-black/5">
+                <button 
+                  onClick={() => setShowReportModal(false)}
+                  className="w-full py-3 text-sm font-black text-muted uppercase tracking-widest hover:text-heading transition-colors"
+                >
+                  Vazgeç
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -22,11 +22,11 @@ import HistoryScreen from "./components/HistoryScreen";
 import AdminPanel from "./components/AdminPanel";
 import ProfileView from "./components/ProfileView";
 import SettingsView from "./components/SettingsView";
-import EditProfileModal from "./components/EditProfileModal";
 import DeleteAccountModal from "./components/DeleteAccountModal";
 import HoroscopeScreen from "./components/HoroscopeScreen";
 import SocialIntroScreen from "./components/SocialIntroScreen";
 import SocialOnboardingFlow from "./components/SocialOnboardingFlow";
+import SocialManagementScreen from "./components/SocialManagementScreen";
 import SocialDiscoverScreen from "./components/SocialDiscoverScreen";
 import SocialMessagesScreen from "./components/SocialMessagesScreen";
 import SocialProfileScreen from "./components/SocialProfileScreen";
@@ -50,7 +50,6 @@ export default function App() {
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -905,7 +904,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
+    <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
       {/* Noise Texture Overlay */}
       <div className="fixed inset-0 noise-bg z-[1] opacity-[0.03]" />
       
@@ -1144,7 +1143,6 @@ export default function App() {
               <ProfileView 
                 user={userProfile}
                 isAdmin={isAdmin}
-                onEdit={() => setIsEditProfileOpen(true)}
                 onSettings={() => setIsSettingsOpen(true)}
                 onLogout={() => signOut(auth)}
                 onDeleteAccount={() => setIsDeleteAccountOpen(true)}
@@ -1177,7 +1175,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[70] bg-[#050505]"
+              className="fixed inset-0 h-[100dvh] z-[70] bg-[#F6F4F8]"
             >
               <SocialIntroScreen 
                 onBack={() => handleNavigate('home')}
@@ -1208,6 +1206,21 @@ export default function App() {
               />
             </motion.div>
           )}
+
+          {activeTab === 'social-management' && userProfile && (
+            <motion.div
+              key="social-management"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="min-h-screen pb-20"
+            >
+              <SocialManagementScreen 
+                user={userProfile} 
+                onNavigate={handleNavigate} 
+              />
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {activeTab !== 'home' && (
@@ -1224,6 +1237,7 @@ export default function App() {
           activeTab={activeTab} 
           onTabChange={handleNavigate} 
           className={['social-intro', 'social-onboarding'].includes(activeTab) ? 'hidden' : ''}
+          userRole={userProfile?.role}
         />
       )}
 
@@ -1276,20 +1290,6 @@ export default function App() {
               onDeleteAccount={() => setIsDeleteAccountOpen(true)}
             />
           </div>
-        )}
-        {isEditProfileOpen && userProfile && (
-          <EditProfileModal 
-            user={userProfile}
-            onClose={() => setIsEditProfileOpen(false)}
-            onSave={async (updates) => {
-              try {
-                await updateDoc(doc(db, "users", userProfile.uid), updates);
-                toast.success("Profil güncellendi!");
-              } catch (err) {
-                handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`);
-              }
-            }}
-          />
         )}
         {isDeleteAccountOpen && userProfile && (
           <DeleteAccountModal 

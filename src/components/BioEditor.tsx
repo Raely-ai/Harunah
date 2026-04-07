@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
-import { updateSocialField } from '../services/socialService';
+import { socialService } from '../lib/socialService';
 
 export default function BioEditor({ uid, currentBio, onClose, onUpdate }: { uid: string, currentBio: string, onClose: () => void, onUpdate: (bio: string) => void }) {
   const [bio, setBio] = useState(currentBio);
 
   const handleSave = async () => {
-    await updateSocialField(uid, 'bio', bio);
+    await socialService.updateSocialField(uid, 'bio', bio);
     onUpdate(bio);
     onClose();
   };

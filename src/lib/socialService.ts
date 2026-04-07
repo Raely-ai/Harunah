@@ -12,10 +12,11 @@ import {
   limit,
   writeBatch,
   increment,
-  deleteDoc
+  deleteDoc,
+  arrayUnion
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, auth, storage } from "./firebase";
+import { db, auth, storage, handleFirestoreError, OperationType } from "./firebase";
 import { UserProfile, InteractionRequest, SocialActionResult, Message } from "../types";
 
 export const socialService = {
@@ -513,15 +514,23 @@ export const socialService = {
   },
 
   async updateUserStatus(uid: string, isOnline: boolean) {
-    if (!uid) return;
+    if (!uid || auth.currentUser?.uid !== uid) return;
     try {
       await updateDoc(doc(db, "users", uid), {
         "social.isOnline": isOnline,
         "social.lastSeen": serverTimestamp()
       });
     } catch (error) {
-      console.error("Error updating user status:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     }
+  },
+
+  async updateSocialField(uid: string, field: string, value: any) {
+    if (!uid) return;
+    const userRef = doc(db, "users", uid);
+    await updateDoc(userRef, {
+      [`social.${field}`]: value
+    });
   },
 
   // --- Advanced Messaging Features ---
@@ -571,6 +580,29 @@ export const socialService = {
     return await this.sendMessage(chatId, senderId, otherUserId, {
       mediaUrl: downloadUrl,
       mediaType: type
+    });
+  },
+
+  async deleteChat(chatId: string, userId: string) {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      deletedFor: arrayUnion(userId)
+    });
+  },
+
+  async reportUser(reporterId: string, reportedUserId: string, chatId: string, reason: string, message?: string) {
+    const reportRef = doc(collection(db, "socialReports"));
+    await setDoc(reportRef, {
+      id: reportRef.id,
+      fromUid: reporterId,
+      toUid: reportedUserId,
+      chatId,
+      reason,
+      description: message || "",
+      context: 'chat',
+      timestamp: new Date().toISOString(),
+      createdAt: serverTimestamp(), // Keep for ordering if needed
+      status: 'pending'
     });
   },
 

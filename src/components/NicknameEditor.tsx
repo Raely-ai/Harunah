@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
-import { updateSocialField } from '../services/socialService';
+import { socialService } from '../lib/socialService';
 
 export default function NicknameEditor({ uid, currentNickname, onClose, onUpdate }: { uid: string, currentNickname: string, onClose: () => void, onUpdate: (nickname: string) => void }) {
   const [nickname, setNickname] = useState(currentNickname);
 
   const handleSave = async () => {
-    await updateSocialField(uid, 'nickname', nickname);
+    await socialService.updateSocialField(uid, 'nickname', nickname);
     onUpdate(nickname);
     onClose();
   };

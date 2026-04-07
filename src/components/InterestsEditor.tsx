@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
-import { updateSocialField } from '../services/socialService';
+import { socialService } from '../lib/socialService';
 
 const AVAILABLE_INTERESTS = [
   "Seyahat", "Müzik", "Kitap", "Spor", "Sanat", "Yemek", "Doğa", "Teknoloji", "Sinema", "Fotoğrafçılık",
@@ -23,7 +23,7 @@ export default function InterestsEditor({ uid, currentInterests, onClose, onUpda
   };
 
   const handleSave = async () => {
-    await updateSocialField(uid, 'interests', interests);
+    await socialService.updateSocialField(uid, 'interests', interests);
     onUpdate(interests);
     onClose();
   };

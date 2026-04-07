@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Plus, X } from 'lucide-react';
-import { updateSocialField } from '../services/socialService';
+import { socialService } from '../lib/socialService';
 import { uploadPhoto } from '../lib/uploadService';
 
 interface PhotoGalleryProps {
@@ -17,7 +17,7 @@ export default function PhotoGallery({ photos, uid }: PhotoGalleryProps) {
       try {
         const url = await uploadPhoto(file, uid);
         const newPhotos = [...photos, url];
-        await updateSocialField(uid, 'photos', newPhotos);
+        await socialService.updateSocialField(uid, 'photos', newPhotos);
       } catch (error) {
         console.error("Error uploading photo:", error);
       }
@@ -26,7 +26,7 @@ export default function PhotoGallery({ photos, uid }: PhotoGalleryProps) {
   
   const handleRemove = async (index: number) => {
     const newPhotos = photos.filter((_, i) => i !== index);
-    await updateSocialField(uid, 'photos', newPhotos);
+    await socialService.updateSocialField(uid, 'photos', newPhotos);
   };
 
   return (

@@ -4,7 +4,8 @@ import {
   Wallet, 
   User,
   Sparkles,
-  MessageCircle
+  MessageCircle,
+  Users
 } from "lucide-react";
 import { AppTab } from "../types";
 
@@ -12,9 +13,10 @@ interface BottomNavProps {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   className?: string;
+  userRole?: string;
 }
 
-export default function BottomNav({ activeTab, onTabChange, className = "" }: BottomNavProps) {
+export default function BottomNav({ activeTab, onTabChange, className = "", userRole }: BottomNavProps) {
   const tabs = [
     { id: 'home' as AppTab, icon: Home, label: 'Ana Sayfa' },
     { id: 'fortunes' as AppTab, icon: Sparkles, label: 'Fallar' },
@@ -23,13 +25,14 @@ export default function BottomNav({ activeTab, onTabChange, className = "" }: Bo
     { id: 'wallet' as AppTab, icon: Wallet, label: 'Cüzdan' },
   ];
 
+  if (userRole === 'social_operator' || userRole === 'admin') {
+    tabs.push({ id: 'social-management' as AppTab, icon: Users, label: 'Sosyal' });
+  }
+
   return (
     <div className={`fixed bottom-0 left-0 right-0 z-50 px-6 pb-8 pointer-events-none ${className}`}>
       <div className="max-w-md mx-auto pointer-events-auto">
-        <div className="bg-black/60 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-2 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden">
-          {/* Subtle background glow */}
-          <div className="absolute inset-0 bg-gradient-to-t from-amber-500/5 to-transparent pointer-events-none" />
-          
+        <div className="bg-white/80 backdrop-blur-xl border border-black/5 rounded-[2rem] p-1.5 flex items-center justify-between shadow-[0_4px_16px_rgba(0,0,0,0.04)] relative">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -38,29 +41,27 @@ export default function BottomNav({ activeTab, onTabChange, className = "" }: Bo
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className="relative flex-1 flex flex-col items-center justify-center py-3 group transition-all duration-500"
+                className={`relative flex-1 flex flex-col items-center justify-center h-14 group transition-all duration-500 ${isActive ? 'z-10' : 'z-0'}`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="activeTab"
-                    className="absolute inset-0 bg-gradient-to-b from-amber-500/10 to-transparent rounded-[2rem] border-t border-amber-500/20 shadow-[inset_0_1px_10px_rgba(212,175,55,0.1)]"
+                    className="absolute inset-y-1 inset-x-1 bg-amber-500/10 border border-amber-500/20 rounded-[1.5rem]"
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
-                <div className="relative">
+                <div className="relative z-10">
                   <Icon 
-                    className={`w-6 h-6 mb-1 transition-all duration-500 ${
+                    className={`w-5 h-5 mb-0.5 transition-all duration-500 ${
                       isActive 
-                        ? "text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(212,175,55,0.6)]" 
-                        : "text-zinc-500 group-hover:text-zinc-300"
+                        ? "text-amber-600/80 scale-105" 
+                        : "text-gray-500 group-hover:text-gray-800"
                     }`} 
+                    strokeWidth={isActive ? 2.2 : 2}
                   />
-                  {isActive && (
-                    <div className="absolute -inset-2 bg-amber-500/20 blur-xl rounded-full animate-pulse" />
-                  )}
                 </div>
-                <span className={`text-[9px] font-bold uppercase tracking-[0.2em] transition-all duration-500 ${
-                  isActive ? "text-amber-400 opacity-100 translate-y-0" : "text-zinc-600 opacity-0 translate-y-1 group-hover:opacity-40"
+                <span className={`text-[8px] font-bold uppercase tracking-[0.1em] relative z-10 transition-all duration-500 ${
+                  isActive ? "text-amber-600/80 opacity-100 translate-y-0" : "text-gray-400 opacity-0 translate-y-1 group-hover:opacity-60"
                 }`}>
                   {tab.label}
                 </span>
@@ -68,7 +69,7 @@ export default function BottomNav({ activeTab, onTabChange, className = "" }: Bo
                 {isActive && (
                   <motion.div
                     layoutId="activeDot"
-                    className="absolute -bottom-1 w-1.5 h-1.5 bg-amber-400 rounded-full shadow-[0_0_10px_rgba(212,175,55,0.8)]"
+                    className="absolute bottom-1.5 w-1 h-1 bg-amber-500/60 rounded-full z-10"
                   />
                 )}
               </button>

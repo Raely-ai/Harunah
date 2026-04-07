@@ -2560,6 +2560,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     >
                       <option value="user">Kullanıcı</option>
                       <option value="admin">Yönetici</option>
+                      <option value="social_operator">Sosyal Operatör</option>
                     </select>
                   </div>
 

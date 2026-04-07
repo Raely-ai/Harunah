@@ -18,14 +18,8 @@ export default function SocialGridBlock({ title, users, color, onSelect, current
   const Icon = isRed ? Heart : Users;
 
   return (
-    <section className="mx-6 my-10 relative group">
-      {/* Animated Border Effect */}
-      <div className={`absolute -inset-[1px] bg-gradient-to-r ${isRed ? 'from-rose-500/50 via-purple-500/50 to-rose-500/50' : 'from-sky-500/50 via-indigo-500/50 to-sky-500/50'} rounded-[2rem] opacity-30 group-hover:opacity-100 blur-[1px] transition-opacity duration-1000`} />
-      
-      <div className="relative bg-black/[0.03] backdrop-blur-2xl rounded-[2rem] p-6 border border-black/5 overflow-hidden">
-        {/* Background Glow */}
-        <div className={`absolute top-0 right-0 w-32 h-32 blur-[60px] rounded-full pointer-events-none ${isRed ? 'bg-rose-500/10' : 'bg-sky-500/10'}`} />
-        
+    <section className="px-6 my-10 relative group">
+      <div className="relative">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-xl ${isRed ? 'bg-rose-500/20 text-rose-500' : 'bg-sky-500/20 text-sky-500'} border border-black/5 shadow-sm`}>

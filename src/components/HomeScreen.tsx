@@ -101,11 +101,8 @@ export default function HomeScreen({
   return (
     <div className="relative h-full w-full bg-[#F6F4F8] overflow-hidden">
       {/* Top Navigation Bar - Absolute to allow content to go under */}
-      <div className="absolute top-0 left-0 right-0 z-50 header-gradient backdrop-blur-sm pt-[env(safe-area-inset-top,2.5rem)] pb-10 px-4">
-        <div className="max-w-md mx-auto flex items-center justify-between gap-3">
-          {/* Left side spacer */}
-          <div className="w-10 hidden xs:block" />
-
+      <div className="absolute top-0 left-0 right-0 z-50 header-gradient pt-[calc(env(safe-area-inset-top,2.5rem)+1.5rem)] pb-10 px-4">
+        <div className="max-w-md mx-auto flex items-center justify-center">
           {/* Social Tabs */}
           <div className="relative flex bg-black/5 p-1 rounded-2xl border border-black/5 flex-1 max-w-[240px] shadow-inner backdrop-blur-xl">
             {/* Sliding Background Indicator */}
@@ -143,27 +140,6 @@ export default function HomeScreen({
               <span>Karşılaşma</span>
             </button>
           </div>
-
-          {/* Right Controls */}
-          <div className="flex items-center justify-end min-w-[70px]">
-            {activeTopTab === 'discover' && (
-              <button 
-                onClick={handleRefreshDiscover}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 hover:bg-amber-500/20 transition-all active:scale-95 shadow-lg shadow-amber-500/5"
-              >
-                <RefreshCw className="w-3 h-3 flex-shrink-0" />
-                <span className="text-[10px] font-black tracking-tighter tabular-nums">{refreshTimer}</span>
-              </button>
-            )}
-            {activeTopTab === 'match' && (
-              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/5 border border-black/5 text-muted shadow-lg backdrop-blur-xl">
-                <Heart className="w-3 h-3 text-rose-500 flex-shrink-0 fill-rose-500/20" />
-                <span className="text-[10px] font-black tracking-tighter tabular-nums">
-                  {getRemainingSwipes(userProfile)}
-                </span>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -177,7 +153,7 @@ export default function HomeScreen({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="h-full w-full overflow-y-auto pt-28 pb-32"
+              className="h-full w-full overflow-y-auto pt-36 pb-32"
             >
               {!isSocialEnabled ? (
                 <SocialDisabledView onNavigate={onNavigate} />
@@ -188,6 +164,8 @@ export default function HomeScreen({
                   onNavigate={onNavigate}
                   config={config}
                   horoscope={userProfile.horoscope ? horoscopes[userProfile.horoscope] : null}
+                  onRefresh={handleRefreshDiscover}
+                  refreshTimer={refreshTimer}
                 />
               )}
             </motion.div>

@@ -8,8 +8,14 @@ service cloud.firestore {
     }
     
     function isNotBanned() {
-      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)) || 
+      return !isAuthenticated() || 
+             !exists(/databases/$(database)/documents/users/$(request.auth.uid)) || 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isBanned', false) == false;
+    }
+
+    function isOwnerNotBanned(userId) {
+      return isOwner(userId) && 
+             (resource == null || resource.data.get('isBanned', false) == false);
     }
     
     function isOwner(userId) {
@@ -25,11 +31,20 @@ service cloud.firestore {
         );
     }
 
+    function isSocialOperator() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'social_operator';
+    }
+
+    function hasElevatedAccess() {
+      return isAdmin() || isSocialOperator();
+    }
+
     function isValidUser(data) {
-      return data.get('displayName', '') is string && data.get('displayName', '').size() <= 100 &&
-             data.get('bio', '') is string && data.get('bio', '').size() <= 1000 &&
-             data.get('role', 'user') in ['user', 'admin'] &&
-             data.get('isBanned', false) is bool;
+      return data.get('role', 'user') in ['user', 'admin', 'social_operator'] &&
+             data.get('isBanned', false) is bool &&
+             (!('social' in data) || data.social is map);
     }
 
     // User Profile
@@ -38,17 +53,19 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                       request.resource.data.get('role', 'user') == 'user' && 
                       request.resource.data.get('isBanned', false) == false;
-      allow update: if isAdmin() || (isOwner(userId) && isNotBanned() && isValidUser(request.resource.data) && (
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['credits', 'adCredits', 'subscription', 'isBanned', 'role']) ||
-        // Allow usage (decrement)
-        (request.resource.data.credits < resource.data.credits && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credits'])) ||
-        // Allow ad rewards (increment adCredits)
-        (request.resource.data.adCredits > resource.data.adCredits && 
-         request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastAdDate', 'dailyAdCount'])) ||
-        // Allow social updates
-        (request.resource.data.diff(resource.data).affectedKeys().hasAny(['dailySwipeCount', 'lastSwipeDate', 'socialEnabled', 'socialProfileCompleted', 'socialVisible', 'nickname', 'lookingFor', 'interests', 'photos', 'bio', 'age']))
-      ));
+      allow update: if hasElevatedAccess() || (
+        isOwner(userId) && 
+        (resource.data.get('isBanned', false) == false) &&
+        isValidUser(request.resource.data) &&
+        // 1. Prevent self-promotion or unbanning
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned', 'subscription']) &&
+        // 2. Protect credits (only allow decreasing)
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['credits']) || 
+         request.resource.data.get('credits', 0) <= resource.data.get('credits', 0)) &&
+        // 3. Protect adCredits (only allow increasing)
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['adCredits']) || 
+         request.resource.data.get('adCredits', 0) >= resource.data.get('adCredits', 0))
+      );
       allow delete: if isAdmin();
     }
 
@@ -58,15 +75,15 @@ service cloud.firestore {
         resource == null || 
         resource.data.fromUserId == request.auth.uid || 
         resource.data.toUserId == request.auth.uid || 
-        isAdmin()
+        hasElevatedAccess()
       );
-      allow create: if isAuthenticated() && isNotBanned() && request.resource.data.fromUserId == request.auth.uid;
-      allow update: if isAuthenticated() && isNotBanned() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid);
+      allow create: if isAuthenticated() && isNotBanned() && (request.resource.data.fromUserId == request.auth.uid || hasElevatedAccess());
+      allow update: if isAuthenticated() && isNotBanned() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid || hasElevatedAccess());
       allow delete: if isAuthenticated() && (
         resource == null || // Allow deleting non-existent docs (cleanup)
         resource.data.fromUserId == request.auth.uid || 
         resource.data.toUserId == request.auth.uid || 
-        isAdmin()
+        hasElevatedAccess()
       );
     }
 
@@ -76,14 +93,14 @@ service cloud.firestore {
         resource == null || 
         resource.data.fromUserId == request.auth.uid || 
         resource.data.toUserId == request.auth.uid || 
-        isAdmin()
+        hasElevatedAccess()
       );
       allow create: if isAuthenticated() && isNotBanned() && 
-                      request.resource.data.fromUserId == request.auth.uid &&
+                      (request.resource.data.fromUserId == request.auth.uid || hasElevatedAccess()) &&
                       request.resource.data.get('type', '') in ['like', 'message', 'super_like', 'message_request'] &&
                       request.resource.data.get('message', '').size() <= 500;
       allow update: if isAuthenticated() && isNotBanned() && (
-        request.auth.uid in [resource.data.fromUserId, resource.data.toUserId] &&
+        (request.auth.uid in [resource.data.fromUserId, resource.data.toUserId] || hasElevatedAccess()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'updatedAt']) &&
         request.resource.data.status in ['accepted', 'rejected', 'pending']
       );
@@ -91,7 +108,7 @@ service cloud.firestore {
         resource == null || // Allow deleting non-existent docs (cleanup)
         resource.data.fromUserId == request.auth.uid || 
         resource.data.toUserId == request.auth.uid || 
-        isAdmin()
+        hasElevatedAccess()
       );
     }
 
@@ -100,10 +117,10 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource == null || 
         request.auth.uid in resource.data.participants || 
-        isAdmin()
+        hasElevatedAccess()
       );
       allow create: if isAuthenticated() && isNotBanned() && (
-        request.auth.uid in request.resource.data.participants &&
+        (request.auth.uid in request.resource.data.participants || hasElevatedAccess()) &&
         request.resource.data.participants.size() == 2 &&
         request.resource.data.get('lastMessage', '').size() <= 500
       );
@@ -111,34 +128,54 @@ service cloud.firestore {
         (request.auth.uid in resource.data.participants && 
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['participants']) &&
          request.resource.data.get('lastMessage', '').size() <= 500) || 
-        isAdmin()
+        hasElevatedAccess()
       );
-      allow delete: if isAdmin();
+      allow delete: if hasElevatedAccess();
     }
 
     // Messages
     match /messages/{messageId} {
       allow read: if isAuthenticated() && (
-        request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants || 
-        isAdmin()
+        hasElevatedAccess() ||
+        (exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) &&
+         request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants)
       );
-      allow create: if request.auth != null && (
+      allow create: if isAuthenticated() && (
         request.resource.data.senderId == request.auth.uid || 
-        request.resource.data.senderId == "system"
+        request.resource.data.senderId == "system" ||
+        hasElevatedAccess()
       );
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow update: if isAuthenticated() && (
+        hasElevatedAccess() || 
+        request.auth.uid == resource.data.senderId ||
+        (
+          // Allow recipient to update status (delivered/seen)
+          exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        )
+      );
+      allow delete: if hasElevatedAccess() || (
+        request.auth.uid == resource.data.senderId
+      );
     }
 
     // Reports
     match /reports/{reportId} {
       allow read: if isAdmin();
-      allow create: if isAuthenticated() && request.resource.data.reporterUserId == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
+
+    // Social Reports
+    match /socialReports/{reportId} {
+      allow read: if isAdmin() || hasElevatedAccess();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || hasElevatedAccess();
     }
 
     // Readings
     match /readings/{readingId} {
-      allow read: if isAuthenticated() && isNotBanned() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isNotBanned() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && isNotBanned() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin() || (isAuthenticated() && isNotBanned() && resource.data.userId == request.auth.uid);

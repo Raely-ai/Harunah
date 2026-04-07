@@ -5,6 +5,7 @@ import { UserProfile } from '../types';
 
 interface SocialProfilePopupProps {
   user: UserProfile;
+  currentUser: UserProfile;
   onClose: () => void;
   onCompatibilityCheck: (user: UserProfile) => void;
   onSendMessage: (user: UserProfile) => void;
@@ -14,6 +15,7 @@ interface SocialProfilePopupProps {
 
 export default function SocialProfilePopup({ 
   user, 
+  currentUser,
   onClose, 
   onCompatibilityCheck, 
   onSendMessage, 
@@ -23,6 +25,7 @@ export default function SocialProfilePopup({
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const photos = user.social?.photos || [user.photoURL].filter(Boolean) as string[];
+  const credits = currentUser.social?.compatibilityCredits || 0;
 
   const handleAction = async () => {
     if (isProcessing) return;
@@ -137,12 +140,8 @@ export default function SocialProfilePopup({
               
               <div className="flex items-center gap-4 text-body text-[13px] font-medium">
                 <div className="flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-amber-600/60" />
-                  <span>{user.location?.city || "Yakınlarda"}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-purple-600/60" />
-                  <span>%{Math.floor(Math.random() * 20 + 80)} Uyumlu</span>
+                  <span>Ruhsal Uyum Analizi</span>
                 </div>
               </div>
             </div>
@@ -197,7 +196,7 @@ export default function SocialProfilePopup({
             className="flex items-center justify-center gap-3 py-4.5 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-[2rem] font-bold text-base shadow-xl shadow-rose-900/20 border border-rose-400/20 active:scale-[0.98] transition-transform duration-150"
           >
             <Heart className="w-5 h-5 fill-white" />
-            <span>Uyumunu Gör</span>
+            <span>Uyumunu Gör ({credits})</span>
           </button>
           <button 
             onClick={handleAction}

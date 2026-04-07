@@ -20,7 +20,8 @@ import {
   Trash2,
   Edit2,
   Clock,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle
 } from "lucide-react";
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { 
@@ -86,7 +87,9 @@ export default function SocialMessagesScreen({
     );
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const chatDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
+      const chatDocs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
+        .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
       
       const chatList = await Promise.all(chatDocs.map(async (chatData) => {
         const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
@@ -591,6 +594,7 @@ export default function SocialMessagesScreen({
         {selectedLiker && (
           <SocialProfilePopup 
             user={selectedLiker}
+            currentUser={currentUser}
             onClose={() => setSelectedLiker(null)}
             onCompatibilityCheck={() => {}} 
             onSendMessage={() => {}} 
@@ -695,6 +699,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & 
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [showActionMenu, setShowActionMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDescription, setReportDescription] = useState("");
+  const [isReporting, setIsReporting] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -851,6 +860,36 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & 
     inputRef.current?.focus();
   };
 
+  const handleDeleteChat = async () => {
+    try {
+      await socialService.deleteChat(chat.id, currentUser.uid);
+      toast.success("Konuşma silindi.");
+      onClose();
+    } catch (error) {
+      toast.error("Konuşma silinirken bir hata oluştu.");
+    }
+  };
+
+  const handleReportUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportReason) {
+      toast.error("Lütfen bir sebep seçin.");
+      return;
+    }
+    setIsReporting(true);
+    try {
+      await socialService.reportUser(currentUser.uid, otherUser.uid, chat.id, reportReason, reportDescription);
+      toast.success("Şikayetiniz alındı. Teşekkür ederiz.");
+      setShowReportModal(false);
+      setReportReason("");
+      setReportDescription("");
+    } catch (error) {
+      toast.error("Şikayet gönderilirken bir hata oluştu.");
+    } finally {
+      setIsReporting(false);
+    }
+  };
+
   const onEmojiClick = (emojiData: any) => {
     setNewMessage(prev => prev + emojiData.emoji);
     // Keep focus on input
@@ -914,16 +953,57 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & 
           </div>
         </div>
         
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 relative">
           <button 
             onClick={() => setShowProfile(true)}
             className="p-2 rounded-full hover:bg-black/5 text-muted transition-all"
           >
             <Info className="w-5 h-5" />
           </button>
-          <button className="p-2 rounded-full hover:bg-black/5 text-muted transition-all">
+          <button 
+            onClick={() => setShowActionMenu(!showActionMenu)}
+            className="p-2 rounded-full hover:bg-black/5 text-muted transition-all"
+          >
             <MoreVertical className="w-5 h-5" />
           </button>
+
+          <AnimatePresence>
+            {showActionMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowActionMenu(false)}
+                />
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                  className="absolute top-full right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-black/5 overflow-hidden z-50"
+                >
+                  <button 
+                    onClick={() => {
+                      setShowActionMenu(false);
+                      handleDeleteChat();
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Konuşmayı Sil
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowActionMenu(false);
+                      setShowReportModal(true);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-heading hover:bg-black/5 transition-colors flex items-center gap-2"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                    Kullanıcıyı Şikayet Et
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
@@ -1205,11 +1285,78 @@ function ChatDetail({ chat: initialChat, currentUser, onClose }: { chat: Chat & 
         {showProfile && (
           <SocialProfilePopup 
             user={otherUser}
+            currentUser={currentUser}
             onClose={() => setShowProfile(false)}
             onCompatibilityCheck={() => {}}
             onSendMessage={() => setShowProfile(false)}
             context="match"
           />
+        )}
+      </AnimatePresence>
+
+      {/* Report Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowReportModal(false)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-black/5 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-heading">Kullanıcıyı Şikayet Et</h3>
+                <button 
+                  onClick={() => setShowReportModal(false)}
+                  className="p-2 rounded-full hover:bg-black/5 text-muted transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleReportUser} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-heading mb-2">Şikayet Sebebi</label>
+                  <select 
+                    value={reportReason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="w-full bg-black/5 border border-black/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 transition-all text-heading"
+                    required
+                  >
+                    <option value="">Sebep Seçin...</option>
+                    <option value="spam">Spam / Sahte Hesap</option>
+                    <option value="inappropriate">Uygunsuz İçerik</option>
+                    <option value="harassment">Taciz / Zorbalık</option>
+                    <option value="other">Diğer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-heading mb-2">Açıklama (Opsiyonel)</label>
+                  <textarea 
+                    value={reportDescription}
+                    onChange={(e) => setReportDescription(e.target.value)}
+                    placeholder="Lütfen durumu kısaca açıklayın..."
+                    className="w-full bg-black/5 border border-black/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 transition-all text-heading min-h-[100px] resize-none"
+                  />
+                </div>
+                <div className="pt-2">
+                  <button 
+                    type="submit"
+                    disabled={isReporting || !reportReason}
+                    className="w-full bg-red-500 text-white rounded-xl py-3.5 font-bold disabled:opacity-50 transition-all active:scale-[0.98]"
+                  >
+                    {isReporting ? "Gönderiliyor..." : "Şikayet Et"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </motion.div>
