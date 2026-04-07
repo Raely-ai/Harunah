@@ -41,10 +41,14 @@ service cloud.firestore {
       return isAdmin() || isSocialOperator();
     }
 
-    function isValidUser(data) {
-      return data.get('role', 'user') in ['user', 'admin', 'social_operator'] &&
-             data.get('isBanned', false) is bool &&
-             (!('social' in data) || data.social is map);
+    function isValidReport(data) {
+      return data.reporterId == request.auth.uid &&
+             data.reportedUserId is string &&
+             data.source in ['messages', 'profile', 'match', 'discovery'] &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() <= 100 &&
+             data.description is string && data.description.size() <= 500 &&
+             data.status == 'pending' &&
+             data.createdAt is timestamp;
     }
 
     // User Profile
@@ -59,14 +63,19 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned']) &&
         // 2. PRODUCTION HARDENING: Prevent direct modification of wallet/subscription fields
         // These fields MUST only be updated via Cloud Functions (Admin SDK) in production.
-        // For this preview, we allow the owner (admin) to bypass for testing.
+        // We allow the update IF the field is being set to its current value (no change)
+        // OR if the field was missing and is being set to 0/initial value (initialization)
         (
-          isAdmin() || 
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
             'subscription', 'socialSubscription', 'dailyAdWatchCount', 'lastAdReset',
             'boostExpiresAt', 'isManagedProfile', 'operatorId'
-          ])
+          ]) ||
+          // Allow initialization if the document was incomplete
+          (
+            resource.data.get('mainCoins', -1) == -1 && 
+            request.resource.data.mainCoins == 0
+          )
         )
       );
       allow delete: if isAdmin();
@@ -165,15 +174,11 @@ service cloud.firestore {
 
     // Reports
     match /reports/{reportId} {
-      allow read: if isAdmin();
-      allow create: if isAuthenticated();
-    }
-
-    // Social Reports
-    match /socialReports/{reportId} {
-      allow read: if isAdmin() || hasElevatedAccess();
-      allow create: if isAuthenticated();
-      allow update: if isAdmin() || hasElevatedAccess();
+      allow read: if hasElevatedAccess();
+      allow create: if isAuthenticated() && isValidReport(request.resource.data);
+      allow update: if hasElevatedAccess() && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isAdmin();
     }
 
     // Social Transactions

@@ -21,16 +21,17 @@ import {
   TrendingUp,
   Calendar
 } from "lucide-react";
-import { UserProfile, AdminWalletConfig, WalletTransaction } from "../types";
+import { UserProfile, AdminWalletConfig, WalletTransaction, EconomyConfig } from "../types";
 import { walletService } from "../lib/walletService";
 import { toast } from "sonner";
 
 interface SocialWalletScreenProps {
   currentUser: UserProfile;
   onNavigate: (tab: any) => void;
+  economyConfig: EconomyConfig | null;
 }
 
-export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWalletScreenProps) {
+export default function SocialWalletScreen({ currentUser, onNavigate, economyConfig }: SocialWalletScreenProps) {
   const [config, setConfig] = useState<AdminWalletConfig | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -336,12 +337,12 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                       </div>
                       <div>
                         <p className="text-sm font-bold text-heading">Reklam İzle</p>
-                        <p className="text-[10px] text-muted">Her reklam +{config.adRewardEnergy} Enerji</p>
+                        <p className="text-[10px] text-muted">Her reklam +{economyConfig?.rewards.adRewardEnergy ?? config.adRewardEnergy} Enerji</p>
                       </div>
                     </div>
                     <button 
                       onClick={handleWatchAd}
-                      disabled={processing || (currentUser.dailyAdWatchCount || 0) >= config.maxDailyAds}
+                      disabled={processing || (currentUser.dailyAdWatchCount || 0) >= (economyConfig?.rewards.maxDailyAds ?? config.maxDailyAds)}
                       className="px-4 py-2 rounded-xl bg-amber-500 text-white text-xs font-black shadow-lg shadow-amber-500/20 disabled:opacity-50"
                     >
                       İzle
@@ -351,15 +352,18 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                   <div className="space-y-2">
                     <div className="flex justify-between items-center px-1">
                       <p className="text-[10px] font-black text-muted uppercase tracking-widest">Günlük İlerleme</p>
-                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">{currentUser.dailyAdWatchCount || 0}/{config.maxDailyAds}</p>
+                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">{currentUser.dailyAdWatchCount || 0}/{economyConfig?.rewards.maxDailyAds ?? config.maxDailyAds}</p>
                     </div>
                     <div className="flex gap-2">
-                      {adProgress.map((filled, i) => (
-                        <div 
-                          key={i}
-                          className={`h-2 flex-1 rounded-full transition-all duration-500 ${filled ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]' : 'bg-black/5'}`}
-                        />
-                      ))}
+                      {Array.from({ length: economyConfig?.rewards.maxDailyAds ?? config.maxDailyAds }).map((_, i) => {
+                        const filled = i < (currentUser.dailyAdWatchCount || 0);
+                        return (
+                          <div 
+                            key={i}
+                            className={`h-2 flex-1 rounded-full transition-all duration-500 ${filled ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]' : 'bg-black/5'}`}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -371,7 +375,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                       </div>
                       <div>
                         <p className="text-sm font-bold text-heading">Günlük Giriş Ödülü</p>
-                        <p className="text-[10px] text-muted">7 gün geçerli +{config.dailyLoginRewardEnergy} Enerji</p>
+                        <p className="text-[10px] text-muted">7 gün geçerli +{economyConfig?.rewards.dailyLoginRewardEnergy ?? config.dailyLoginRewardEnergy} Enerji</p>
                       </div>
                     </div>
                     <div className="p-2 rounded-xl bg-green-50 text-green-600">
@@ -392,7 +396,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                 </div>
                 
                 <div className="space-y-3">
-                  {Object.entries(config.socialSubscriptions).map(([key, sub]) => {
+                  {Object.entries(economyConfig?.socialSubscriptions ?? config.socialSubscriptions).map(([key, sub]) => {
                     const isActive = currentUser.socialSubscription?.status === 'active' && 
                                    currentUser.socialSubscription?.type === key &&
                                    new Date(currentUser.socialSubscription?.expiresAt) > new Date();
@@ -420,7 +424,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                             </p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xl font-serif font-bold text-indigo-600">₺{sub.price}</p>
+                            <p className="text-xl font-serif font-bold text-indigo-600">₺{sub.priceTRY ?? (sub as any).price}</p>
                             <p className="text-[10px] font-black text-muted uppercase tracking-widest">
                               {key === 'weekly' ? '/ Hafta' : '/ Ay'}
                             </p>
@@ -463,10 +467,10 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
               <div className="space-y-4">
                 <h2 className="text-sm font-black text-muted uppercase tracking-widest px-2">Jeton Market</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  {config.coinPackages.map((pkg) => (
+                  {(economyConfig?.coinPackages ?? config.coinPackages).map((pkg) => (
                     <button 
                       key={pkg.id}
-                      onClick={() => handlePurchaseCoins(pkg.coins + pkg.bonus, pkg.id)}
+                      onClick={() => handlePurchaseCoins((pkg.coins || (pkg as any).amount) + (pkg.bonus || 0), pkg.id)}
                       disabled={processing}
                       className="bg-white p-5 rounded-3xl border border-black/5 shadow-sm text-left space-y-3 hover:scale-[1.02] transition-all"
                     >
@@ -474,10 +478,10 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                         <ShoppingBag className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="text-lg font-serif font-bold text-heading">{pkg.coins} Jeton</p>
+                        <p className="text-lg font-serif font-bold text-heading">{pkg.coins || (pkg as any).amount} Jeton</p>
                         {pkg.bonus > 0 && <p className="text-[10px] font-black text-green-600">+{pkg.bonus} Bonus</p>}
                       </div>
-                      <p className="text-sm font-black text-indigo-600">₺{pkg.price}</p>
+                      <p className="text-sm font-black text-indigo-600">₺{pkg.priceTRY ?? (pkg as any).price}</p>
                     </button>
                   ))}
                 </div>
@@ -494,12 +498,25 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                       </div>
                       <p className="text-[10px] font-black text-muted uppercase tracking-widest">Süper Like</p>
                       <p className="text-lg font-black text-heading">{currentUser.superLikes || 0}</p>
-                      <button 
-                        onClick={() => handlePurchaseSocialRight('superLike')}
-                        className="w-full py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black"
-                      >
-                        {config.socialRightsPrices.superLike} J
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        { (economyConfig?.socialPricing.superLike ?? []).map(pkg => (
+                          <button 
+                            key={pkg.id}
+                            onClick={() => handlePurchaseSocialRight('superLike')}
+                            className="w-full py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black"
+                          >
+                            {pkg.count} Adet: {pkg.priceCoins} J
+                          </button>
+                        ))}
+                        {(!economyConfig || economyConfig.socialPricing.superLike.length === 0) && (
+                          <button 
+                            onClick={() => handlePurchaseSocialRight('superLike')}
+                            className="w-full py-2 rounded-xl bg-rose-50 text-rose-600 text-[10px] font-black"
+                          >
+                            {config.socialRightsPrices.superLike} J
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="text-center space-y-2">
                       <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto">
@@ -507,12 +524,25 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                       </div>
                       <p className="text-[10px] font-black text-muted uppercase tracking-widest">Yenileme</p>
                       <p className="text-lg font-black text-heading">{currentUser.refreshCount || 0}</p>
-                      <button 
-                        onClick={() => handlePurchaseSocialRight('refresh')}
-                        className="w-full py-2 rounded-xl bg-indigo-50 text-indigo-600 text-[10px] font-black"
-                      >
-                        {config.socialRightsPrices.refresh} J
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        { (economyConfig?.socialPricing.refresh ?? []).map(pkg => (
+                          <button 
+                            key={pkg.id}
+                            onClick={() => handlePurchaseSocialRight('refresh')}
+                            className="w-full py-2 rounded-xl bg-indigo-50 text-indigo-600 text-[10px] font-black"
+                          >
+                            {pkg.count} Adet: {pkg.priceCoins} J
+                          </button>
+                        ))}
+                        {(!economyConfig || economyConfig.socialPricing.refresh.length === 0) && (
+                          <button 
+                            onClick={() => handlePurchaseSocialRight('refresh')}
+                            className="w-full py-2 rounded-xl bg-indigo-50 text-indigo-600 text-[10px] font-black"
+                          >
+                            {config.socialRightsPrices.refresh} J
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="text-center space-y-2">
                       <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center mx-auto">
@@ -520,12 +550,25 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                       </div>
                       <p className="text-[10px] font-black text-muted uppercase tracking-widest">Analiz</p>
                       <p className="text-lg font-black text-heading">{currentUser.compatibilityCount || 0}</p>
-                      <button 
-                        onClick={() => handlePurchaseSocialRight('compatibility')}
-                        className="w-full py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black"
-                      >
-                        {config.socialRightsPrices.compatibility} J
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        { (economyConfig?.socialPricing.compatibility ?? []).map(pkg => (
+                          <button 
+                            key={pkg.id}
+                            onClick={() => handlePurchaseSocialRight('compatibility')}
+                            className="w-full py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black"
+                          >
+                            {pkg.count} Adet: {pkg.priceCoins} J
+                          </button>
+                        ))}
+                        {(!economyConfig || economyConfig.socialPricing.compatibility.length === 0) && (
+                          <button 
+                            onClick={() => handlePurchaseSocialRight('compatibility')}
+                            className="w-full py-2 rounded-xl bg-amber-50 text-amber-600 text-[10px] font-black"
+                          >
+                            {config.socialRightsPrices.compatibility} J
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -566,7 +609,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
               <div className="space-y-4">
                 <h2 className="text-sm font-black text-muted uppercase tracking-widest px-2">Fal Abonelikleri</h2>
                 <div className="space-y-4">
-                  {Object.entries(config.fortuneSubscriptions).map(([type, sub]) => (
+                  {Object.entries(economyConfig?.fortuneSubscriptions ?? config.fortuneSubscriptions).map(([type, sub]) => (
                     <div key={type} className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm space-y-4 relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl -mr-16 -mt-16" />
                       <div className="flex justify-between items-start relative z-10">
@@ -575,7 +618,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate }: SocialWa
                           <p className="text-xs text-body">{sub.description}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-serif font-bold text-amber-600">₺{sub.price}</p>
+                          <p className="text-2xl font-serif font-bold text-amber-600">₺{sub.priceTRY ?? (sub as any).price}</p>
                         </div>
                       </div>
                       <button 

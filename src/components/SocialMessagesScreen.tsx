@@ -47,6 +47,8 @@ import { socialService } from "../lib/socialService";
 import { isSocialProfileReady } from "../lib/socialUtils";
 import SocialDisabledView from "./SocialDisabledView";
 
+import { reportService } from "../services/reportService";
+
 export default function SocialMessagesScreen({ 
   currentUser, 
   onBack, 
@@ -880,8 +882,13 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     }
     setIsReporting(true);
     try {
-      await socialService.reportUser(currentUser.uid, otherUser.uid, chat.id, reportReason, reportDescription);
-      toast.success("Şikayetiniz alındı. Teşekkür ederiz.");
+      await reportService.reportUser({
+        reportedUserId: otherUser.uid,
+        source: 'messages',
+        reason: reportReason,
+        description: reportDescription,
+        metadata: { chatId: chat.id }
+      });
       setShowReportModal(false);
       setReportReason("");
       setReportDescription("");

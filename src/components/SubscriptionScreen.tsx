@@ -11,40 +11,44 @@ import {
   ArrowRight
 } from 'lucide-react';
 
+import { EconomyConfig, UserProfile } from '../types';
+
 interface SubscriptionScreenProps {
   onClose: () => void;
   onSubscribe: (planId: string) => void;
+  economyConfig: EconomyConfig | null;
+  userProfile: UserProfile | null;
 }
 
-const PLANS = [
-  {
-    id: 'daily',
-    name: 'Günlük',
-    price: '₺19.99',
-    period: 'Gün',
-    description: 'Hızlı bir kehanet günü için ideal.',
-    features: ['15 Fal Hakkı', 'Reklamsız Deneyim', 'Öncelikli Yorumcu']
-  },
-  {
-    id: 'weekly',
-    name: 'Haftalık',
-    price: '₺89.99',
-    period: 'Hafta',
-    description: 'En popüler seçim. Bir hafta boyunca mistik rehberlik.',
-    features: ['105 Toplam Fal Hakkı', 'Tüm Fal Türleri Açık', 'Özel Ritüeller', '7/24 Destek'],
-    popular: true
-  },
-  {
-    id: 'monthly',
-    name: 'Aylık',
-    price: '₺249.99',
-    period: 'Ay',
-    description: 'Gerçek bir Oracle deneyimi için en iyi değer.',
-    features: ['Sınırsız Fal Hakkı*', 'Tüm Premium Özellikler', 'Kişisel Astrolog', 'Özel İndirimler']
-  }
-];
+export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose, onSubscribe, economyConfig, userProfile }) => {
+  const plans = [
+    {
+      id: 'daily',
+      name: 'Günlük',
+      price: `₺${economyConfig?.fortuneSubscriptions.daily.priceTRY ?? 19.99}`,
+      period: 'Gün',
+      description: economyConfig?.fortuneSubscriptions.daily.description || 'Hızlı bir kehanet günü için ideal.',
+      features: [`${economyConfig?.fortuneSubscriptions.daily.dailyLimit ?? 15} Fal Hakkı`, 'Reklamsız Deneyim', 'Öncelikli Yorumcu']
+    },
+    {
+      id: 'weekly',
+      name: 'Haftalık',
+      price: `₺${economyConfig?.fortuneSubscriptions.weekly.priceTRY ?? 89.99}`,
+      period: 'Hafta',
+      description: economyConfig?.fortuneSubscriptions.weekly.description || 'En popüler seçim. Bir hafta boyunca mistik rehberlik.',
+      features: [`${(economyConfig?.fortuneSubscriptions.weekly.dailyLimit ?? 15) * 7} Toplam Fal Hakkı`, 'Tüm Fal Türleri Açık', 'Özel Ritüeller', '7/24 Destek'],
+      popular: true
+    },
+    {
+      id: 'monthly',
+      name: 'Aylık',
+      price: `₺${economyConfig?.fortuneSubscriptions.monthly.priceTRY ?? 249.99}`,
+      period: 'Ay',
+      description: economyConfig?.fortuneSubscriptions.monthly.description || 'Gerçek bir Oracle deneyimi için en iyi değer.',
+      features: [`${economyConfig?.fortuneSubscriptions.monthly.dailyLimit ?? 'Sınırsız'} Günlük Fal Hakkı`, 'Tüm Premium Özellikler', 'Kişisel Astrolog', 'Özel İndirimler']
+    }
+  ];
 
-export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose, onSubscribe }) => {
   return (
     <div className="fixed inset-0 z-[200] bg-[#050505] flex flex-col overflow-y-auto custom-scrollbar">
       {/* Background Effects */}
@@ -109,7 +113,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
 
         {/* Plans */}
         <div className="space-y-6">
-          {PLANS.map((plan, i) => (
+          {plans.map((plan, i) => (
             <motion.div
               key={plan.id}
               initial={{ opacity: 0, y: 20 }}

@@ -33,6 +33,8 @@ import { canSwipe, getRemainingSwipes, FREE_DAILY_LIMIT } from "../lib/swipeHelp
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
 
+import { reportService } from "../services/reportService";
+
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,8 +176,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   const handleReport = async (reason: string) => {
     if (!activeUser) return;
     try {
-      await socialService.reportUser(currentUser.uid, activeUser.uid, 'explore', reason);
-      toast.success("Bildirimin alındı, teşekkürler.");
+      await reportService.reportUser({
+        reportedUserId: activeUser.uid,
+        source: 'discover',
+        reason: reason,
+        description: "Keşfet üzerinden raporlandı.",
+        metadata: { activeUserId: activeUser.uid }
+      });
       setShowReportModal(false);
       // Skip user after report
       handleSwipe('pass');

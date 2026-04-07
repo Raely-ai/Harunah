@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { 
   doc, 
   getDoc, 
@@ -14,9 +15,36 @@ import {
   limit,
   addDoc
 } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "./firebase";
-import { UserProfile, AdminWalletConfig, WalletTransaction } from "../types";
+import { httpsCallable } from "firebase/functions";
+import { db, functions, handleFirestoreError, OperationType, auth } from "./firebase";
+import { UserProfile, AdminWalletConfig, WalletTransaction, EconomyConfig } from "../types";
 import { walletBackend } from "./walletBackend";
+
+// Helper to call Cloud Functions with simulation fallback
+export const callFunction = async (name: string, data: any) => {
+  // In production, call the real Cloud Function
+  if (import.meta.env.PROD) {
+    const fn = httpsCallable(functions, name);
+    const result = await fn(data);
+    return result.data as any;
+  }
+  
+  // In development/preview, use the local backend simulation
+  console.log(`[SIMULATION] Calling Cloud Function: ${name}`, data);
+  switch (name) {
+    case 'watchAdReward': return await walletBackend.processAdReward(data.userId, data.config);
+    case 'purchaseCoins': return await walletBackend.processPurchase(data.userId, data.amount, data.packageId, data.balanceType);
+    case 'spendBalance': return await walletBackend.processSpend(data.userId, data.balanceType, data.amount, data.source, data.description);
+    case 'buyFortuneSubscription': return await walletBackend.processSubscription(data.userId, data.type, data.subConfig, 'fortune');
+    case 'buySocialSubscription': return await walletBackend.processSubscription(data.userId, data.type, data.subConfig, 'social');
+    case 'getAdminUserChats': return await walletBackend.getAdminUserChats(auth.currentUser?.uid || "", data.targetUserId);
+    case 'getAdminChatMessages': return await walletBackend.getAdminChatMessages(auth.currentUser?.uid || "", data.chatId);
+    case 'adminSetWallet': return await walletBackend.adminSetWallet(auth.currentUser?.uid || "", data.targetUserId, data.updates);
+    case 'adminAdjustWallet': return await walletBackend.adminAdjustWallet(auth.currentUser?.uid || "", data.targetUserId, data.field, data.amount);
+    case 'adminModerationAction': return await walletBackend.adminModerationAction(auth.currentUser?.uid || "", data);
+    default: throw new Error(`Function ${name} not implemented in simulation.`);
+  }
+};
 
 export const DEFAULT_ADMIN_WALLET_CONFIG: AdminWalletConfig = {
   adRewardEnergy: 10,
@@ -68,37 +96,61 @@ export const DEFAULT_ADMIN_WALLET_CONFIG: AdminWalletConfig = {
 
 export const walletService = {
   async getAdminConfig(): Promise<AdminWalletConfig> {
-    const docRef = doc(db, "adminSettings", "wallet");
-    console.log("[DEBUG] walletService.getAdminConfig - Attempting to read adminSettings/wallet");
+    const docRef = doc(db, "adminSettings", "economy");
     try {
       const snap = await getDoc(docRef);
-      console.log("[DEBUG] walletService.getAdminConfig - Read success:", snap.exists());
       if (snap.exists()) {
-        return snap.data() as AdminWalletConfig;
-      } else {
-        return DEFAULT_ADMIN_WALLET_CONFIG;
+        const economy = snap.data() as EconomyConfig;
+        // Map EconomyConfig to AdminWalletConfig for backward compatibility
+        return {
+          adRewardEnergy: economy.rewards.adRewardEnergy,
+          maxDailyAds: economy.rewards.maxDailyAds,
+          adRewardExpiryDays: economy.rewards.adRewardExpiryDays,
+          dailyLoginRewardEnergy: economy.rewards.dailyLoginRewardEnergy,
+          dailyLoginExpiryDays: economy.rewards.dailyLoginExpiryDays,
+          fortuneSubscriptions: {
+            daily: { price: economy.fortuneSubscriptions.daily.priceTRY, dailyLimit: economy.fortuneSubscriptions.daily.dailyLimit, description: economy.fortuneSubscriptions.daily.description },
+            weekly: { price: economy.fortuneSubscriptions.weekly.priceTRY, dailyLimit: economy.fortuneSubscriptions.weekly.dailyLimit, description: economy.fortuneSubscriptions.weekly.description },
+            monthly: { price: economy.fortuneSubscriptions.monthly.priceTRY, dailyLimit: economy.fortuneSubscriptions.monthly.dailyLimit, description: economy.fortuneSubscriptions.monthly.description }
+          },
+          socialSubscriptions: {
+            weekly: { 
+              price: economy.socialSubscriptions.weekly.priceTRY, 
+              dailyLimits: economy.socialSubscriptions.weekly.dailyLimits,
+              description: economy.socialSubscriptions.weekly.description
+            },
+            monthly: { 
+              price: economy.socialSubscriptions.monthly.priceTRY, 
+              dailyLimits: economy.socialSubscriptions.monthly.dailyLimits,
+              description: economy.socialSubscriptions.monthly.description
+            }
+          },
+          socialRightsPrices: {
+            superLike: economy.socialPricing.superLike[0]?.priceCoins ?? 20,
+            refresh: economy.socialPricing.refresh[0]?.priceCoins ?? 15,
+            compatibility: economy.socialPricing.compatibility[0]?.priceCoins ?? 25
+          },
+          socialBundles: DEFAULT_ADMIN_WALLET_CONFIG.socialBundles, // Keep existing or map if added to EconomyConfig
+          coinPackages: economy.coinPackages.map(p => ({ id: p.id, coins: p.coins, price: p.priceTRY, bonus: p.bonus }))
+        };
       }
+      return DEFAULT_ADMIN_WALLET_CONFIG;
     } catch (error) {
-      console.error("[DEBUG] walletService.getAdminConfig - Error:", error);
-      // Don't throw here to allow fallback to defaults
       return DEFAULT_ADMIN_WALLET_CONFIG;
     }
   },
 
   async watchAd(userId: string): Promise<{ success: boolean; message?: string }> {
     const config = await this.getAdminConfig();
-    // CALL BACKEND SIMULATION
-    return await walletBackend.processAdReward(userId, config);
+    return await callFunction('watchAdReward', { userId, config });
   },
 
   async purchaseCoins(userId: string, amount: number, packageId: string): Promise<void> {
-    // CALL BACKEND SIMULATION
-    await walletBackend.processPurchase(userId, amount, packageId);
+    await callFunction('purchaseCoins', { userId, amount, packageId });
   },
 
   async spendBalance(userId: string, balanceType: 'main' | 'energy', amount: number, source: string, description: string): Promise<{ success: boolean; message?: string }> {
-    // CALL BACKEND SIMULATION
-    return await walletBackend.processSpend(userId, balanceType, amount, source, description);
+    return await callFunction('spendBalance', { userId, balanceType, amount, source, description });
   },
 
   async purchaseSocialRight(userId: string, type: 'superLike' | 'refresh' | 'compatibility'): Promise<{ success: boolean; message?: string }> {
@@ -106,11 +158,17 @@ export const walletService = {
     const price = config.socialRightsPrices[type];
     const description = type === 'superLike' ? 'Süper Like' : type === 'refresh' ? 'Keşfet Yenileme' : 'Uyum Analizi';
     
-    // 1. Spend Balance (Backend)
+    // In production, this would be a single Cloud Function call 'purchaseSocialItem'
+    if (import.meta.env.PROD) {
+      const fn = httpsCallable(functions, 'purchaseSocialItem');
+      const result = await fn({ type, price, description });
+      return result.data as any;
+    }
+
+    // Simulation
     const result = await this.spendBalance(userId, 'main', price, 'social_action', `${description} satın alımı`);
     if (!result.success) return result;
 
-    // 2. Add Right (Backend - In a real app, this would be part of the same transaction)
     const userRef = doc(db, "users", userId);
     const updates: any = {};
     if (type === 'superLike') updates.superLikes = increment(1);
@@ -126,11 +184,10 @@ export const walletService = {
     const bundle = config.socialBundles.find(b => b.id === bundleId);
     if (!bundle) return { success: false, message: "Paket bulunamadı." };
 
-    // 1. Spend Balance (Backend)
+    // Simulation/Backend Call
     const result = await this.spendBalance(userId, 'main', bundle.price, 'social_action', `${bundle.name} satın alımı`);
     if (!result.success) return result;
 
-    // 2. Add Bundle Contents (Backend)
     const userRef = doc(db, "users", userId);
     const now = new Date();
     const boostExpiry = new Date();
@@ -149,13 +206,10 @@ export const walletService = {
   async buyFortuneSubscription(userId: string, type: 'daily' | 'weekly' | 'monthly'): Promise<{ success: boolean; message?: string }> {
     const config = await this.getAdminConfig();
     const subConfig = config.fortuneSubscriptions[type];
-    
-    // CALL BACKEND SIMULATION
-    return await walletBackend.processSubscription(userId, type, subConfig, 'fortune');
+    return await callFunction('buyFortuneSubscription', { userId, type, subConfig });
   },
 
   async getTransactions(userId: string, limitCount: number = 20): Promise<WalletTransaction[]> {
-    console.log("[DEBUG] walletService.getTransactions - Attempting to query walletTransactions for userId:", userId);
     const q = query(
       collection(db, "walletTransactions"),
       where("userId", "==", userId),
@@ -164,41 +218,40 @@ export const walletService = {
     );
     try {
       const snaps = await getDocs(q);
-      console.log("[DEBUG] walletService.getTransactions - Query success, count:", snaps.size);
       return snaps.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
     } catch (error) {
-      console.error("[DEBUG] walletService.getTransactions - Error detected");
       handleFirestoreError(error, OperationType.LIST, "walletTransactions");
-      return []; // unreachable due to throw
+      return [];
     }
   },
 
   async consumeSocialFeature(userId: string, type: 'superLike' | 'refresh' | 'compatibility'): Promise<boolean> {
+    const config = await this.getAdminConfig();
+    
+    if (import.meta.env.PROD) {
+      const fn = httpsCallable(functions, 'consumeSocialFeature');
+      const result = await fn({ type, config });
+      return (result.data as any).success;
+    }
+
+    // Simulation (Existing logic)
     const userRef = doc(db, "users", userId);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) return false;
-    
     const userData = userSnap.data() as UserProfile;
-    const config = await this.getAdminConfig();
-    
-    // Check Social Subscription
     const sub = userData.socialSubscription;
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     
     if (sub && sub.status === 'active' && new Date(sub.expiresAt) > now) {
       const dailyUsage = sub.dailyUsage || { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: today };
-      
-      // Reset if new day
       if (dailyUsage.lastResetDate !== today) {
         dailyUsage.superLikes = 0;
         dailyUsage.refreshes = 0;
         dailyUsage.compatibility = 0;
         dailyUsage.lastResetDate = today;
       }
-      
       const limits = config.socialSubscriptions[sub.type as 'weekly' | 'monthly'].dailyLimits;
-      
       if (type === 'superLike' && dailyUsage.superLikes < limits.superLikes) {
         dailyUsage.superLikes++;
         await updateDoc(userRef, { "socialSubscription.dailyUsage": dailyUsage });
@@ -214,29 +267,16 @@ export const walletService = {
       }
     }
     
-    // Fallback to paid usage
-    if (type === 'superLike') {
-      const count = userData.superLikes || 0;
-      if (count <= 0) return false;
-      await updateDoc(userRef, { superLikes: increment(-1) });
-    } else if (type === 'refresh') {
-      const count = userData.refreshCount || 0;
-      if (count <= 0) return false;
-      await updateDoc(userRef, { refreshCount: increment(-1) });
-    } else if (type === 'compatibility') {
-      const count = userData.compatibilityCount || 0;
-      if (count <= 0) return false;
-      await updateDoc(userRef, { compatibilityCount: increment(-1) });
-    }
-    
+    // Fallback to paid
+    const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
+    if ((userData[field] || 0) <= 0) return false;
+    await updateDoc(userRef, { [field]: increment(-1) });
     return true;
   },
 
   async purchaseSocialSubscription(userId: string, type: 'weekly' | 'monthly'): Promise<{ success: boolean; message?: string }> {
     const config = await this.getAdminConfig();
     const subConfig = config.socialSubscriptions[type];
-    
-    // CALL BACKEND SIMULATION
-    return await walletBackend.processSubscription(userId, type, subConfig, 'social');
+    return await callFunction('buySocialSubscription', { userId, type, subConfig });
   }
 };

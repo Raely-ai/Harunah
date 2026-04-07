@@ -5,6 +5,8 @@ import { UserProfile } from '../types';
 import { walletService } from '../lib/walletService';
 import { toast } from 'sonner';
 
+import { reportService } from '../services/reportService';
+
 interface SocialProfilePopupProps {
   user: UserProfile;
   currentUser: UserProfile;
@@ -81,6 +83,19 @@ export default function SocialProfilePopup({
     setPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
+  const handleReport = async () => {
+    const reason = window.prompt("Raporlama sebebi (Örn: Uygunsuz içerik, Taciz, Sahte profil):");
+    if (!reason) return;
+    
+    await reportService.reportUser({
+      reportedUserId: user.uid,
+      source: 'profile',
+      reason: reason,
+      description: "Profil üzerinden raporlandı.",
+      metadata: { context }
+    });
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -151,7 +166,10 @@ export default function SocialProfilePopup({
                     </span>
                   </div>
                 </div>
-                <button className="p-2 text-muted hover:text-red-500 transition-colors">
+                <button 
+                  onClick={handleReport}
+                  className="p-2 text-muted hover:text-red-500 transition-colors"
+                >
                   <Flag className="w-5 h-5" />
                 </button>
               </div>

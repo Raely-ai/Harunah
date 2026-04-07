@@ -1,3133 +1,1634 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { runSeed } from '../scripts/seedUsers';
 import { db, OperationType, handleFirestoreError, auth } from '../lib/firebase';
-import { doc, setDoc, getDocs, collection, updateDoc, getDoc, query, orderBy, limit, addDoc, onSnapshot, where, deleteDoc } from 'firebase/firestore';
 import { 
-  Save, RefreshCw, ChevronLeft, Terminal, Users, MessageSquare, 
+  doc, setDoc, getDocs, collection, updateDoc, getDoc, 
+  query, orderBy, limit, addDoc, onSnapshot, where, deleteDoc 
+} from 'firebase/firestore';
+import { 
+  Save, RefreshCw, ChevronLeft, Users, MessageSquare, 
   CreditCard, ShieldCheck, Search, Edit2, X, Settings, Bell, 
   Star, Trash2, Ban, CheckCircle2, AlertCircle, History,
   ImageIcon, DollarSign, Zap, Clock, Sparkles, Plus,
   User, MapPin, Heart, MessageCircle, Globe, Flag, ShieldAlert, Gavel,
-  Shield, Eye, EyeOff, ShoppingBag, Crown
+  Shield, Eye, EyeOff, ShoppingBag, Crown, Filter, ArrowRight,
+  MoreVertical, UserPlus, UserMinus, Lock, Unlock, Check, Minus, Info
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
-  UserProfile, AppConfig, Horoscope, FortuneType, FortuneReading,
-  SocialTransaction, WithdrawalRequest, SocialReport,
+  UserProfile, AppConfig, AdminWalletConfig, CentralizedReport,
+  WalletTransaction, SocialTransaction, WithdrawalRequest,
   ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
-  SocialCommerceConfig, AdminWalletConfig
+  SocialCommerceConfig
 } from '../types';
+import { adminService } from '../services/adminService';
 import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
-import { GoogleGenAI, Type } from "@google/genai";
-import SocialSettingsModal from './SocialSettingsModal';
+import { EconomyConfig } from '../types';
 
-interface Prompt {
-  type: string;
-  content: string;
-}
+const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
+  fortunePricing: {
+    coffee: 100,
+    tarot: 150,
+    water: 200,
+    ebced: 250,
+    yildizname: 300,
+    havas: 500,
+    extraQuestion: 50
+  },
+  rewards: {
+    adRewardEnergy: 10,
+    maxDailyAds: 5,
+    adRewardExpiryDays: 7,
+    dailyLoginRewardEnergy: 5,
+    dailyLoginExpiryDays: 1,
+    customRewards: []
+  },
+  coinPackages: [
+    { id: 'pkg_1', coins: 100, priceTRY: 19.99, bonus: 0 },
+    { id: 'pkg_2', coins: 500, priceTRY: 89.99, bonus: 50 },
+    { id: 'pkg_3', coins: 1000, priceTRY: 169.99, bonus: 150 }
+  ],
+  socialPricing: {
+    superLike: [
+      { id: 'sl_1', count: 1, priceCoins: 10 },
+      { id: 'sl_5', count: 5, priceCoins: 45 },
+      { id: 'sl_10', count: 10, priceCoins: 80 }
+    ],
+    refresh: [
+      { id: 'rf_1', count: 1, priceCoins: 5 },
+      { id: 'rf_5', count: 5, priceCoins: 20 }
+    ],
+    compatibility: [
+      { id: 'cm_1', count: 1, priceCoins: 25 }
+    ]
+  },
+  socialSubscriptions: {
+    weekly: { 
+      priceTRY: 49.99, 
+      dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 1 },
+      description: "Haftalık Sosyal Paket"
+    },
+    monthly: { 
+      priceTRY: 149.99, 
+      dailyLimits: { superLikes: 10, refreshes: 5, compatibility: 3 },
+      description: "Aylık Sosyal Paket"
+    }
+  },
+  fortuneSubscriptions: {
+    daily: { priceTRY: 9.99, dailyLimit: 1, description: "Günlük Fal Paketi" },
+    weekly: { priceTRY: 59.99, dailyLimit: 3, description: "Haftalık Fal Paketi" },
+    monthly: { priceTRY: 199.99, dailyLimit: 5, description: "Aylık Fal Paketi" }
+  }
+};
 
 const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'prompts' | 'users' | 'config' | 'notifications' | 'horoscopes' | 'social' | 'reports'>('prompts');
-  const [socialSubTab, setSocialSubTab] = useState<'users' | 'rooms' | 'withdrawals' | 'gifts' | 'reports' | 'hosts' | 'packages' | 'transactions' | 'logs'>('users');
-  const [socialCommerce, setSocialCommerce] = useState<SocialCommerceConfig | null>(null);
-  const [reports, setReports] = useState<any[]>([]);
-  const [editingReport, setEditingReport] = useState<any | null>(null);
-  const [viewingReportedUser, setViewingReportedUser] = useState<UserProfile | null>(null);
-  
-  // Social States
-  const [socialUsers, setSocialUsers] = useState<any[]>([]);
-  const [socialRooms, setSocialRooms] = useState<SocialRoom[]>([]);
-  const [withdrawalRequests, setWithdrawalRequests] = useState<WithdrawalRequest[]>([]);
-  const [socialGiftTransactions, setSocialGiftTransactions] = useState<SocialGiftTransaction[]>([]);
-  const [socialReports, setSocialReports] = useState<SocialReport[]>([]);
-  const [hostingPackages, setHostingPackages] = useState<HostingPackage[]>([]);
-  const [socialTransactions, setSocialTransactions] = useState<SocialTransaction[]>([]);
-  const [moderationLogs, setModerationLogs] = useState<ModerationLog[]>([]);
-  
-  // Modal States
-  const [editingSocialProfile, setEditingSocialProfile] = useState<any | null>(null);
-  const [editingSocialSettings, setEditingSocialSettings] = useState<any | null>(null);
-  const [editingPackage, setEditingPackage] = useState<HostingPackage | null>(null);
-  const [viewingHostingHistory, setViewingHostingHistory] = useState<any | null>(null);
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [walletConfig, setWalletConfig] = useState<AdminWalletConfig | null>(null);
-  const [horoscopes, setHoroscopes] = useState<Horoscope[]>([]);
+  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions'>('users');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  
+  // Data States
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [reports, setReports] = useState<CentralizedReport[]>([]);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [walletConfig, setWalletConfig] = useState<AdminWalletConfig | null>(null);
+  const [socialCommerce, setSocialCommerce] = useState<SocialCommerceConfig | null>(null);
+  const [economyConfig, setEconomyConfig] = useState<EconomyConfig | null>(null);
+
+  // UI States
   const [searchQuery, setSearchQuery] = useState('');
-  const [socialSearchQuery, setSocialSearchQuery] = useState('');
-  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [userReadings, setUserReadings] = useState<FortuneReading[]>([]);
-  const [showReadings, setShowReadings] = useState(false);
-  const [readingsUnsubscribe, setReadingsUnsubscribe] = useState<(() => void) | null>(null);
-  const [notification, setNotification] = useState({ title: '', message: '' });
+  const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'investigating' | 'resolved' | 'dismissed'>('all');
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [selectedReport, setSelectedReport] = useState<CentralizedReport | null>(null);
 
-  const handleGenerateAllHoroscopes = async () => {
-    setSaving('all_horoscopes');
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: "Tüm burçlar (Koç, Boğa, İkizler, Yengeç, Aslan, Başak, Terazi, Akrep, Yay, Oğlak, Kova, Balık) için bugünün (tarih: " + new Date().toLocaleDateString('tr-TR') + ") günlük burç yorumlarını Türkçe olarak hazırla. Her burç için kısa, öz ve etkileyici cümleler kullan (maksimum 100 kelime). Yanıtı JSON formatında ver: { 'Koç': '...', 'Boğa': '...', ... }" }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              'Koç': { type: Type.STRING },
-              'Boğa': { type: Type.STRING },
-              'İkizler': { type: Type.STRING },
-              'Yengeç': { type: Type.STRING },
-              'Aslan': { type: Type.STRING },
-              'Başak': { type: Type.STRING },
-              'Terazi': { type: Type.STRING },
-              'Akrep': { type: Type.STRING },
-              'Yay': { type: Type.STRING },
-              'Oğlak': { type: Type.STRING },
-              'Kova': { type: Type.STRING },
-              'Balık': { type: Type.STRING },
-            }
-          }
-        }
-      });
-      const data = JSON.parse(response.text);
-
-      const batch = [];
-      for (const [sign, content] of Object.entries(data)) {
-        batch.push(setDoc(doc(db, 'horoscopes', sign), {
-          sign,
-          content,
-          date: new Date().toISOString()
-        }));
-      }
-      await Promise.all(batch);
-      toast.success("Tüm burç yorumları AI ile güncellendi!");
-    } catch (error) {
-      console.error(error);
-      toast.error("Burçlar oluşturulurken bir hata oluştu.");
-    } finally {
-      setSaving(null);
-    }
-  };
+  // Moderation Chat View States
+  const [userModalTab, setUserModalTab] = useState<'info' | 'wallet' | 'subscriptions' | 'social' | 'moderation' | 'messages'>('info');
+  const [userChats, setUserChats] = useState<any[]>([]);
+  const [selectedChat, setSelectedChat] = useState<any | null>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [loadingChats, setLoadingChats] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
   useEffect(() => {
     const unsubscribes: (() => void)[] = [];
 
     const setupListeners = () => {
       setLoading(true);
-      if (activeTab === 'prompts') {
-        const unsub = onSnapshot(collection(db, 'prompts'), (snapshot) => {
-          const fetchedPrompts: Prompt[] = [];
-          snapshot.forEach((doc) => {
-            fetchedPrompts.push({ type: doc.id, content: doc.data().content });
-          });
-          const types: FortuneType[] = ['coffee', 'tarot', 'water', 'ebced', 'yildizname', 'havas', 'dream', 'horoscope'];
-          const finalPrompts = types.map(type => {
-            const existing = fetchedPrompts.find(p => p.type === type);
-            return existing || { type, content: '' };
-          });
-          setPrompts(finalPrompts);
-          setLoading(false);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'prompts'));
-        unsubscribes.push(unsub);
-      } else if (activeTab === 'users') {
-        const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-          const fetchedUsers: UserProfile[] = [];
-          snapshot.forEach((doc) => {
-            fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
-          });
-          setUsers(fetchedUsers);
-          setLoading(false);
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
-        unsubscribes.push(unsub);
-      } else if (activeTab === 'config') {
-        const unsub = onSnapshot(doc(db, 'config', 'global'), (docSnap) => {
-          if (docSnap.exists()) {
-            setConfig(docSnap.data() as AppConfig);
-          } else {
-            const defaultConfig: AppConfig = {
-              prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
-              icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '💰', adBalance: '⚡' },
-              dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-              adRewardEnergy: 5,
-              maxDailyAds: 5,
-              subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
-              packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 },
-              hostPackagePrices: { daily: 300, weekly: 1200, monthly: 3000 }
-            };
-            setConfig(defaultConfig);
-          }
-          setLoading(false);
-        }, (error) => handleFirestoreError(error, OperationType.GET, 'config/global'));
-        unsubscribes.push(unsub);
 
-        const unsubWallet = onSnapshot(doc(db, 'adminSettings', 'wallet'), (docSnap) => {
-          if (docSnap.exists()) {
-            setWalletConfig(docSnap.data() as AdminWalletConfig);
-          } else {
-            setWalletConfig(DEFAULT_ADMIN_WALLET_CONFIG);
-          }
-        }, (error) => handleFirestoreError(error, OperationType.GET, 'adminSettings/wallet'));
-        unsubscribes.push(unsubWallet);
-      } else if (activeTab === 'horoscopes') {
-        const unsub = onSnapshot(collection(db, 'horoscopes'), (snapshot) => {
-          const fetchedHoroscopes: Horoscope[] = [];
-          snapshot.forEach((doc) => {
-            fetchedHoroscopes.push({ id: doc.id, ...doc.data() } as Horoscope);
-          });
-          setHoroscopes(fetchedHoroscopes);
-          setLoading(false);
+      // Users Listener
+      const usersUnsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+        setUsers(fetchedUsers);
+        setLoading(false);
+      });
+      unsubscribes.push(usersUnsub);
 
-          const today = new Date().toISOString().split('T')[0];
-          const isUpToDate = fetchedHoroscopes.some(h => h.date?.includes(today));
-          if (fetchedHoroscopes.length > 0 && !isUpToDate) {
-            handleGenerateAllHoroscopes();
-          }
-        }, (error) => handleFirestoreError(error, OperationType.LIST, 'horoscopes'));
-        unsubscribes.push(unsub);
-      } else if (activeTab === 'social') {
-        // Social Listeners
-        unsubscribes.push(onSnapshot(collection(db, 'users'), (snapshot) => {
-          setSocialUsers(snapshot.docs
-            .filter(doc => doc.data().social)
-            .map(doc => ({ uid: doc.id, ...doc.data().social } as any)));
-          setLoading(false);
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'socialRooms'), (snapshot) => {
-          setSocialRooms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialRoom)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'withdrawalRequests'), (snapshot) => {
-          setWithdrawalRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WithdrawalRequest)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'socialGiftTransactions'), (snapshot) => {
-          setSocialGiftTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialGiftTransaction)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'socialReports'), (snapshot) => {
-          setSocialReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialReport)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'hostingPackages'), (snapshot) => {
-          setHostingPackages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HostingPackage)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'socialTransactions'), (snapshot) => {
-          setSocialTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SocialTransaction)));
-        }));
-        unsubscribes.push(onSnapshot(collection(db, 'moderationLogs'), (snapshot) => {
-          setModerationLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ModerationLog)));
-        }));
-      }
+      // Reports Listener
+      const reportsUnsub = onSnapshot(query(collection(db, 'reports'), orderBy('createdAt', 'desc')), (snapshot) => {
+        const fetchedReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CentralizedReport));
+        setReports(fetchedReports);
+      });
+      unsubscribes.push(reportsUnsub);
 
-      if (activeTab === 'reports') {
-        unsubscribes.push(onSnapshot(query(collection(db, 'reports'), orderBy('createdAt', 'desc')), (snapshot) => {
-          setReports(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }));
-      }
+      // Config Listener
+      const configUnsub = onSnapshot(doc(db, 'config', 'global'), (docSnap) => {
+        if (docSnap.exists()) setConfig(docSnap.data() as AppConfig);
+      });
+      unsubscribes.push(configUnsub);
 
-      if (activeTab === 'config') {
-        unsubscribes.push(onSnapshot(doc(db, 'config', 'socialCommerce'), (doc) => {
-          if (doc.exists()) setSocialCommerce(doc.data() as SocialCommerceConfig);
-        }));
-      }
+      // Wallet Config Listener
+      const walletUnsub = onSnapshot(doc(db, 'adminSettings', 'wallet'), (docSnap) => {
+        if (docSnap.exists()) setWalletConfig(docSnap.data() as AdminWalletConfig);
+      });
+      unsubscribes.push(walletUnsub);
+
+      // Social Commerce Listener
+      const commerceUnsub = onSnapshot(doc(db, 'config', 'socialCommerce'), (docSnap) => {
+        if (docSnap.exists()) setSocialCommerce(docSnap.data() as SocialCommerceConfig);
+      });
+      unsubscribes.push(commerceUnsub);
+
+      // Economy Config Listener
+      const economyUnsub = onSnapshot(doc(db, 'adminSettings', 'economy'), (docSnap) => {
+        if (docSnap.exists()) {
+          setEconomyConfig(docSnap.data() as EconomyConfig);
+        } else {
+          setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
+        }
+      });
+      unsubscribes.push(economyUnsub);
     };
 
     setupListeners();
     return () => unsubscribes.forEach(unsub => unsub());
-  }, [activeTab]);
-
-  const handleSavePrompt = async (type: string, content: string) => {
-    setSaving(type);
-    try {
-      await setDoc(doc(db, 'prompts', type), {
-        content,
-        updatedAt: new Date().toISOString()
-      });
-      toast.success(`${type} promptu güncellendi.`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `prompts/${type}`);
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleSaveSocialCommerce = async () => {
-    if (!socialCommerce) return;
-    setSaving('socialCommerce');
-    try {
-      await setDoc(doc(db, 'config', 'socialCommerce'), socialCommerce);
-      toast.success("Sosyal ticaret ayarları kaydedildi.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'config/socialCommerce');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleUpdateUser = async (uid: string, updates: any) => {
-    try {
-      await updateDoc(doc(db, 'users', uid), updates);
-      setUsers(prev => prev.map(u => u.uid === uid ? { ...u, ...updates } : u));
-      toast.success("Kullanıcı güncellendi.");
-      setEditingUser(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
-    }
-  };
-
-  const handleSaveConfig = async () => {
-    if (!config || !walletConfig) return;
-    setSaving('config');
-    try {
-      await Promise.all([
-        setDoc(doc(db, 'config', 'global'), config),
-        setDoc(doc(db, 'adminSettings', 'wallet'), walletConfig)
-      ]);
-      toast.success("Tüm ayarlar kaydedildi.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'config/global');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleSendNotification = async () => {
-    if (!notification.title || !notification.message) {
-      toast.error("Başlık ve mesaj gereklidir.");
-      return;
-    }
-    setSaving('notification');
-    try {
-      await addDoc(collection(db, 'notifications'), {
-        ...notification,
-        sentAt: new Date().toISOString()
-      });
-      toast.success("Bildirim gönderildi (Kuyruğa eklendi).");
-      setNotification({ title: '', message: '' });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'notifications');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleSaveHoroscope = async (horoscope: Horoscope) => {
-    setSaving(horoscope.sign);
-    try {
-      const id = horoscope.sign; // Always use sign as ID for daily updates
-      await setDoc(doc(db, 'horoscopes', id), {
-        ...horoscope,
-        date: new Date().toISOString().split('T')[0]
-      });
-      toast.success(`${horoscope.sign} yorumu güncellendi.`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `horoscopes/${horoscope.sign}`);
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleUpdateSocialProfile = async (uid: string, updates: any) => {
-    try {
-      const socialUpdates = Object.keys(updates).reduce((acc, key) => {
-        acc[`social.${key}`] = updates[key];
-        return acc;
-      }, {} as any);
-      await updateDoc(doc(db, 'users', uid), {
-        ...socialUpdates,
-        'social.updatedAt': new Date().toISOString()
-      });
-      toast.success("Sosyal profil güncellendi.");
-      setEditingSocialProfile(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
-    }
-  };
-
-  const handleDeleteSocialProfile = async (uid: string) => {
-    if (!window.confirm("Bu sosyal profili devre dışı bırakmak istediğinize emin misiniz?")) return;
-    try {
-      await updateDoc(doc(db, 'users', uid), {
-        'social.enabled': false
-      });
-      toast.success("Sosyal profil devre dışı bırakıldı.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
-    }
-  };
-
-  const handleCloseRoom = async (roomId: string) => {
-    try {
-      await updateDoc(doc(db, 'socialRooms', roomId), {
-        status: 'closed',
-        closedAt: new Date().toISOString()
-      });
-      toast.success("Oda kapatıldı.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialRooms/${roomId}`);
-    }
-  };
-
-  const handleUpdateWithdrawalStatus = async (requestId: string, status: 'approved' | 'rejected' | 'completed', reason?: string) => {
-    try {
-      await updateDoc(doc(db, 'withdrawalRequests', requestId), {
-        status,
-        processedAt: new Date().toISOString(),
-        rejectionReason: reason || ''
-      });
-      toast.success(`Para çekme talebi ${status === 'approved' ? 'onaylandı' : 'reddedildi'}.`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `withdrawalRequests/${requestId}`);
-    }
-  };
-
-  const handleModerationAction = async (reportId: string, targetUid: string, action: 'warn' | 'mute' | 'ban', reason: string) => {
-    try {
-      const adminId = auth.currentUser?.uid;
-      if (!adminId) return;
-
-      // Log the action
-      await addDoc(collection(db, 'moderationLogs'), {
-        adminId,
-        adminEmail: auth.currentUser?.email || '',
-        targetUid,
-        action,
-        reason,
-        reportId,
-        timestamp: new Date().toISOString()
-      });
-
-      // Update report status
-      await updateDoc(doc(db, 'socialReports', reportId), {
-        status: 'resolved',
-        actionTaken: action,
-        adminNotes: reason
-      });
-
-      // Apply action to profile
-      if (action === 'ban') {
-        await updateDoc(doc(db, 'users', targetUid), { 'social.banned': true });
-      }
-
-      toast.success("Moderasyon işlemi uygulandı.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'moderationLogs');
-    }
-  };
-
-  const handleUpdateReportStatus = async (reportId: string, status: 'investigating' | 'resolved' | 'dismissed') => {
-    try {
-      await updateDoc(doc(db, 'socialReports', reportId), { status });
-      toast.success("Rapor durumu güncellendi.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `socialReports/${reportId}`);
-    }
-  };
-
-  const handleSavePackage = async (pkg: HostingPackage) => {
-    setSaving('package');
-    try {
-      if (pkg.id) {
-        await updateDoc(doc(db, 'hostingPackages', pkg.id), pkg as any);
-      } else {
-        const newDoc = doc(collection(db, 'hostingPackages'));
-        await setDoc(newDoc, { ...pkg, id: newDoc.id });
-      }
-      toast.success("Paket kaydedildi.");
-      setEditingPackage(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'hostingPackages');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleDeletePackage = async (id: string) => {
-    if (!window.confirm("Bu paketi silmek istediğinize emin misiniz?")) return;
-    try {
-      await deleteDoc(doc(db, 'hostingPackages', id));
-      toast.success("Paket silindi.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `hostingPackages/${id}`);
-    }
-  };
-
-  const fetchUserReadings = (uid: string) => {
-    if (readingsUnsubscribe) readingsUnsubscribe();
-    
-    const q = query(collection(db, 'readings'), where('userId', '==', uid), orderBy('date', 'desc'), limit(50));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const readings: FortuneReading[] = [];
-      snapshot.forEach((doc) => {
-        readings.push({ id: doc.id, ...doc.data() } as FortuneReading);
-      });
-      setUserReadings(readings);
-      setShowReadings(true);
-    }, (error) => {
-      console.error("Readings fetch error:", error);
-      // Fallback to manual filtering if index is missing
-      const fallbackQuery = query(collection(db, 'readings'), orderBy('date', 'desc'), limit(100));
-      onSnapshot(fallbackQuery, (snapshot) => {
-        const readings: FortuneReading[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.userId === uid) {
-            readings.push({ id: doc.id, ...data } as FortuneReading);
-          }
-        });
-        setUserReadings(readings);
-        setShowReadings(true);
-      });
-    });
-    
-    setReadingsUnsubscribe(() => unsub);
-  };
+  }, []);
 
   const filteredUsers = users.filter(u => 
     u.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    u.email?.toLowerCase().includes(searchQuery.toLowerCase())
+    u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.uid.includes(searchQuery)
   );
 
-  const filteredSocialUsers = socialUsers.filter(u => 
-    u.nickname?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
-    u.region?.toLowerCase().includes(socialSearchQuery.toLowerCase())
+  const filteredReports = reports.filter(r => 
+    reportFilter === 'all' ? true : r.status === reportFilter
   );
+
+  const handleUpdateUser = async (uid: string, updates: any) => {
+    setSaving(uid);
+    try {
+      await adminService.updateUser(uid, updates);
+      if (selectedUser?.uid === uid) {
+        setSelectedUser(prev => prev ? { ...prev, ...updates } : null);
+      }
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSaving('settings');
+    try {
+      if (config) await adminService.updateGlobalConfig(config);
+      if (walletConfig) await adminService.updateWalletConfig(walletConfig);
+      if (socialCommerce) await setDoc(doc(db, 'config', 'socialCommerce'), socialCommerce);
+      if (economyConfig) await adminService.updateEconomyConfig(economyConfig);
+      toast.success("Tüm ayarlar kaydedildi.");
+    } catch (error) {
+      toast.error("Ayarlar kaydedilirken hata oluştu.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const fetchUserChats = async (userId: string) => {
+    setLoadingChats(true);
+    try {
+      const chats = await adminService.getAdminUserChats(userId);
+      setUserChats(chats);
+    } finally {
+      setLoadingChats(false);
+    }
+  };
+
+  const fetchChatMessages = async (chatId: string, userId: string) => {
+    setLoadingMessages(true);
+    try {
+      const messages = await adminService.getAdminChatMessages(chatId, userId);
+      setChatMessages(messages);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  const addCoinPackage = () => {
+    if (!economyConfig) return;
+    const newPkg = { id: `pkg_${Date.now()}`, coins: 0, priceTRY: 0, bonus: 0 };
+    setEconomyConfig({
+      ...economyConfig,
+      coinPackages: [...economyConfig.coinPackages, newPkg]
+    });
+  };
+
+  const removeCoinPackage = (id: string) => {
+    if (!economyConfig) return;
+    setEconomyConfig({
+      ...economyConfig,
+      coinPackages: economyConfig.coinPackages.filter(p => p.id !== id)
+    });
+  };
+
+  const addCustomReward = () => {
+    if (!economyConfig) return;
+    const newReward = { id: `reward_${Date.now()}`, name: 'Yeni Ödül', amount: 0, balanceType: 'energy' as const, description: '' };
+    setEconomyConfig({
+      ...economyConfig,
+      rewards: {
+        ...economyConfig.rewards,
+        customRewards: [...economyConfig.rewards.customRewards, newReward]
+      }
+    });
+  };
+
+  const removeCustomReward = (id: string) => {
+    if (!economyConfig) return;
+    setEconomyConfig({
+      ...economyConfig,
+      rewards: {
+        ...economyConfig.rewards,
+        customRewards: economyConfig.rewards.customRewards.filter(r => r.id !== id)
+      }
+    });
+  };
+
+  const addSocialPricing = (type: 'superLike' | 'refresh' | 'compatibility') => {
+    if (!economyConfig) return;
+    const newPkg = { id: `${type}_${Date.now()}`, count: 0, priceCoins: 0 };
+    setEconomyConfig({
+      ...economyConfig,
+      socialPricing: {
+        ...economyConfig.socialPricing,
+        [type]: [...economyConfig.socialPricing[type], newPkg]
+      }
+    });
+  };
+
+  const removeSocialPricing = (type: 'superLike' | 'refresh' | 'compatibility', id: string) => {
+    if (!economyConfig) return;
+    setEconomyConfig({
+      ...economyConfig,
+      socialPricing: {
+        ...economyConfig.socialPricing,
+        [type]: economyConfig.socialPricing[type].filter(p => p.id !== id)
+      }
+    });
+  };
+
+  const handleModerationAction = async (action: 'ban_user' | 'delete_chat' | 'flag_message', params: any) => {
+    const success = await adminService.performModerationAction({
+      action,
+      ...params
+    });
+    if (success && action === 'delete_chat') {
+      setSelectedChat(null);
+      if (selectedUser) fetchUserChats(selectedUser.uid);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-[#0a0a0a] text-white flex flex-col overflow-hidden font-sans">
       {/* Header */}
-      <header className="flex-shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5 px-4 py-6 flex items-center justify-between">
+      <header className="flex-shrink-0 bg-black/40 backdrop-blur-xl border-b border-white/5 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={onBack}
-            className="p-2 rounded-full bg-white/5 text-purple-200/60"
+            className="p-2.5 rounded-xl bg-white/5 text-white/60 hover:text-white transition-all border border-white/5"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-5 h-5" />
           </motion.button>
           <div>
-            <h1 className="text-xl font-serif font-bold text-amber-50">Yönetim Paneli</h1>
-            <p className="text-xs text-purple-200/40">Sistem Kontrol Merkezi</p>
+            <h1 className="text-lg font-bold tracking-tight">Admin Panel</h1>
+            <p className="text-[10px] text-white/40 uppercase tracking-widest font-black">Production Control</p>
           </div>
         </div>
-        
-        <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/5 overflow-x-auto max-w-[60vw] no-scrollbar">
+
+        <nav className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 overflow-x-auto no-scrollbar max-w-[60%]">
           {[
-            { id: 'prompts', icon: MessageSquare, label: 'Promptlar' },
             { id: 'users', icon: Users, label: 'Kullanıcılar' },
-            { id: 'config', icon: Settings, label: 'Ayarlar' },
             { id: 'reports', icon: ShieldAlert, label: 'Raporlar' },
-            { id: 'notifications', icon: Bell, label: 'Bildirim' },
-            { id: 'horoscopes', icon: Star, label: 'Burçlar' }
+            { id: 'economy', icon: DollarSign, label: 'Ekonomi' },
+            { id: 'socialMarket', icon: ShoppingBag, label: 'Sosyal Market' },
+            { id: 'subscriptions', icon: Crown, label: 'Abonelikler' },
+            { id: 'settings', icon: Settings, label: 'Ayarlar' }
           ].map(tab => (
-            <button 
+            <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === tab.id ? 'bg-amber-500 text-black' : 'text-purple-200/40 hover:text-purple-200'}`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === tab.id 
+                  ? 'bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.3)]' 
+                  : 'text-white/40 hover:text-white hover:bg-white/5'
+              }`}
             >
               <tab.icon className="w-4 h-4" />
               <span>{tab.label}</span>
             </button>
           ))}
-        </div>
+        </nav>
 
-        <motion.button
-          whileHover={{ rotate: 180 }}
-          onClick={() => toast.info('Veriler gerçek zamanlı güncelleniyor.')}
-          className="p-2 rounded-full bg-white/5 text-purple-200/60"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </motion.button>
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex flex-col items-end">
+            <span className="text-[10px] font-bold text-white/20 uppercase tracking-tighter">System Status</span>
+            <span className="text-[10px] font-bold text-green-500 flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              Operational
+            </span>
+          </div>
+        </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar pb-32">
-        {activeTab === 'prompts' && (
-          <>
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6">
-              <div className="flex items-center gap-2 mb-2">
-                <Terminal className="w-4 h-4 text-amber-400" />
-                <h3 className="text-sm font-bold text-amber-400 uppercase tracking-widest">Kullanılabilir Değişkenler</h3>
-              </div>
-              <p className="text-xs text-amber-200/60 leading-relaxed">
-                Prompt içerisinde şu etiketleri kullanabilirsiniz: <br />
-                <code className="text-amber-400 font-mono">{'{isim}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{dogumtarihi}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{iliskidurumu}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{isdurumu}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{cinsiyet}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{ekbilgi}'}</code>, 
-                <code className="text-amber-400 font-mono"> {'{kartlar}'}</code> (Sadece Tarot),
-                <code className="text-amber-400 font-mono"> {'{soruları}'}</code>
-              </p>
-            </div>
-
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-20">
-                <RefreshCw className="w-10 h-10 text-purple-500 animate-spin mb-4" />
-                <p className="text-purple-200/40 animate-pulse">Promptlar yükleniyor...</p>
-              </div>
-            ) : (
-              prompts.map((prompt) => (
-                <motion.div
-                  key={prompt.type}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-serif font-bold text-amber-50 capitalize">{prompt.type} Falı</h3>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleSavePrompt(prompt.type, prompt.content)}
-                      disabled={saving === prompt.type}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                        saving === prompt.type 
-                          ? 'bg-white/10 text-white/40 cursor-not-allowed' 
-                          : 'bg-amber-500 text-black hover:bg-amber-400'
-                      }`}
-                    >
-                      {saving === prompt.type ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Save className="w-4 h-4" />
-                      )}
-                      {saving === prompt.type ? 'Kaydediliyor...' : 'Kaydet'}
-                    </motion.button>
-                  </div>
-                  
-                  <textarea
-                    value={prompt.content}
-                    onChange={(e) => setPrompts(prev => prev.map(p => p.type === prompt.type ? { ...p, content: e.target.value } : p))}
-                    placeholder={`${prompt.type} için prompt şablonu girin...`}
-                    className="w-full h-48 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-purple-100 placeholder:text-purple-200/20 focus:outline-none focus:border-amber-500/50 transition-colors resize-none custom-scrollbar"
-                  />
-                </motion.div>
-              ))
-            )}
-          </>
-        )}
-
+      {/* Main Content */}
+      <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
         {activeTab === 'users' && (
-          <>
-            <div className="flex items-center justify-between mb-6">
-               <div className="relative flex-1 mr-4">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
-                <input 
+          <div className="space-y-6 max-w-7xl mx-auto">
+            {/* Search & Stats */}
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="relative flex-1 w-full">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20" />
+                <input
                   type="text"
-                  placeholder="Kullanıcı ara (Ad veya E-posta)..."
+                  placeholder="Kullanıcı ara (İsim, E-posta, UID)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={async () => {
-                    try {
-                      await runSeed();
-                      toast.success("Demo kullanıcılar oluşturuldu!");
-                    } catch (error) {
-                      toast.error("Demo kullanıcılar oluşturulurken bir hata oluştu.");
-                      console.error(error);
-                    }
-                  }}
-                  className="flex items-center gap-2 px-4 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Demo Kullanıcıları Oluştur</span>
-                </button>
-                <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
-                  <span className="block text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Toplam Üye</span>
-                  <span className="text-xl font-bold text-amber-50">{users.length}</span>
+              <div className="flex items-center gap-4 w-full md:w-auto">
+                <div className="bg-white/5 px-6 py-3 rounded-2xl border border-white/5 flex flex-col items-center min-w-[120px]">
+                  <span className="text-[10px] font-bold text-white/20 uppercase">Toplam</span>
+                  <span className="text-xl font-black text-amber-500">{users.length}</span>
+                </div>
+                <div className="bg-white/5 px-6 py-3 rounded-2xl border border-white/5 flex flex-col items-center min-w-[120px]">
+                  <span className="text-[10px] font-bold text-white/20 uppercase">Aktif</span>
+                  <span className="text-xl font-black text-green-500">{users.filter(u => !u.isBanned).length}</span>
                 </div>
               </div>
             </div>
 
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-20">
-                <RefreshCw className="w-10 h-10 text-purple-500 animate-spin mb-4" />
-                <p className="text-purple-200/40 animate-pulse">Kullanıcılar yükleniyor...</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredUsers.map((u) => (
+            {/* User List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <AnimatePresence mode="popLayout">
+                {filteredUsers.slice(0, 50).map((user) => (
                   <motion.div
-                    key={u.uid}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between group ${u.isBanned ? 'opacity-50 grayscale' : ''}`}
+                    key={user.uid}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    onClick={() => setSelectedUser(user)}
+                    className={`group relative bg-white/5 border border-white/10 rounded-3xl p-5 hover:bg-white/[0.08] transition-all cursor-pointer overflow-hidden ${user.isBanned ? 'opacity-60 grayscale' : ''}`}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden flex items-center justify-center border border-white/5">
-                        {u.photoURL ? (
-                          <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <Users className="w-6 h-6 text-purple-200/20" />
+                    {/* Background Glow */}
+                    <div className="absolute -right-10 -top-10 w-32 h-32 bg-amber-500/5 blur-3xl rounded-full group-hover:bg-amber-500/10 transition-all" />
+                    
+                    <div className="flex items-center gap-4 relative z-10">
+                      <div className="relative">
+                        <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center">
+                          {user.photoURL ? (
+                            <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-6 h-6 text-white/20" />
+                          )}
+                        </div>
+                        {user.role === 'admin' && (
+                          <div className="absolute -top-2 -right-2 bg-amber-500 text-black p-1 rounded-lg shadow-lg">
+                            <Shield className="w-3 h-3" />
+                          </div>
                         )}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-amber-50">{u.displayName || 'İsimsiz'}</h4>
-                          {u.isBanned && <Ban className="w-3 h-3 text-red-500" />}
+
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-white truncate">{user.displayName || 'İsimsiz'}</h3>
+                        <p className="text-xs text-white/40 truncate">{user.email}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter ${
+                            user.isBanned ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'
+                          }`}>
+                            {user.isBanned ? 'Banned' : 'Active'}
+                          </span>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-white/5 text-white/40 uppercase tracking-tighter">
+                            {user.role || 'user'}
+                          </span>
                         </div>
-                        <p className="text-xs text-purple-200/40">{u.email}</p>
-                        <p className="text-[10px] text-purple-200/20 mt-1">Kayıt: {u.createdAt ? new Date(u.createdAt).toLocaleDateString('tr-TR') : 'Tarih Yok'}</p>
                       </div>
+
+                      <ChevronLeft className="w-5 h-5 text-white/10 rotate-180 group-hover:text-amber-500 transition-all" />
                     </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <div className="text-right hidden sm:block mr-4">
-                        <div className="flex flex-col items-end gap-1">
-                          <div className="flex items-center gap-1 text-amber-400 text-xs font-bold">
-                            <CreditCard className="w-3 h-3" />
-                            <span>{u.mainCoins || 0} Ana</span>
-                          </div>
-                          <div className="flex items-center gap-1 text-purple-400 text-[10px] font-bold">
-                            <Zap className="w-3 h-3" />
-                            <span>{u.energy || 0} Enerji</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 text-purple-200/40 text-[10px] font-medium uppercase tracking-tighter mt-1">
-                          <ShieldCheck className="w-3 h-3" />
-                          <span>{u.subscription?.status === 'active' ? u.subscription.type : 'Standart'}</span>
-                        </div>
+
+                    <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-3 gap-2 relative z-10">
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-bold text-white/20 uppercase">Coins</span>
+                        <span className="text-xs font-bold text-amber-500">{user.mainCoins || 0}</span>
                       </div>
-                      <button 
-                        onClick={() => fetchUserReadings(u.uid)}
-                        className="p-3 rounded-xl bg-white/5 text-purple-200/40 hover:bg-purple-500 hover:text-white transition-all"
-                        title="Geçmiş Fallar"
-                      >
-                        <History className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => setEditingUser({
-                          ...u,
-                          role: u.role || 'user',
-                          isBanned: u.isBanned || false,
-                          mainCoins: u.mainCoins || 0
-                        })}
-                        className="p-3 rounded-xl bg-white/5 text-purple-200/40 hover:bg-amber-500 hover:text-black transition-all"
-                        title="Düzenle"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-bold text-white/20 uppercase">Energy</span>
+                        <span className="text-xs font-bold text-purple-400">{user.energy || 0}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-bold text-white/20 uppercase">Sub</span>
+                        <span className="text-xs font-bold text-blue-400 truncate">
+                          {user.subscription?.status === 'active' ? user.subscription.type : 'None'}
+                        </span>
+                      </div>
                     </div>
                   </motion.div>
                 ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'config' && config && walletConfig && (
-          <div className="space-y-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-serif font-bold text-amber-50">Global Ayarlar</h2>
-              <button 
-                onClick={handleSaveConfig}
-                disabled={saving === 'config'}
-                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all disabled:opacity-50"
-              >
-                {saving === 'config' ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                <span>Ayarları Kaydet</span>
-              </button>
+              </AnimatePresence>
             </div>
-
-            {/* Wallet & Rewards */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Zap className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Cüzdan & Ödül Ayarları</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Reklam Ödülü (Enerji)</label>
-                  <input 
-                    type="number"
-                    value={walletConfig.adRewardEnergy}
-                    onChange={(e) => setWalletConfig({ ...walletConfig, adRewardEnergy: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Günlük Max Reklam</label>
-                  <input 
-                    type="number"
-                    value={walletConfig.maxDailyAds}
-                    onChange={(e) => setWalletConfig({ ...walletConfig, maxDailyAds: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Reklam Ödül Skt (Gün)</label>
-                  <input 
-                    type="number"
-                    value={walletConfig.adRewardExpiryDays}
-                    onChange={(e) => setWalletConfig({ ...walletConfig, adRewardExpiryDays: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Giriş Ödülü (Enerji)</label>
-                  <input 
-                    type="number"
-                    value={walletConfig.dailyLoginRewardEnergy}
-                    onChange={(e) => setWalletConfig({ ...walletConfig, dailyLoginRewardEnergy: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Social Rights Prices */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Heart className="w-6 h-6 text-rose-400" />
-                <h3 className="text-lg font-bold text-amber-50">Sosyal Hak Ücretleri (Jeton)</h3>
-              </div>
-              <div className="grid grid-cols-3 gap-6">
-                {Object.entries(walletConfig.socialRightsPrices).map(([key, val]) => (
-                  <div key={key} className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{key}</label>
-                    <input 
-                      type="number"
-                      value={val}
-                      onChange={(e) => setWalletConfig({ 
-                        ...walletConfig, 
-                        socialRightsPrices: { ...walletConfig.socialRightsPrices, [key]: parseInt(e.target.value) || 0 } 
-                      })}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Fortune Subscriptions */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Star className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Fal Abonelik Ücretleri (TL)</h3>
-              </div>
-              <div className="grid grid-cols-3 gap-6">
-                {Object.entries(walletConfig.fortuneSubscriptions).map(([type, sub]) => (
-                  <div key={type} className="space-y-4 p-4 rounded-2xl bg-black/20 border border-white/5">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{type}</label>
-                    <div className="space-y-3">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
-                        <input 
-                          type="number"
-                          value={sub.price}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            fortuneSubscriptions: { 
-                              ...walletConfig.fortuneSubscriptions, 
-                              [type]: { ...sub, price: parseInt(e.target.value) || 0 } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Günlük Limit</span>
-                        <input 
-                          type="number"
-                          value={sub.dailyLimit}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            fortuneSubscriptions: { 
-                              ...walletConfig.fortuneSubscriptions, 
-                              [type]: { ...sub, dailyLimit: parseInt(e.target.value) || 0 } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Social Subscriptions */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Crown className="w-6 h-6 text-indigo-400" />
-                <h3 className="text-lg font-bold text-amber-50">Social Premium Abonelikleri (TL)</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                {Object.entries(walletConfig.socialSubscriptions).map(([type, sub]) => (
-                  <div key={type} className="space-y-4 p-6 rounded-2xl bg-black/20 border border-white/5">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{type}</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
-                        <input 
-                          type="number"
-                          value={sub.price}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            socialSubscriptions: { 
-                              ...walletConfig.socialSubscriptions, 
-                              [type]: { ...sub, price: parseInt(e.target.value) || 0 } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Süper Like (Günlük)</span>
-                        <input 
-                          type="number"
-                          value={sub.dailyLimits.superLikes}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            socialSubscriptions: { 
-                              ...walletConfig.socialSubscriptions, 
-                              [type]: { 
-                                ...sub, 
-                                dailyLimits: { ...sub.dailyLimits, superLikes: parseInt(e.target.value) || 0 } 
-                              } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Yenileme (Günlük)</span>
-                        <input 
-                          type="number"
-                          value={sub.dailyLimits.refreshes}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            socialSubscriptions: { 
-                              ...walletConfig.socialSubscriptions, 
-                              [type]: { 
-                                ...sub, 
-                                dailyLimits: { ...sub.dailyLimits, refreshes: parseInt(e.target.value) || 0 } 
-                              } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Analiz (Günlük)</span>
-                        <input 
-                          type="number"
-                          value={sub.dailyLimits.compatibility}
-                          onChange={(e) => setWalletConfig({ 
-                            ...walletConfig, 
-                            socialSubscriptions: { 
-                              ...walletConfig.socialSubscriptions, 
-                              [type]: { 
-                                ...sub, 
-                                dailyLimits: { ...sub.dailyLimits, compatibility: parseInt(e.target.value) || 0 } 
-                              } 
-                            } 
-                          })}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-purple-200/20 px-1">Açıklama</span>
-                      <textarea 
-                        value={sub.description}
-                        onChange={(e) => setWalletConfig({ 
-                          ...walletConfig, 
-                          socialSubscriptions: { 
-                            ...walletConfig.socialSubscriptions, 
-                            [type]: { ...sub, description: e.target.value } 
-                          } 
-                        })}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-xs h-20 resize-none"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Coin Packages */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <ShoppingBag className="w-6 h-6 text-indigo-400" />
-                <h3 className="text-lg font-bold text-amber-50">Jeton Paketleri</h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {walletConfig.coinPackages.map((pkg, idx) => (
-                  <div key={pkg.id} className="p-6 rounded-2xl bg-black/20 border border-white/5 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-amber-400">Paket {idx + 1}</span>
-                      <span className="text-[10px] text-purple-200/20">{pkg.id}</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Jeton</span>
-                        <input 
-                          type="number"
-                          value={pkg.coins}
-                          onChange={(e) => {
-                            const newPkgs = [...walletConfig.coinPackages];
-                            newPkgs[idx] = { ...pkg, coins: parseInt(e.target.value) || 0 };
-                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Bonus</span>
-                        <input 
-                          type="number"
-                          value={pkg.bonus}
-                          onChange={(e) => {
-                            const newPkgs = [...walletConfig.coinPackages];
-                            newPkgs[idx] = { ...pkg, bonus: parseInt(e.target.value) || 0 };
-                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-purple-200/20 px-1">Fiyat (TL)</span>
-                        <input 
-                          type="number"
-                          value={pkg.price}
-                          onChange={(e) => {
-                            const newPkgs = [...walletConfig.coinPackages];
-                            newPkgs[idx] = { ...pkg, price: parseInt(e.target.value) || 0 };
-                            setWalletConfig({ ...walletConfig, coinPackages: newPkgs });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Prices */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <DollarSign className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Fal Ücretleri & Ödüller</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
-                {Object.entries(config.prices).map(([key, val]) => (
-                  <div key={key} className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{key}</label>
-                    <input 
-                      type="number"
-                      value={val}
-                      onChange={(e) => setConfig({ ...config, prices: { ...config.prices, [key]: parseInt(e.target.value) || 0 } })}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                ))}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">Reklam Ödülü</label>
-                  <input 
-                    type="number"
-                    value={config.adRewardEnergy}
-                    onChange={(e) => setConfig({ ...config, adRewardEnergy: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">Günlük Max Reklam</label>
-                  <input 
-                    type="number"
-                    value={config.maxDailyAds}
-                    onChange={(e) => setConfig({ ...config, maxDailyAds: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 mt-8 mb-2">
-                <Zap className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Host Paket Ücretleri (Coin)</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
-                {Object.entries(config.hostPackagePrices || { daily: 300, weekly: 1200, monthly: 3000 }).map(([key, val]) => (
-                  <div key={key} className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">
-                      {key === 'daily' ? 'Günlük' : key === 'weekly' ? 'Haftalık' : 'Aylık'}
-                    </label>
-                    <input 
-                      type="number"
-                      value={val}
-                      onChange={(e) => setConfig({ 
-                        ...config, 
-                        hostPackagePrices: { 
-                          ...(config.hostPackagePrices || { daily: 300, weekly: 1200, monthly: 3000 }), 
-                          [key]: parseInt(e.target.value) || 0 
-                        } 
-                      })}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Interpretation Times */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Clock className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Yorumlama Süreleri (Dakika)</h3>
-              </div>
-              <div className="space-y-8">
-                {['coffee', 'tarot', 'advanced'].map((type) => (
-                  <div key={type} className="space-y-4">
-                    <h4 className="text-sm font-bold text-amber-400 uppercase tracking-widest border-b border-white/5 pb-2">{type === 'coffee' ? 'Kahve' : type === 'tarot' ? 'Tarot' : 'Özel (Su, Yıldızname vb.)'}</h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Min Yorumcu Bulma</label>
-                        <input 
-                          type="number"
-                          value={Math.floor((config.interpretationTimes?.[type as 'coffee' | 'tarot' | 'advanced']?.minInterpreterTime || 300) / 60)}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
-                            const times = config.interpretationTimes || {
-                              coffee: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              tarot: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              advanced: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 }
-                            };
-                            setConfig({
-                              ...config,
-                              interpretationTimes: {
-                                ...times,
-                                [type]: { ...times[type as 'coffee' | 'tarot' | 'advanced'], minInterpreterTime: val * 60 }
-                              }
-                            });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Max Yorumcu Bulma</label>
-                        <input 
-                          type="number"
-                          value={Math.floor((config.interpretationTimes?.[type as 'coffee' | 'tarot' | 'advanced']?.maxInterpreterTime || 900) / 60)}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
-                            const times = config.interpretationTimes || {
-                              coffee: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              tarot: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              advanced: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 }
-                            };
-                            setConfig({
-                              ...config,
-                              interpretationTimes: {
-                                ...times,
-                                [type]: { ...times[type as 'coffee' | 'tarot' | 'advanced'], maxInterpreterTime: val * 60 }
-                              }
-                            });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Min Yorumlama</label>
-                        <input 
-                          type="number"
-                          value={Math.floor((config.interpretationTimes?.[type as 'coffee' | 'tarot' | 'advanced']?.minReadingTime || 900) / 60)}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
-                            const times = config.interpretationTimes || {
-                              coffee: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              tarot: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              advanced: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 }
-                            };
-                            setConfig({
-                              ...config,
-                              interpretationTimes: {
-                                ...times,
-                                [type]: { ...times[type as 'coffee' | 'tarot' | 'advanced'], minReadingTime: val * 60 }
-                              }
-                            });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Max Yorumlama</label>
-                        <input 
-                          type="number"
-                          value={Math.floor((config.interpretationTimes?.[type as 'coffee' | 'tarot' | 'advanced']?.maxReadingTime || 1800) / 60)}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
-                            const times = config.interpretationTimes || {
-                              coffee: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              tarot: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 },
-                              advanced: { minInterpreterTime: 300, maxInterpreterTime: 900, minReadingTime: 900, maxReadingTime: 1800 }
-                            };
-                            setConfig({
-                              ...config,
-                              interpretationTimes: {
-                                ...times,
-                                [type]: { ...times[type as 'coffee' | 'tarot' | 'advanced'], maxReadingTime: val * 60 }
-                              }
-                            });
-                          }}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Icons */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <ImageIcon className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Logolar & İkonlar (Emoji veya URL)</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
-                {Object.entries(config.icons).map(([key, val]) => (
-                  <div key={key} className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{key}</label>
-                    <input 
-                      type="text"
-                      value={val}
-                      onChange={(e) => setConfig({ ...config, icons: { ...config.icons, [key]: e.target.value } })}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Daily Message Prompt */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <MessageSquare className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Günün Mesajı Promptu</h3>
-              </div>
-              <textarea 
-                value={config.dailyMessagePrompt}
-                onChange={(e) => setConfig({ ...config, dailyMessagePrompt: e.target.value })}
-                className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-purple-100 focus:outline-none focus:border-amber-500/50 resize-none"
-              />
-            </div>
-
-            {/* Package Prices */}
-            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-6">
-              <div className="flex items-center gap-3 mb-2">
-                <CreditCard className="w-6 h-6 text-amber-400" />
-                <h3 className="text-lg font-bold text-amber-50">Paket Ücretleri (₺)</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
-                {Object.entries(config.packagePrices).map(([key, val]) => (
-                  <div key={key} className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1 capitalize">{key.replace('_', ' ')}</label>
-                    <input 
-                      type="number"
-                      step="0.01"
-                      value={val}
-                      onChange={(e) => setConfig({ ...config, packagePrices: { ...config.packagePrices, [key]: parseFloat(e.target.value) || 0 } })}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Social Commerce Settings */}
-            {socialCommerce && (
-              <div className="bg-white/5 border border-white/10 rounded-[2rem] p-8 space-y-8">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <DollarSign className="w-6 h-6 text-pink-500" />
-                    <h3 className="text-lg font-bold text-amber-50">Sosyal Özellik Fiyatları</h3>
-                  </div>
-                  <button 
-                    onClick={handleSaveSocialCommerce}
-                    disabled={saving === 'socialCommerce'}
-                    className="flex items-center gap-2 px-6 py-2 rounded-xl bg-amber-500 text-black font-bold text-xs uppercase tracking-widest hover:bg-amber-400 transition-all disabled:opacity-50"
-                  >
-                    {saving === 'socialCommerce' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Kaydet
-                  </button>
-                </div>
-
-                <div className="space-y-8">
-                  {/* Packages */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Boost Packages */}
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
-                        <Zap className="w-3 h-3" /> Boost Paketleri
-                      </h4>
-                      <div className="space-y-3">
-                        {socialCommerce.boostPackages.map((pkg, idx) => (
-                          <div key={`boost-${idx}`} className="grid grid-cols-3 gap-2">
-                            <input 
-                              type="text"
-                              value={pkg.name}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.boostPackages];
-                                newPkgs[idx].name = e.target.value;
-                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                            <input 
-                              type="number"
-                              value={pkg.price}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.boostPackages];
-                                newPkgs[idx].price = parseInt(e.target.value) || 0;
-                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                              placeholder="Fiyat"
-                            />
-                            <input 
-                              type="number"
-                              value={pkg.durationHours}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.boostPackages];
-                                newPkgs[idx].durationHours = parseInt(e.target.value) || 0;
-                                setSocialCommerce({ ...socialCommerce, boostPackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                              placeholder="Saat"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Super Like Packages */}
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
-                        <Heart className="w-3 h-3" /> Super Like Paketleri
-                      </h4>
-                      <div className="space-y-3">
-                        {socialCommerce.superLikePackages.map((pkg, idx) => (
-                          <div key={`sl-${idx}`} className="grid grid-cols-3 gap-2">
-                            <input 
-                              type="text"
-                              value={pkg.name}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.superLikePackages];
-                                newPkgs[idx].name = e.target.value;
-                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                            <input 
-                              type="number"
-                              value={pkg.price}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.superLikePackages];
-                                newPkgs[idx].price = parseInt(e.target.value) || 0;
-                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                            <input 
-                              type="number"
-                              value={pkg.count}
-                              onChange={(e) => {
-                                const newPkgs = [...socialCommerce.superLikePackages];
-                                newPkgs[idx].count = parseInt(e.target.value) || 0;
-                                setSocialCommerce({ ...socialCommerce, superLikePackages: newPkgs });
-                              }}
-                              className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Subscriptions */}
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-purple-200/40 uppercase tracking-widest flex items-center gap-2">
-                      <Star className="w-3 h-3" /> Abonelik Planları
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {socialCommerce.subscriptions.map((sub, idx) => (
-                        <div key={`sub-${idx}`} className="bg-black/40 border border-white/10 rounded-2xl p-4 space-y-3">
-                          <input 
-                            type="text"
-                            value={sub.name}
-                            onChange={(e) => {
-                              const newSubs = [...socialCommerce.subscriptions];
-                              newSubs[idx].name = e.target.value;
-                              setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
-                            }}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-amber-50 font-bold"
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <label className="text-[8px] text-purple-200/40 uppercase">Fiyat</label>
-                              <input 
-                                type="number"
-                                value={sub.price}
-                                onChange={(e) => {
-                                  const newSubs = [...socialCommerce.subscriptions];
-                                  newSubs[idx].price = parseInt(e.target.value) || 0;
-                                  setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[8px] text-purple-200/40 uppercase">Gün</label>
-                              <input 
-                                type="number"
-                                value={sub.durationDays}
-                                onChange={(e) => {
-                                  const newSubs = [...socialCommerce.subscriptions];
-                                  newSubs[idx].durationDays = parseInt(e.target.value) || 0;
-                                  setSocialCommerce({ ...socialCommerce, subscriptions: newSubs });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
         {activeTab === 'reports' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-serif font-bold text-amber-50">Kullanıcı Raporları</h2>
-                <p className="text-xs text-purple-200/40">Sosyal modül şikayet yönetimi</p>
-              </div>
-              <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
-                <span className="block text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Açık Rapor</span>
-                <span className="text-xl font-bold text-red-500">{reports.filter(r => r.status === 'open').length}</span>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {reports.length === 0 ? (
-                <div className="text-center py-20 text-purple-200/20 italic">Henüz rapor bulunmuyor.</div>
-              ) : (
-                reports.map((report) => (
-                  <motion.div
-                    key={report.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4"
+          <div className="space-y-6 max-w-7xl mx-auto">
+            {/* Report Filters */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/5">
+                {['all', 'pending', 'investigating', 'resolved', 'dismissed'].map(status => (
+                  <button
+                    key={status}
+                    onClick={() => setReportFilter(status as any)}
+                    className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      reportFilter === status 
+                        ? 'bg-white/10 text-white' 
+                        : 'text-white/40 hover:text-white'
+                    }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                          report.status === 'open' ? 'bg-red-500/10 text-red-500' :
-                          report.status === 'reviewing' ? 'bg-amber-500/10 text-amber-500' :
-                          'bg-emerald-500/10 text-emerald-500'
-                        }`}>
-                          <ShieldAlert className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Sebep:</span>
-                            <span className="text-sm font-bold text-amber-50">{report.reason}</span>
-                          </div>
-                          <p className="text-xs text-purple-200/60 mt-1">{report.details}</p>
-                          <div className="flex items-center gap-4 mt-2">
-                            <div className="text-[10px] text-purple-200/40">
-                              <span className="font-bold uppercase tracking-widest">Raporlayan:</span> {report.reporterUserId}
-                            </div>
-                            <div className="text-[10px] text-purple-200/40">
-                              <span className="font-bold uppercase tracking-widest">Hedef:</span> {report.targetUserId}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right space-y-2">
-                        <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                          report.status === 'open' ? 'bg-red-500/20 text-red-500' :
-                          report.status === 'reviewing' ? 'bg-amber-500/20 text-amber-500' :
-                          'bg-emerald-500/20 text-emerald-400'
-                        }`}>
-                          {report.status === 'open' ? 'Açık' : report.status === 'reviewing' ? 'İnceleniyor' : 'Kapatıldı'}
-                        </span>
-                        <p className="text-[10px] text-purple-200/20">{new Date(report.createdAt).toLocaleString('tr-TR')}</p>
-                      </div>
-                    </div>
+                    {status}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest">
+                {filteredReports.length} Rapor Bulundu
+              </div>
+            </div>
 
-                    <div className="flex items-center gap-2 pt-4 border-t border-white/5">
+            {/* Reports List */}
+            <div className="space-y-3">
+              {filteredReports.map((report) => (
+                <motion.div
+                  key={report.id}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col md:flex-row gap-6 items-start md:items-center hover:bg-white/[0.08] transition-all"
+                >
+                  <div className="flex items-center gap-4 min-w-[200px]">
+                    <div className={`p-3 rounded-2xl ${
+                      report.status === 'pending' ? 'bg-amber-500/20 text-amber-500' :
+                      report.status === 'resolved' ? 'bg-green-500/20 text-green-500' :
+                      'bg-white/5 text-white/40'
+                    }`}>
+                      <Flag className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-white capitalize">{report.source} Raporu</h4>
+                      <p className="text-[10px] text-white/40 font-mono">{report.id}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-500">{report.reason}</span>
+                      <span className="text-white/20">•</span>
+                      <span className="text-[10px] text-white/40">{new Date(report.createdAt).toLocaleString('tr-TR')}</span>
+                    </div>
+                    <p className="text-sm text-white/60 line-clamp-2">{report.description || 'Açıklama yok.'}</p>
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    <button
+                      onClick={() => setSelectedReport(report)}
+                      className="flex-1 md:flex-none px-6 py-3 rounded-2xl bg-white/5 text-white font-bold text-xs hover:bg-white/10 transition-all border border-white/5"
+                    >
+                      Detaylar
+                    </button>
+                    <div className="flex items-center gap-1">
                       <button 
-                        onClick={async () => {
-                          try {
-                            const userDoc = await getDoc(doc(db, 'users', report.targetUserId));
-                            if (userDoc.exists()) {
-                              setViewingReportedUser({ uid: userDoc.id, ...userDoc.data() } as UserProfile);
-                            } else {
-                              toast.error("Kullanıcı bulunamadı.");
-                            }
-                          } catch (e) {
-                            toast.error("Kullanıcı verisi çekilemedi.");
-                          }
-                        }}
-                        className="px-4 py-2 rounded-xl bg-white/5 text-purple-200/60 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+                        onClick={() => adminService.updateReportStatus(report.id, 'resolved', 'Hızlı aksiyon ile çözüldü.')}
+                        className="p-3 rounded-2xl bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-black transition-all"
+                        title="Çözüldü"
                       >
-                        Profili İncele
+                        <CheckCircle2 className="w-5 h-5" />
                       </button>
                       <button 
-                        onClick={async () => {
-                          try {
-                            await updateDoc(doc(db, 'reports', report.id), { status: 'reviewing' });
-                            toast.success("Rapor inceleniyor olarak işaretlendi.");
-                          } catch (e) {
-                            toast.error("Hata oluştu.");
-                          }
-                        }}
-                        className="px-4 py-2 rounded-xl bg-amber-500/10 text-amber-500 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-500/20 transition-all"
+                        onClick={() => adminService.updateReportStatus(report.id, 'dismissed', 'Hızlı aksiyon ile reddedildi.')}
+                        className="p-3 rounded-2xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black transition-all"
+                        title="Reddet"
                       >
-                        İncelemeye Al
-                      </button>
-                      <button 
-                        onClick={async () => {
-                          try {
-                            await updateDoc(doc(db, 'reports', report.id), { status: 'closed' });
-                            toast.success("Rapor kapatıldı.");
-                          } catch (e) {
-                            toast.error("Hata oluştu.");
-                          }
-                        }}
-                        className="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
-                      >
-                        Kapat
-                      </button>
-                      <button 
-                        onClick={async () => {
-                          if (window.confirm("Kullanıcıyı sosyal modülden yasaklamak istediğinize emin misiniz?")) {
-                            try {
-                              await updateDoc(doc(db, 'users', report.targetUserId), { socialBan: true });
-                              await updateDoc(doc(db, 'reports', report.id), { status: 'closed', actionTaken: 'banned' });
-                              toast.success("Kullanıcı yasaklandı ve rapor kapatıldı.");
-                            } catch (e) {
-                              toast.error("Hata oluştu.");
-                            }
-                          }
-                        }}
-                        className="px-4 py-2 rounded-xl bg-red-500/10 text-red-500 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500/20 transition-all"
-                      >
-                        Yasakla & Kapat
+                        <Trash2 className="w-5 h-5" />
                       </button>
                     </div>
-                  </motion.div>
-                ))
-              )}
+                  </div>
+                </motion.div>
+              ))}
             </div>
           </div>
         )}
 
-        {activeTab === 'notifications' && (
-          <div className="max-w-xl mx-auto space-y-8 pt-10">
-            <div className="text-center space-y-2">
-              <div className="w-20 h-20 rounded-[2rem] bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 mx-auto mb-6">
-                <Bell className="w-10 h-10" />
-              </div>
-              <h2 className="text-3xl font-serif font-bold text-amber-50">Anlık Bildirim Gönder</h2>
-              <p className="text-purple-200/40">Tüm kullanıcılara anında mesaj gönderin.</p>
-            </div>
-
-            <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Bildirim Başlığı</label>
-                <input 
-                  type="text"
-                  value={notification.title}
-                  onChange={(e) => setNotification({ ...notification, title: e.target.value })}
-                  placeholder="Örn: Günlük Kehanetin Hazır!"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-purple-200/40 uppercase tracking-widest px-1">Mesaj İçeriği</label>
-                <textarea 
-                  value={notification.message}
-                  onChange={(e) => setNotification({ ...notification, message: e.target.value })}
-                  placeholder="Kullanıcılara iletmek istediğiniz mesaj..."
-                  className="w-full h-40 bg-black/40 border border-white/10 rounded-2xl p-6 text-amber-50 focus:outline-none focus:border-amber-500/50 resize-none"
-                />
-              </div>
-              <button 
-                onClick={handleSendNotification}
-                disabled={saving === 'notification'}
-                className="w-full py-5 rounded-2xl bg-amber-500 text-black font-bold flex items-center justify-center gap-3 hover:bg-amber-400 transition-all disabled:opacity-50"
+        {activeTab === 'economy' && economyConfig && (
+          <div className="space-y-8 max-w-5xl mx-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold tracking-tight">Ekonomi Yönetimi</h2>
+              <button
+                onClick={handleSaveSettings}
+                disabled={saving === 'settings'}
+                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all shadow-[0_0_30px_rgba(245,158,11,0.2)] disabled:opacity-50"
               >
-                {saving === 'notification' ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Zap className="w-6 h-6" />}
-                <span>Bildirimi Şimdi Gönder</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'horoscopes' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-2xl font-serif font-bold text-amber-50">Günlük Burç Yorumları</h2>
-                <p className="text-xs text-purple-200/40">Tarih: {new Date().toLocaleDateString('tr-TR')}</p>
-              </div>
-              <button 
-                onClick={handleGenerateAllHoroscopes}
-                disabled={saving === 'all_horoscopes'}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:from-purple-500 hover:to-indigo-500 transition-all disabled:opacity-50"
-              >
-                {saving === 'all_horoscopes' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                AI ile Tümünü Güncelle
+                {saving === 'settings' ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                <span>Ekonomi Ayarlarını Kaydet</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[
-                'Koç', 'Boğa', 'İkizler', 'Yengeç', 'Aslan', 'Başak', 
-                'Terazi', 'Akrep', 'Yay', 'Oğlak', 'Kova', 'Balık'
-              ].map(sign => {
-                const existing = horoscopes.find(h => h.sign === sign);
-                return (
-                  <div key={sign} className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-amber-50">{sign}</h3>
-                      <button 
-                        onClick={() => handleSaveHoroscope({ sign, content: existing?.content || '', date: new Date().toISOString() })}
-                        disabled={saving === sign}
-                        className="p-2 rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition-all disabled:opacity-50"
-                      >
-                        {saving === sign ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      </button>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Fortune Pricing */}
+              <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                    <Sparkles className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Fal Fiyatları</h3>
+                    <p className="text-sm text-white/40">Jeton bazlı fiyatlandırma</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {Object.entries(economyConfig.fortunePricing).map(([key, price]) => (
+                    <div key={key} className="space-y-2">
+                      <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1 capitalize">{key}</label>
+                      <input
+                        type="number"
+                        value={price}
+                        onChange={(e) => setEconomyConfig({
+                          ...economyConfig,
+                          fortunePricing: { ...economyConfig.fortunePricing, [key]: parseInt(e.target.value) || 0 }
+                        })}
+                        className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
+                      />
                     </div>
-                    <textarea 
-                      value={existing?.content || ''}
-                      onChange={(e) => setHoroscopes(prev => {
-                        const other = prev.filter(h => h.sign !== sign);
-                        return [...other, { sign, content: e.target.value, date: new Date().toISOString() }];
+                  ))}
+                </div>
+              </section>
+
+              {/* Reward Settings */}
+              <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-purple-500/10 text-purple-500">
+                    <Zap className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Ödül Sistemi</h3>
+                    <p className="text-sm text-white/40">Reklam ve giriş ödülleri</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Reklam Ödülü</label>
+                    <input
+                      type="number"
+                      value={economyConfig.rewards.adRewardEnergy}
+                      onChange={(e) => setEconomyConfig({
+                        ...economyConfig,
+                        rewards: { ...economyConfig.rewards, adRewardEnergy: parseInt(e.target.value) || 0 }
                       })}
-                      onBlur={() => handleSaveHoroscope({ sign, content: existing?.content || '', date: new Date().toISOString() })}
-                      placeholder={`${sign} burcu için günlük yorum...`}
-                      className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-purple-100 focus:outline-none focus:border-amber-500/50 resize-none"
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-purple-400 font-bold focus:outline-none focus:border-purple-500/50"
                     />
                   </div>
-                );
-              })}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Günlük Max Reklam</label>
+                    <input
+                      type="number"
+                      value={economyConfig.rewards.maxDailyAds}
+                      onChange={(e) => setEconomyConfig({
+                        ...economyConfig,
+                        rewards: { ...economyConfig.rewards, maxDailyAds: parseInt(e.target.value) || 0 }
+                      })}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-purple-400 font-bold focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-xs font-black text-white/20 uppercase tracking-widest">Özel Ödüller</h4>
+                    <button onClick={addCustomReward} className="p-2 rounded-lg bg-white/5 text-white/40 hover:text-white transition-all">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {economyConfig.rewards.customRewards.map((reward) => (
+                      <div key={reward.id} className="bg-black/40 border border-white/5 rounded-2xl p-3 flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={reward.name}
+                          onChange={(e) => {
+                            const newRewards = economyConfig.rewards.customRewards.map(r => r.id === reward.id ? { ...r, name: e.target.value } : r);
+                            setEconomyConfig({ ...economyConfig, rewards: { ...economyConfig.rewards, customRewards: newRewards } });
+                          }}
+                          className="flex-1 bg-transparent border-none text-xs font-bold focus:outline-none"
+                          placeholder="Ödül Adı"
+                        />
+                        <input
+                          type="number"
+                          value={reward.amount}
+                          onChange={(e) => {
+                            const newRewards = economyConfig.rewards.customRewards.map(r => r.id === reward.id ? { ...r, amount: parseInt(e.target.value) || 0 } : r);
+                            setEconomyConfig({ ...economyConfig, rewards: { ...economyConfig.rewards, customRewards: newRewards } });
+                          }}
+                          className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-right text-xs font-bold"
+                        />
+                        <button onClick={() => removeCustomReward(reward.id)} className="text-red-500/40 hover:text-red-500">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {/* Coin Packages */}
+            <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-blue-500/10 text-blue-500">
+                    <DollarSign className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Jeton Paketleri</h3>
+                    <p className="text-sm text-white/40">Satın alınabilir paketler</p>
+                  </div>
+                </div>
+                <button onClick={addCoinPackage} className="px-4 py-2 rounded-xl bg-white/5 text-white/60 hover:text-white transition-all flex items-center gap-2 text-xs font-bold">
+                  <Plus className="w-4 h-4" /> Paket Ekle
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {economyConfig.coinPackages.map((pkg) => (
+                  <div key={pkg.id} className="bg-black/40 border border-white/5 rounded-3xl p-6 space-y-4 relative group">
+                    <button 
+                      onClick={() => removeCoinPackage(pkg.id)}
+                      className="absolute top-4 right-4 p-2 rounded-lg bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <div className="space-y-3">
+                      <div className="flex flex-col">
+                        <label className="text-[8px] font-bold text-white/20 uppercase mb-1">Jeton Miktarı</label>
+                        <input
+                          type="number"
+                          value={pkg.coins}
+                          onChange={(e) => {
+                            const newPkgs = economyConfig.coinPackages.map(p => p.id === pkg.id ? { ...p, coins: parseInt(e.target.value) || 0 } : p);
+                            setEconomyConfig({ ...economyConfig, coinPackages: newPkgs });
+                          }}
+                          className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-amber-500 font-bold"
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        <label className="text-[8px] font-bold text-white/20 uppercase mb-1">Fiyat (TRY)</label>
+                        <input
+                          type="number"
+                          value={pkg.priceTRY}
+                          onChange={(e) => {
+                            const newPkgs = economyConfig.coinPackages.map(p => p.id === pkg.id ? { ...p, priceTRY: parseFloat(e.target.value) || 0 } : p);
+                            setEconomyConfig({ ...economyConfig, coinPackages: newPkgs });
+                          }}
+                          className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white font-bold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'socialMarket' && economyConfig && (
+          <div className="space-y-8 max-w-5xl mx-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold tracking-tight">Sosyal Market Yönetimi</h2>
+              <button
+                onClick={handleSaveSettings}
+                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
+              >
+                <Save className="w-5 h-5" />
+                <span>Market Ayarlarını Kaydet</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {(['superLike', 'refresh', 'compatibility'] as const).map((type) => (
+                <section key={type} className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-3 rounded-2xl ${
+                        type === 'superLike' ? 'bg-rose-500/10 text-rose-500' :
+                        type === 'refresh' ? 'bg-blue-500/10 text-blue-500' :
+                        'bg-purple-500/10 text-purple-500'
+                      }`}>
+                        {type === 'superLike' ? <Heart className="w-6 h-6" /> :
+                         type === 'refresh' ? <RefreshCw className="w-6 h-6" /> :
+                         <Zap className="w-6 h-6" />}
+                      </div>
+                      <h3 className="font-bold capitalize">{type === 'superLike' ? 'Süper Like' : type === 'refresh' ? 'Yenileme' : 'Uyum'}</h3>
+                    </div>
+                    <button onClick={() => addSocialPricing(type)} className="p-2 rounded-lg bg-white/5 text-white/40 hover:text-white">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {economyConfig.socialPricing[type].map((pkg) => (
+                      <div key={pkg.id} className="bg-black/40 border border-white/5 rounded-2xl p-4 flex items-center gap-3 group">
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Adet</label>
+                          <input
+                            type="number"
+                            value={pkg.count}
+                            onChange={(e) => {
+                              const newPkgs = economyConfig.socialPricing[type].map(p => p.id === pkg.id ? { ...p, count: parseInt(e.target.value) || 0 } : p);
+                              setEconomyConfig({ ...economyConfig, socialPricing: { ...economyConfig.socialPricing, [type]: newPkgs } });
+                            }}
+                            className="w-full bg-transparent border-none text-sm font-bold focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Jeton</label>
+                          <input
+                            type="number"
+                            value={pkg.priceCoins}
+                            onChange={(e) => {
+                              const newPkgs = economyConfig.socialPricing[type].map(p => p.id === pkg.id ? { ...p, priceCoins: parseInt(e.target.value) || 0 } : p);
+                              setEconomyConfig({ ...economyConfig, socialPricing: { ...economyConfig.socialPricing, [type]: newPkgs } });
+                            }}
+                            className="w-full bg-transparent border-none text-sm font-bold text-amber-500 focus:outline-none"
+                          />
+                        </div>
+                        <button onClick={() => removeSocialPricing(type, pkg.id)} className="text-red-500/40 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
           </div>
         )}
 
-        {activeTab === 'social' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex-1 mr-4">
-                <h2 className="text-2xl font-serif font-bold text-amber-50">LASYA Social Yönetimi</h2>
-                <p className="text-xs text-purple-200/40">Üyeler ve canlı sohbet odaları</p>
-              </div>
-              <div className="flex gap-4">
-                <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
-                  <span className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Üye</span>
-                  <span className="text-xl font-bold text-white">{socialUsers.length}</span>
-                </div>
-                <div className="bg-white/5 px-6 py-4 rounded-2xl border border-white/10 text-center">
-                  <span className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Oda</span>
-                  <span className="text-xl font-bold text-white">{socialRooms.length}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 mb-8">
-              <button 
-                onClick={() => setSocialSubTab('users')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'users' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
+        {activeTab === 'subscriptions' && economyConfig && (
+          <div className="space-y-8 max-w-5xl mx-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold tracking-tight">Abonelik Yönetimi</h2>
+              <button
+                onClick={handleSaveSettings}
+                className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
               >
-                Üyeler
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('rooms')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'rooms' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Odalar
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('withdrawals')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'withdrawals' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Çekim Talepleri
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('gifts')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'gifts' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Hediye Kayıtları
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('reports')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'reports' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Şikayetler
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('hosts')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'hosts' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Hostlar
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('packages')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'packages' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Paketler
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('transactions')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'transactions' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                İşlemler
-              </button>
-              <button 
-                onClick={() => setSocialSubTab('logs')}
-                className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all ${socialSubTab === 'logs' ? 'bg-amber-500 text-black' : 'bg-white/5 text-purple-200/40 hover:text-purple-200'}`}
-              >
-                Loglar
+                <Save className="w-5 h-5" />
+                <span>Abonelikleri Kaydet</span>
               </button>
             </div>
 
-            {socialSubTab === 'users' ? (
-              <>
-                <div className="relative mb-6">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
-                  <input 
-                    type="text"
-                    placeholder="Sosyal üye ara (Takma ad veya Bölge)..."
-                    value={socialSearchQuery}
-                    onChange={(e) => setSocialSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
-                  />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Fortune Subscriptions */}
+              <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                    <Crown className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Fal Abonelikleri</h3>
+                    <p className="text-sm text-white/40">Günlük, Haftalık, Aylık</p>
+                  </div>
                 </div>
 
-                {loading ? (
-                  <div className="flex flex-col items-center justify-center py-20">
-                    <RefreshCw className="w-10 h-10 text-purple-500 animate-spin mb-4" />
-                    <p className="text-purple-200/40 animate-pulse">Sosyal üyeler yükleniyor...</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredSocialUsers.map((s) => (
-                      <motion.div
-                        key={s.uid}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4 group relative"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-16 h-16 rounded-2xl bg-white/5 overflow-hidden flex items-center justify-center border border-white/5">
-                            {s.photoURL ? (
-                              <img src={s.photoURL} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <User className="w-8 h-8 text-purple-200/20" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-bold text-amber-50 truncate">{s.nickname}</h4>
-                            <p className="text-xs text-purple-200/40">{s.age} Yaş • {s.gender}</p>
-                            <div className="mt-2 space-y-1">
-                              <div className="flex items-center justify-between text-[8px] font-bold text-zinc-500 uppercase tracking-widest">
-                                <span>Profil Doluluğu</span>
-                                <span>{s.completeness || 0}%</span>
-                              </div>
-                              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                                <div className="h-full bg-amber-500" style={{ width: `${s.completeness || 0}%` }} />
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-zinc-500 mt-1 flex items-center gap-1">
-                              <MapPin className="w-3 h-3" /> {s.region}
-                            </p>
-                          </div>
-                          <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => setViewingHostingHistory(s)}
-                              className="p-2 rounded-lg bg-white/5 text-amber-500 hover:bg-amber-500 hover:text-black transition-all"
-                              title="Hosting Geçmişi"
-                            >
-                              <Zap className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => setEditingSocialSettings(s)}
-                              className="p-2 rounded-lg bg-white/5 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"
-                              title="Sosyal Ayarlar"
-                            >
-                              <Shield className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => setEditingSocialProfile(s)}
-                              className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:bg-amber-500 hover:text-black transition-all"
-                              title="Profili Düzenle"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteSocialProfile(s.uid)}
-                              className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:bg-red-500 hover:text-white transition-all"
-                              title="Profili Sil"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Hosting Status in Card */}
-                        <div className="px-4 py-3 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Zap className={`w-3 h-3 ${s.hosting?.activePackage ? 'text-amber-500' : 'text-zinc-600'}`} />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Host:</span>
-                            <span className={`text-[10px] font-bold ${s.hosting?.activePackage ? 'text-amber-500' : 'text-zinc-500'}`}>
-                              {s.hosting?.activePackage ? s.hosting.activePackage.type : 'Yok'}
-                            </span>
-                          </div>
-                          {s.hosting?.activePackage && (
-                            <span className="text-[8px] text-zinc-600 font-mono">
-                              Bitiş: {s.hosting?.activePackage?.expiresAt ? new Date(s.hosting.activePackage.expiresAt).toLocaleDateString('tr-TR') : 'Süresiz'}
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-lg ${s.socialPurpose === 'dating' ? 'bg-rose-500/10 text-rose-400' : s.socialPurpose === 'chat' ? 'bg-blue-500/10 text-blue-400' : s.socialPurpose === 'networking' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                              {s.socialPurpose === 'dating' ? <Heart className="w-4 h-4" /> : s.socialPurpose === 'chat' ? <MessageCircle className="w-4 h-4" /> : s.socialPurpose === 'networking' ? <Globe className="w-4 h-4" /> : <Users className="w-4 h-4" />}
-                            </div>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-purple-200/60">
-                              {s.socialPurpose === 'dating' ? 'Flört' : s.socialPurpose === 'chat' ? 'Sohbet' : s.socialPurpose === 'networking' ? 'Network' : 'Dostluk'}
-                            </span>
-                          </div>
-                          <span className="text-[8px] text-zinc-600 uppercase tracking-tighter">
-                            {s.createdAt ? new Date(s.createdAt).toLocaleDateString('tr-TR') : 'Tarih Yok'}
-                          </span>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : socialSubTab === 'rooms' ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {socialRooms.map((room) => (
-                    <motion.div
-                      key={room.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className={`bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4 group relative ${room.status === 'closed' ? 'opacity-50' : ''}`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-amber-50">{room.name}</h4>
-                          <p className="text-xs text-purple-200/40 line-clamp-1">{room.description}</p>
-                        </div>
-                        <div className={`px-2 py-1 rounded-lg text-[8px] font-bold uppercase tracking-widest ${room.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                          {room.status === 'active' ? 'Aktif' : 'Kapalı'}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                          <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Katılımcı</p>
-                          <p className="text-sm font-bold text-white">{room.memberCount} / {room.maxMembers}</p>
-                        </div>
-                        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                          <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Tür</p>
-                          <p className="text-sm font-bold text-white capitalize">{room.type}</p>
-                        </div>
-                      </div>
-
-                      <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                <div className="space-y-4">
+                  {Object.entries(economyConfig.fortuneSubscriptions).map(([key, sub]) => (
+                    <div key={key} className="bg-black/40 border border-white/5 rounded-3xl p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-black text-amber-500 uppercase tracking-widest">{key}</span>
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                            <User className="w-4 h-4 text-purple-200/40" />
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-[8px] text-zinc-500 uppercase tracking-widest">Host ID</span>
-                            <span className="text-[10px] font-mono text-purple-200/60 truncate w-24">{room.hostUid}</span>
-                          </div>
-                        </div>
-                        {room.status === 'active' && (
-                          <button 
-                            onClick={() => handleCloseRoom(room.id!)}
-                            className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                            title="Odayı Kapat"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            ) : socialSubTab === 'withdrawals' ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4">
-                  {withdrawalRequests.length === 0 ? (
-                    <div className="text-center py-20 text-purple-200/20 italic">Henüz çekim talebi bulunmuyor.</div>
-                  ) : (
-                    withdrawalRequests.map((req) => (
-                      <motion.div
-                        key={req.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500">
-                            <DollarSign className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-amber-50">{req.amount?.toLocaleString('tr-TR') || 0} Kredi</h4>
-                              <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest ${
-                                req.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                                req.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' :
-                                'bg-red-500/10 text-red-500'
-                              }`}>
-                                {req.status === 'pending' ? 'Beklemede' : req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
-                              </span>
-                            </div>
-                            <div className="mt-1 space-y-0.5">
-                              <p className="text-xs text-purple-200/60 font-medium">{req.userName || 'İsimsiz Kullanıcı'}</p>
-                              <p className="text-[10px] text-purple-200/40">{req.userEmail || 'E-posta Yok'}</p>
-                            </div>
-                            <div className="mt-2 p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-                              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Banka Bilgileri</p>
-                              <p className="text-xs text-purple-200/80 font-mono">{req.iban}</p>
-                              <p className="text-[10px] text-zinc-500">{req.accountHolder} • {req.bankName}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between md:justify-end gap-4 border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
-                          <div className="text-left md:text-right">
-                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Kullanıcı ID</p>
-                            <p className="text-[10px] font-mono text-purple-200/60">{req.uid}</p>
-                            <p className="text-[8px] text-zinc-600 mt-1">{req.createdAt ? new Date(req.createdAt).toLocaleString('tr-TR') : 'Tarih Yok'}</p>
-                          </div>
-                          {req.status === 'pending' && (
-                            <div className="flex items-center gap-2">
-                              <button 
-                                onClick={() => handleUpdateWithdrawalStatus(req.id, 'approved')}
-                                className="p-3 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 transition-all"
-                                title="Onayla"
-                              >
-                                <CheckCircle2 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleUpdateWithdrawalStatus(req.id, 'rejected')}
-                                className="p-3 rounded-xl bg-red-500 text-white hover:bg-red-400 transition-all"
-                                title="Reddet"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : socialSubTab === 'gifts' ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-3xl border border-white/10">
-                  <Search className="w-5 h-5 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Gönderen veya Alıcı ID ile ara..." 
-                    className="bg-transparent border-none focus:outline-none text-sm text-white flex-1"
-                    value={socialSearchQuery}
-                    onChange={(e) => setSocialSearchQuery(e.target.value)}
-                  />
-                </div>
-                <div className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-white/5 border-b border-white/10">
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Gönderen</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Alıcı</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Hediye</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Miktar</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tarih</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {socialGiftTransactions
-                        .filter(gift => 
-                          gift.senderUid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
-                          gift.receiverUid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) ||
-                          gift.giftName?.toLowerCase().includes(socialSearchQuery.toLowerCase())
-                        )
-                        .map((gift) => (
-                        <tr key={gift.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.senderUid}</td>
-                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{gift.receiverUid}</td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg">🎁</span>
-                              <span className="text-xs text-white font-bold">{gift.giftName}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-xs font-bold text-amber-500">{gift.amount?.toLocaleString('tr-TR') || 0}</td>
-                          <td className="px-6 py-4 text-[10px] text-zinc-600">{gift.timestamp ? new Date(gift.timestamp).toLocaleString('tr-TR') : 'Tarih Yok'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : socialSubTab === 'reports' ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4">
-                  {socialReports.length === 0 ? (
-                    <div className="text-center py-20 text-purple-200/20 italic">Henüz şikayet bulunmuyor.</div>
-                  ) : (
-                    socialReports.map((report) => (
-                      <motion.div
-                        key={report.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4 ${report.status !== 'pending' ? 'opacity-60' : ''}`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                              report.reason === 'sexual_content' || report.reason === 'harassment' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
-                            }`}>
-                              <Flag className="w-6 h-6" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-bold text-amber-50 capitalize">{report.reason.replace('_', ' ')}</h4>
-                                <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest ${
-                                  report.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                                  report.status === 'resolved' ? 'bg-emerald-500/10 text-emerald-500' :
-                                  'bg-white/10 text-white/40'
-                                }`}>
-                                  {report.status === 'pending' ? 'Beklemede' : report.status === 'resolved' ? 'Çözüldü' : 'Reddedildi'}
-                                </span>
-                              </div>
-                              <p className="text-xs text-purple-200/60 mt-1">{report.description || 'Açıklama yok'}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Tarih</p>
-                            <p className="text-xs text-purple-200/60">{report.timestamp ? new Date(report.timestamp).toLocaleString('tr-TR') : 'Tarih Yok'}</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-white/5 pt-4">
-                          <div className="space-y-2">
-                            <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Taraflar</p>
-                            <div className="flex items-center gap-4">
-                              <div className="flex flex-col">
-                                <span className="text-[10px] text-zinc-400">Şikayet Eden:</span>
-                                <span className="text-[10px] font-mono text-purple-200/60 truncate w-32">{report.fromUid}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-[10px] text-zinc-400">Şikayet Edilen:</span>
-                                <span className="text-[10px] font-mono text-purple-200/60 truncate w-32">{report.toUid}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Bağlam</p>
-                            <p className="text-[10px] text-purple-200/60">{report.context || 'Bilinmiyor'}</p>
-                          </div>
-                        </div>
-
-                        {report.status === 'pending' && (
-                          <div className="flex items-center gap-2 pt-2">
-                            <button 
-                              onClick={() => handleModerationAction(report.id, report.toUid, 'warn', 'Uyarı verildi')}
-                              className="flex-1 py-2 rounded-xl bg-white/5 text-amber-500 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-500 hover:text-black transition-all"
-                            >
-                              Uyar
-                            </button>
-                            <button 
-                              onClick={() => handleModerationAction(report.id, report.toUid, 'mute', '24 saat susturuldu')}
-                              className="flex-1 py-2 rounded-xl bg-white/5 text-orange-500 text-[10px] font-bold uppercase tracking-widest hover:bg-orange-500 hover:text-black transition-all"
-                            >
-                              Sustur (24s)
-                            </button>
-                            <button 
-                              onClick={() => handleModerationAction(report.id, report.toUid, 'ban', 'Kalıcı olarak yasaklandı')}
-                              className="flex-1 py-2 rounded-xl bg-white/5 text-red-500 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                            >
-                              Yasakla
-                            </button>
-                            <button 
-                              onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
-                              className="px-4 py-2 rounded-xl bg-white/5 text-white/40 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
-                            >
-                              Reddet
-                            </button>
-                            <button 
-                              onClick={() => {
-                                const profile = socialUsers.find(u => u.uid === report.toUid);
-                                if (profile) setEditingSocialProfile(profile);
-                                else toast.error("Profil bulunamadı.");
-                              }}
-                              className="px-4 py-2 rounded-xl bg-white/5 text-indigo-500 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500 hover:text-white transition-all"
-                            >
-                              Profili Gör
-                            </button>
-                          </div>
-                        )}
-
-                        {report.actionTaken && (
-                          <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
-                            <p className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest">Alınan Aksiyon</p>
-                            <p className="text-xs text-emerald-200/60">{report.actionTaken} - {report.adminNotes}</p>
-                          </div>
-                        )}
-                      </motion.div>
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : socialSubTab === 'hosts' ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {socialUsers.filter(u => u.hosting?.activePackage).map((s) => (
-                    <motion.div
-                      key={s.uid}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden">
-                          {s.photoURL ? <img src={s.photoURL} alt="" className="w-full h-full object-cover" /> : <User className="w-6 h-6 m-3 text-purple-200/20" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-amber-50 truncate">{s.nickname}</h4>
-                          <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">{s.hosting?.activePackage?.type}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="p-2 rounded-xl bg-white/5 border border-white/5">
-                          <p className="text-[8px] text-zinc-500 uppercase font-bold">Bitiş</p>
-                          <p className="text-[10px] text-white">{s.hosting?.activePackage?.expiresAt ? new Date(s.hosting.activePackage.expiresAt).toLocaleDateString('tr-TR') : 'Süresiz'}</p>
-                        </div>
-                        <div className="p-2 rounded-xl bg-white/5 border border-white/5">
-                          <p className="text-[8px] text-zinc-500 uppercase font-bold">Donate</p>
-                          <p className="text-[10px] text-white">{s.hosting?.donateEnabled ? 'Açık' : 'Kapalı'}</p>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setViewingHostingHistory(s)}
-                        className="w-full py-2 rounded-xl bg-white/5 text-amber-500 text-[10px] font-bold uppercase tracking-widest hover:bg-amber-500 hover:text-black transition-all"
-                      >
-                        Geçmişi Gör
-                      </button>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            ) : socialSubTab === 'packages' ? (
-              <div className="space-y-4">
-                <div className="flex justify-end">
-                  <button 
-                    onClick={() => setEditingPackage({ id: '', name: '', description: '', price: 0, duration: 'monthly', features: [], isActive: true })}
-                    className="px-4 py-2 rounded-xl bg-amber-500 text-black text-xs font-bold flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" /> Yeni Paket
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {hostingPackages.map((pkg) => (
-                    <motion.div
-                      key={pkg.id}
-                      className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-amber-50">{pkg.name}</h4>
-                          <p className="text-xl font-bold text-amber-500">{pkg.price} ₺</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => setEditingPackage(pkg)} className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:text-amber-500"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => handleDeletePackage(pkg.id)} className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        {pkg.features?.map((f: string) => (
-                          <div key={`${pkg.id}-${f}`} className="flex items-center gap-2 text-[10px] text-purple-200/60">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" /> {f}
-                          </div>
-                        ))}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            ) : socialSubTab === 'transactions' ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-3xl border border-white/10">
-                  <Search className="w-5 h-5 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Kullanıcı ID veya açıklama ile ara..." 
-                    className="bg-transparent border-none focus:outline-none text-sm text-white flex-1"
-                    value={socialSearchQuery}
-                    onChange={(e) => setSocialSearchQuery(e.target.value)}
-                  />
-                </div>
-                <div className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-white/5 border-b border-white/10">
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Kullanıcı</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tür</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Miktar</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Açıklama</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tarih</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">İşlem</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {socialTransactions
-                        .filter(tx => 
-                          tx.uid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
-                          tx.description?.toLowerCase().includes(socialSearchQuery.toLowerCase())
-                        )
-                        .map((tx) => (
-                        <tr key={tx.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4 text-[10px] font-mono text-purple-200/60">{tx.uid}</td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest ${
-                              ['gift_received', 'room_earning', 'top_up'].includes(tx.type) ? 'bg-emerald-500/10 text-emerald-500' :
-                              ['gift_sent', 'withdrawal', 'host_package_purchase'].includes(tx.type) ? 'bg-red-500/10 text-red-500' :
-                              'bg-amber-500/10 text-amber-500'
-                            }`}>
-                              {['gift_received', 'room_earning', 'top_up'].includes(tx.type) ? 'Kazanç' : 'Harcama'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-xs font-bold text-white">{tx.amount?.toLocaleString('tr-TR') || 0}</td>
-                          <td className="px-6 py-4 text-xs text-purple-200/60">{tx.description}</td>
-                          <td className="px-6 py-4 text-[10px] text-zinc-600">{tx.timestamp ? new Date(tx.timestamp).toLocaleString('tr-TR') : 'Tarih Yok'}</td>
-                          <td className="px-6 py-4">
-                            <button 
-                              onClick={() => {
-                                const profile = socialUsers.find(u => u.uid === tx.uid);
-                                if (profile) setEditingSocialProfile(profile);
-                                else toast.error("Profil bulunamadı.");
-                              }}
-                              className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:text-amber-500 transition-all"
-                            >
-                              <User className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : socialSubTab === 'logs' ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-3xl border border-white/10">
-                  <Search className="w-5 h-5 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Kullanıcı ID veya sebep ile ara..." 
-                    className="bg-transparent border-none focus:outline-none text-sm text-white flex-1"
-                    value={socialSearchQuery}
-                    onChange={(e) => setSocialSearchQuery(e.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-4">
-                  {moderationLogs.length === 0 ? (
-                    <div className="text-center py-20 text-purple-200/20 italic">Henüz moderasyon kaydı bulunmuyor.</div>
-                  ) : (
-                    moderationLogs
-                      .filter(log => 
-                        log.targetUid?.toLowerCase().includes(socialSearchQuery.toLowerCase()) || 
-                        log.reason?.toLowerCase().includes(socialSearchQuery.toLowerCase())
-                      )
-                      .map((log) => (
-                      <motion.div
-                        key={log.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white/5 border border-white/10 rounded-3xl p-6 flex items-center justify-between gap-6"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                            log.action === 'ban' ? 'bg-red-500/10 text-red-500' : 
-                            log.action === 'mute' ? 'bg-orange-500/10 text-orange-500' : 
-                            'bg-amber-500/10 text-amber-500'
-                          }`}>
-                            <Gavel className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-amber-50 uppercase tracking-widest text-xs">{log.action}</h4>
-                              <span className="text-[10px] text-purple-200/40">{log.timestamp ? new Date(log.timestamp).toLocaleString('tr-TR') : 'Tarih Yok'}</span>
-                            </div>
-                            <p className="text-xs text-purple-200/60 mt-1">{log.reason}</p>
-                            <p className="text-[10px] text-zinc-500 mt-1">Admin: {log.adminEmail}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Hedef Kullanıcı</p>
-                            <p className="text-[10px] font-mono text-purple-200/60 truncate w-32">{log.targetUid}</p>
-                          </div>
-                          <button 
-                            onClick={() => {
-                              const profile = socialUsers.find(u => u.uid === log.targetUid);
-                              if (profile) setEditingSocialProfile(profile);
-                              else toast.error("Profil bulunamadı.");
+                          <span className="text-[10px] text-white/20 uppercase font-bold">Fiyat (TRY)</span>
+                          <input
+                            type="number"
+                            value={sub.priceTRY}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.fortuneSubscriptions };
+                              (newSubs as any)[key].priceTRY = parseFloat(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, fortuneSubscriptions: newSubs });
                             }}
-                            className="p-3 rounded-xl bg-white/5 text-purple-200/40 hover:text-amber-500 transition-all"
-                          >
-                            <User className="w-5 h-5" />
-                          </button>
+                            className="w-24 bg-white/5 border border-white/10 rounded-xl px-3 py-1 text-right text-sm font-bold"
+                          />
                         </div>
-                      </motion.div>
-                    ))
-                  )}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Günlük Hak</label>
+                          <input
+                            type="number"
+                            value={sub.dailyLimit}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.fortuneSubscriptions };
+                              (newSubs as any)[key].dailyLimit = parseInt(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, fortuneSubscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold"
+                          />
+                        </div>
+                        <div className="flex-[2] space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Açıklama</label>
+                          <input
+                            type="text"
+                            value={sub.description}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.fortuneSubscriptions };
+                              (newSubs as any)[key].description = e.target.value;
+                              setEconomyConfig({ ...economyConfig, fortuneSubscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ) : null}
+              </section>
+
+              {/* Social Subscriptions */}
+              <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-indigo-500/10 text-indigo-500">
+                    <Heart className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Sosyal Abonelikler</h3>
+                    <p className="text-sm text-white/40">Haftalık ve Aylık</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {Object.entries(economyConfig.socialSubscriptions).map(([key, sub]) => (
+                    <div key={key} className="bg-black/40 border border-white/5 rounded-3xl p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">{key}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-white/20 uppercase font-bold">Fiyat (TRY)</span>
+                          <input
+                            type="number"
+                            value={sub.priceTRY}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.socialSubscriptions };
+                              (newSubs as any)[key].priceTRY = parseFloat(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                            }}
+                            className="w-24 bg-white/5 border border-white/10 rounded-xl px-3 py-1 text-right text-sm font-bold"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">S.Like</label>
+                          <input
+                            type="number"
+                            value={sub.dailyLimits.superLikes}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.socialSubscriptions };
+                              (newSubs as any)[key].dailyLimits.superLikes = parseInt(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Yenile</label>
+                          <input
+                            type="number"
+                            value={sub.dailyLimits.refreshes}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.socialSubscriptions };
+                              (newSubs as any)[key].dailyLimits.refreshes = parseInt(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Uyum</label>
+                          <input
+                            type="number"
+                            value={sub.dailyLimits.compatibility}
+                            onChange={(e) => {
+                              const newSubs = { ...economyConfig.socialSubscriptions };
+                              (newSubs as any)[key].dailyLimits.compatibility = parseInt(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
         )}
       </main>
 
-      {/* Edit Social Profile Modal */}
+      {/* User Detail Modal */}
       <AnimatePresence>
-        {editingSocialProfile && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
-          >
+        {selectedUser && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8">
             <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-md bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedUser(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-5xl bg-[#121212] border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold text-amber-50">Sosyal Profili Düzenle</h2>
-                  <button onClick={() => setEditingSocialProfile(null)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
-                    <X className="w-5 h-5" />
-                  </button>
+              {/* Modal Header */}
+              <div className="flex-shrink-0 p-8 border-b border-white/5 flex items-center justify-between bg-gradient-to-b from-white/5 to-transparent">
+                <div className="flex items-center gap-6">
+                  <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 overflow-hidden">
+                    {selectedUser.photoURL ? (
+                      <img src={selectedUser.photoURL} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-10 h-10 text-white/20 m-auto mt-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{selectedUser.displayName || 'İsimsiz'}</h2>
+                    <p className="text-white/40 font-mono text-sm">{selectedUser.uid}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                        selectedUser.isBanned ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500'
+                      }`}>
+                        {selectedUser.isBanned ? 'Yasaklı' : 'Aktif'}
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-white/5 text-white/40 text-[10px] font-black uppercase tracking-widest">
+                        {selectedUser.role || 'user'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
-                  <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
-                    <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden flex items-center justify-center">
-                      {editingSocialProfile.photoURL ? (
-                        <img src={editingSocialProfile.photoURL} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <User className="w-6 h-6 text-purple-200/20" />
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-amber-50">{editingSocialProfile.nickname}</h4>
-                      <p className="text-xs text-purple-200/40">{editingSocialProfile.age} Yaş • {editingSocialProfile.gender}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Takma Ad</label>
-                    <input 
-                      type="text"
-                      value={editingSocialProfile.nickname}
-                      onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, nickname: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yaş</label>
-                      <input 
-                        type="number"
-                        value={editingSocialProfile.age}
-                        onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, age: parseInt(e.target.value) || 0 })}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Çekilebilir Bakiye</label>
-                      <input 
-                        type="number"
-                        value={editingSocialProfile.withdrawableBalance || 0}
-                        onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, withdrawableBalance: parseInt(e.target.value) || 0 })}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Cinsiyet</label>
-                    <select 
-                      value={editingSocialProfile.gender}
-                      onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, gender: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 appearance-none"
-                    >
-                      <option value="Kadın">Kadın</option>
-                      <option value="Erkek">Erkek</option>
-                      <option value="Diğer">Diğer</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Hosting Bitiş (Ücretsiz Deneme)</label>
-                    <input 
-                      type="datetime-local"
-                      value={editingSocialProfile.hosting?.freeTrialUntil ? new Date(editingSocialProfile.hosting.freeTrialUntil).toISOString().slice(0, 16) : ''}
-                      onChange={(e) => setEditingSocialProfile({ 
-                        ...editingSocialProfile, 
-                        hosting: { 
-                          ...editingSocialProfile.hosting!, 
-                          freeTrialUntil: new Date(e.target.value).toISOString() 
-                        } 
-                      })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Bölge</label>
-                    <input 
-                      type="text"
-                      value={editingSocialProfile.region}
-                      onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, region: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Senin Vibe'ın</label>
-                    <select 
-                      value={editingSocialProfile.vibe}
-                      onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, vibe: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 appearance-none"
-                    >
-                      <option value="chill">Sakin & Chill</option>
-                      <option value="energetic">Enerjik & Sosyal</option>
-                      <option value="intellectual">Entelektüel</option>
-                      <option value="mystical">Mistik & Derin</option>
-                      <option value="fun">Eğlenceli</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Sosyal Amaç</label>
-                    <select 
-                      value={editingSocialProfile.socialPurpose}
-                      onChange={(e) => setEditingSocialProfile({ ...editingSocialProfile, socialPurpose: e.target.value as any })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 appearance-none"
-                    >
-                      <option value="friendship">Yeni Dostluklar</option>
-                      <option value="chat">Sadece Sohbet</option>
-                      <option value="networking">Network & Tanışma</option>
-                      <option value="dating">Flört & İlişki</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10">
-                    <div className="flex items-center gap-3">
-                      <Shield className="w-5 h-5 text-indigo-500" />
-                      <div className="flex flex-col">
-                        <span className="font-bold text-indigo-500">Sosyal Ayarlar</span>
-                        <span className="text-[8px] text-indigo-500/60 uppercase tracking-widest">Gizlilik ve bildirim tercihleri</span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setEditingSocialSettings(editingSocialProfile);
-                        setEditingSocialProfile(null);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-400 transition-all"
-                    >
-                      Yönet
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-red-500/5 border border-red-500/10">
-                    <div className="flex items-center gap-3">
-                      <Ban className="w-5 h-5 text-red-500" />
-                      <div className="flex flex-col">
-                        <span className="font-bold text-red-500">Kullanıcıyı Yasakla</span>
-                        <span className="text-[8px] text-red-500/60 uppercase tracking-widest">Tüm sisteme girişi engeller</span>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        const user = users.find(u => u.uid === editingSocialProfile.uid);
-                        if (user) {
-                          handleUpdateUser(user.uid, { isBanned: !user.isBanned });
-                        } else {
-                          // If user not in current list, fetch and update
-                          try {
-                            const userDoc = await getDoc(doc(db, 'users', editingSocialProfile.uid));
-                            if (userDoc.exists()) {
-                              await updateDoc(doc(db, 'users', editingSocialProfile.uid), { isBanned: !userDoc.data().isBanned });
-                              toast.success("Kullanıcı yasak durumu güncellendi.");
-                            }
-                          } catch (e) {
-                            toast.error("Kullanıcı bulunamadı.");
-                          }
-                        }
-                      }}
-                      className={`w-12 h-6 rounded-full transition-all relative ${users.find(u => u.uid === editingSocialProfile.uid)?.isBanned ? 'bg-red-500' : 'bg-white/10'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: users.find(u => u.uid === editingSocialProfile.uid)?.isBanned ? 26 : 2 }}
-                        className="absolute top-1 left-1 w-4 h-4 rounded-full bg-white"
-                      />
-                    </button>
-                  </div>
-
+                <div className="flex items-center gap-4">
+                  <nav className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 overflow-x-auto">
+                    {[
+                      { id: 'info', icon: ShieldCheck, label: 'Bilgiler' },
+                      { id: 'wallet', icon: CreditCard, label: 'Cüzdan' },
+                      { id: 'subscriptions', icon: Crown, label: 'Abonelik' },
+                      { id: 'social', icon: Heart, label: 'Sosyal' },
+                      { id: 'moderation', icon: Gavel, label: 'Moderasyon' },
+                      { id: 'messages', icon: MessageSquare, label: 'Mesajlar' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          setUserModalTab(tab.id as any);
+                          if (tab.id === 'messages') fetchUserChats(selectedUser.uid);
+                        }}
+                        className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                          userModalTab === tab.id 
+                            ? 'bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.3)]' 
+                            : 'text-white/40 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <tab.icon className="w-3.5 h-3.5" />
+                        <span>{tab.label}</span>
+                      </button>
+                    ))}
+                  </nav>
                   <button
                     onClick={() => {
-                      const { uid, ...updates } = editingSocialProfile;
-                      handleUpdateSocialProfile(uid, updates);
+                      setSelectedUser(null);
+                      setUserModalTab('info');
+                      setSelectedChat(null);
                     }}
-                    className="w-full py-4 rounded-2xl bg-amber-500 text-black font-bold flex items-center justify-center gap-2 hover:bg-amber-400 transition-all"
+                    className="p-3 rounded-2xl bg-white/5 text-white/40 hover:text-white transition-all"
                   >
-                    <Save className="w-5 h-5" />
-                    <span>Profili Kaydet</span>
+                    <X className="w-6 h-6" />
                   </button>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
-      {/* Edit Hosting Package Modal */}
-      <AnimatePresence>
-        {editingPackage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-md bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold text-amber-50">Paket Düzenle</h2>
-                  <button onClick={() => setEditingPackage(null)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+              {/* Modal Content */}
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                {userModalTab === 'info' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                          <User className="w-4 h-4 text-amber-500" />
+                          Temel Bilgiler
+                        </h3>
+                        <div className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">E-posta:</span>
+                            <span className="text-white font-mono">{selectedUser.email}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Kayıt Tarihi:</span>
+                            <span className="text-white">{selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Son Giriş:</span>
+                            <span className="text-white">{selectedUser.lastLoginAt ? new Date(selectedUser.lastLoginAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
+                          </div>
+                        </div>
+                      </div>
 
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Paket Adı</label>
-                    <input 
-                      type="text"
-                      value={editingPackage.name}
-                      onChange={(e) => setEditingPackage({ ...editingPackage, name: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      placeholder="Örn: Premium Host"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Fiyat (₺)</label>
-                      <input 
-                        type="number"
-                        value={editingPackage.price}
-                        onChange={(e) => setEditingPackage({ ...editingPackage, price: parseInt(e.target.value) || 0 })}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Süre</label>
-                      <select 
-                        value={editingPackage.duration}
-                        onChange={(e) => setEditingPackage({ ...editingPackage, duration: e.target.value as 'daily' | 'weekly' | 'monthly' })}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('admin_preview_user_id', selectedUser.uid);
+                          window.location.href = '/';
+                        }}
+                        className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all flex items-center justify-center gap-3"
                       >
-                        <option value="daily">Günlük</option>
-                        <option value="weekly">Haftalık</option>
-                        <option value="monthly">Aylık</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Özellikler (Satır satır)</label>
-                    <textarea 
-                      value={editingPackage.features?.join('\n')}
-                      onChange={(e) => setEditingPackage({ ...editingPackage, features: e.target.value.split('\n').filter(f => f.trim()) })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 h-32 resize-none"
-                      placeholder="Örn: Sınırsız Oda&#10;Öncelikli Listeleme"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => handleSavePackage(editingPackage)}
-                    className="w-full py-4 rounded-2xl bg-amber-500 text-black font-bold flex items-center justify-center gap-2 hover:bg-amber-400 transition-all"
-                  >
-                    <Save className="w-5 h-5" />
-                    <span>Paketi Kaydet</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Viewing Hosting History Modal */}
-      <AnimatePresence>
-        {viewingHostingHistory && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-2xl bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <h2 className="text-2xl font-serif font-bold text-amber-50">Hosting Geçmişi</h2>
-                    <p className="text-xs text-purple-200/40">{viewingHostingHistory.nickname} için kayıtlar</p>
-                  </div>
-                  <button onClick={() => setViewingHostingHistory(null)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-                  {/* Current Status */}
-                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
-                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Aktif Durum</p>
-                    {viewingHostingHistory.hosting?.activePackage ? (
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-white capitalize">{viewingHostingHistory.hosting.activePackage.type} Paket</span>
-                        <span className="text-xs text-amber-200/60">Bitiş: {viewingHostingHistory.hosting?.activePackage?.expiresAt ? new Date(viewingHostingHistory.hosting.activePackage.expiresAt).toLocaleDateString('tr-TR') : 'Süresiz'}</span>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-white/40 italic">Aktif paket bulunmuyor.</p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4">
-                    {viewingHostingHistory.hosting?.packageHistory?.length === 0 ? (
-                      <div className="text-center py-10 text-purple-200/20 italic">Henüz paket geçmişi bulunmuyor.</div>
-                    ) : (
-                      viewingHostingHistory.hosting?.packageHistory?.map((h: any, i: number) => (
-                        <div key={h.purchasedAt || `pkg-hist-${i}`} className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
-                          <div>
-                            <p className="font-bold text-amber-50 uppercase tracking-widest text-xs">{h.type}</p>
-                            <p className="text-[10px] text-purple-200/40">Başlangıç: {h.purchasedAt ? new Date(h.purchasedAt).toLocaleDateString('tr-TR') : 'Tarih Yok'}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-bold text-amber-500">{h.price} ₺</p>
-                            <p className="text-[10px] text-zinc-500">Bitiş: {h.expiresAt ? new Date(h.expiresAt).toLocaleDateString('tr-TR') : 'Süresiz'}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="pt-6 border-t border-white/10">
-                    <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-4">Oda Geçmişi</h3>
-                    <div className="grid grid-cols-1 gap-4">
-                      {socialRooms.filter(r => r.hostUid === viewingHostingHistory.uid).length === 0 ? (
-                        <div className="text-center py-10 text-purple-200/20 italic">Henüz oda geçmişi bulunmuyor.</div>
-                      ) : (
-                        socialRooms.filter(r => r.hostUid === viewingHostingHistory.uid).map((r) => (
-                          <div key={r.id} className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
-                            <div>
-                              <p className="font-bold text-amber-50 text-xs">{r.name}</p>
-                              <p className="text-[10px] text-purple-200/40">{r.type}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className={`text-[8px] font-bold uppercase tracking-widest ${r.status === 'active' ? 'text-emerald-500' : 'text-zinc-500'}`}>
-                                {r.status === 'active' ? 'Aktif' : 'Kapalı'}
-                              </p>
-                              <p className="text-[10px] text-zinc-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString('tr-TR') : 'Tarih Yok'}</p>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Social Settings Modal */}
-      {editingSocialSettings && (
-        <SocialSettingsModal
-          isOpen={!!editingSocialSettings}
-          onClose={() => setEditingSocialSettings(null)}
-          user={editingSocialSettings}
-          onUpdate={(updatedUser) => {
-            setSocialUsers(prev => prev.map(u => u.uid === updatedUser.uid ? updatedUser : u));
-            setEditingSocialSettings(updatedUser);
-            toast.success("Sosyal ayarlar güncellendi.");
-          }}
-        />
-      )}
-
-      {/* Edit User Modal */}
-      <AnimatePresence>
-        {editingUser && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-md bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden"
-            >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold text-amber-50">Kullanıcıyı Düzenle</h2>
-                  <button onClick={() => setEditingUser(null)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
-                  <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
-                    <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden flex items-center justify-center">
-                      {editingUser.photoURL ? (
-                        <img src={editingUser.photoURL} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <Users className="w-6 h-6 text-purple-200/20" />
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-amber-50">{editingUser.displayName}</h4>
-                      <p className="text-xs text-purple-200/40">{editingUser.email}</p>
-                    </div>
-                  </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Ana Jeton</label>
-                        <input 
-                          type="number"
-                          value={editingUser.mainCoins || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, mainCoins: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Enerji</label>
-                        <input 
-                          type="number"
-                          value={editingUser.energy || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, energy: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Super Like</label>
-                        <input 
-                          type="number"
-                          value={editingUser.superLikes || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, superLikes: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yenileme</label>
-                        <input 
-                          type="number"
-                          value={editingUser.refreshCount || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, refreshCount: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Uyum Analizi</label>
-                        <input 
-                          type="number"
-                          value={editingUser.compatibilityCount || 0}
-                          onChange={(e) => setEditingUser({ ...editingUser, compatibilityCount: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
-                      <h5 className="text-xs font-bold text-amber-400 uppercase tracking-widest">Günlük Reklamlı Fal Limitleri</h5>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Kahve (Kullanılan)</label>
-                          <input 
-                            type="number"
-                            value={editingUser.dailyAdReadingsUsed?.coffee || 0}
-                            onChange={(e) => setEditingUser({ 
-                              ...editingUser, 
-                              dailyAdReadingsUsed: { 
-                                coffee: parseInt(e.target.value) || 0,
-                                tarot: editingUser.dailyAdReadingsUsed?.tarot || 0,
-                                lastResetDate: editingUser.dailyAdReadingsUsed?.lastResetDate || new Date().toISOString()
-                              } 
-                            })}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Tarot (Kullanılan)</label>
-                          <input 
-                            type="number"
-                            value={editingUser.dailyAdReadingsUsed?.tarot || 0}
-                            onChange={(e) => setEditingUser({ 
-                              ...editingUser, 
-                              dailyAdReadingsUsed: { 
-                                coffee: editingUser.dailyAdReadingsUsed?.coffee || 0,
-                                tarot: parseInt(e.target.value) || 0,
-                                lastResetDate: editingUser.dailyAdReadingsUsed?.lastResetDate || new Date().toISOString()
-                              } 
-                            })}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                          />
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setEditingUser({
-                          ...editingUser,
-                          dailyAdReadingsUsed: { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() }
-                        })}
-                        className="w-full py-2 rounded-xl bg-white/5 text-[10px] font-bold text-purple-200/60 hover:bg-white/10 transition-all uppercase tracking-widest"
-                      >
-                        Limitleri Sıfırla
+                        <Eye className="w-5 h-5 text-amber-500" />
+                        <span>Kullanıcı Gözüyle Gör (Preview)</span>
                       </button>
                     </div>
 
-
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Abonelik Tipi</label>
-                    <select 
-                      value={editingUser.subscription?.type || 'none'}
-                      onChange={(e) => setEditingUser({ 
-                        ...editingUser, 
-                        subscription: { 
-                          ...editingUser.subscription, 
-                          type: e.target.value as any,
-                          status: e.target.value === 'none' ? 'none' : 'active',
-                          expiresAt: e.target.value === 'none' ? undefined : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-                        } 
-                      })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 appearance-none"
-                    >
-                      <option value="none">Yok</option>
-                      <option value="daily">Günlük</option>
-                      <option value="weekly">Haftalık</option>
-                      <option value="monthly">Aylık</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yetki Rolü</label>
-                    <select 
-                      value={editingUser.role || 'user'}
-                      onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 appearance-none"
-                    >
-                      <option value="user">Kullanıcı</option>
-                      <option value="admin">Yönetici</option>
-                      <option value="social_operator">Sosyal Operatör</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-red-500/5 border border-red-500/10">
-                    <div className="flex items-center gap-3">
-                      <Ban className="w-5 h-5 text-red-500" />
-                      <span className="font-bold text-red-500">Kullanıcıyı Yasakla</span>
-                    </div>
-                    <button 
-                      onClick={() => setEditingUser({ ...editingUser, isBanned: !editingUser.isBanned })}
-                      className={`w-12 h-6 rounded-full transition-all relative ${editingUser.isBanned ? 'bg-red-500' : 'bg-white/10'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: editingUser.isBanned ? 26 : 2 }}
-                        className="absolute top-1 left-1 w-4 h-4 rounded-full bg-white"
-                      />
-                    </button>
-                  </div>
-
-                  {/* Social Profile Info Section */}
-                  <div className="pt-6 border-t border-white/10 space-y-6">
-                    <div className="flex items-center gap-2">
-                      <Heart className="w-5 h-5 text-pink-500" />
-                      <h3 className="text-lg font-serif font-bold text-amber-50">Sosyal Profil Bilgileri</h3>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
-                        <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Sosyal Durum</span>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${editingUser.social?.enabled ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                          <span className="text-sm text-amber-50">{editingUser.social?.enabled ? 'Aktif' : 'Pasif'}</span>
-                        </div>
-                      </div>
-                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-1">
-                        <span className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest">Görünürlük</span>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${editingUser.social?.visible ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                          <span className="text-sm text-amber-50">{editingUser.social?.visible ? 'Görünür' : 'Gizli'}</span>
+                    <div className="space-y-6">
+                      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                          <Shield className="w-4 h-4 text-amber-500" />
+                          Sistem Durumu
+                        </h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
+                            <span className="text-[10px] text-white/20 uppercase font-bold block mb-1">Rol</span>
+                            <span className="text-sm font-black text-amber-500 uppercase">{selectedUser.role || 'user'}</span>
+                          </div>
+                          <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
+                            <span className="text-[10px] text-white/20 uppercase font-bold block mb-1">Durum</span>
+                            <span className={`text-sm font-black uppercase ${selectedUser.isBanned ? 'text-red-500' : 'text-green-500'}`}>
+                              {selectedUser.isBanned ? 'Yasaklı' : 'Aktif'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
 
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Nickname</label>
-                          <input 
-                            type="text"
-                            value={editingUser.nickname || ''}
-                            onChange={(e) => setEditingUser({ ...editingUser, nickname: e.target.value })}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                          />
+                {userModalTab === 'wallet' && (
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {[
+                        { label: 'Ana Jeton', field: 'mainCoins', color: 'text-amber-500', icon: CreditCard },
+                        { label: 'Enerji', field: 'energy', color: 'text-purple-400', icon: Zap },
+                        { label: 'Süper Like', field: 'superLikes', color: 'text-rose-500', icon: Heart },
+                        { label: 'Yenileme', field: 'refreshCount', color: 'text-blue-400', icon: RefreshCw },
+                        { label: 'Uyum Analizi', field: 'compatibilityCount', color: 'text-green-400', icon: Search }
+                      ].map(item => (
+                        <div key={item.field} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-xl bg-white/5 ${item.color}`}>
+                                <item.icon className="w-5 h-5" />
+                              </div>
+                              <span className="text-xs font-bold text-white/60 uppercase">{item.label}</span>
+                            </div>
+                            <span className={`text-2xl font-black ${item.color}`}>{(selectedUser as any)[item.field] || 0}</span>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              placeholder="Miktar"
+                              className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:border-amber-500/50"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const val = parseInt((e.target as HTMLInputElement).value);
+                                  if (!isNaN(val)) adminService.adminSetWallet(selectedUser.uid, { [item.field]: val });
+                                }
+                              }}
+                            />
+                            <div className="flex gap-1">
+                              <button 
+                                onClick={() => adminService.adminAdjustWallet(selectedUser.uid, item.field, 10)}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all"
+                              >
+                                <Plus className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => adminService.adminAdjustWallet(selectedUser.uid, item.field, -10)}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all"
+                              >
+                                <Minus className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Yaş</label>
-                          <input 
-                            type="number"
-                            value={editingUser.age || 0}
-                            onChange={(e) => setEditingUser({ ...editingUser, age: parseInt(e.target.value) || 0 })}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50"
-                          />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {userModalTab === 'subscriptions' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Fortune Subscription */}
+                    <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                      <div className="flex items-center gap-4">
+                        <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                          <Crown className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">Fal Aboneliği</h3>
+                          <p className="text-sm text-white/40">Durum: {selectedUser.subscription?.status === 'active' ? 'Aktif' : 'Pasif'}</p>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest px-1">Bio</label>
-                        <textarea 
-                          value={editingUser.bio || ''}
-                          onChange={(e) => setEditingUser({ ...editingUser, bio: e.target.value })}
-                          className="w-full h-24 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-amber-50 focus:outline-none focus:border-amber-500/50 resize-none"
-                        />
-                      </div>
+                      {selectedUser.subscription?.status === 'active' && (
+                        <div className="bg-black/40 border border-white/5 rounded-2xl p-6 space-y-4">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Tür:</span>
+                            <span className="text-amber-500 font-bold uppercase">{selectedUser.subscription.type}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Bitiş:</span>
+                            <span className="text-white font-bold">{new Date(selectedUser.subscription.expiresAt!).toLocaleDateString('tr-TR')}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Günlük Limit:</span>
+                            <span className="text-white font-bold">{selectedUser.subscription.dailyLimit}</span>
+                          </div>
+                        </div>
+                      )}
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <button 
-                          onClick={() => setEditingUser({ ...editingUser, social: { ...editingUser.social, enabled: !editingUser.social?.enabled } })}
-                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                            editingUser.social?.enabled 
-                              ? 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20' 
-                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
-                          }`}
-                        >
-                          {editingUser.social?.enabled ? <Ban className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                          {editingUser.social?.enabled ? 'Sosyal Profili Kapat' : 'Sosyal Profili Aç'}
-                        </button>
-                        <button 
-                          onClick={() => setEditingUser({ ...editingUser, social: { ...editingUser.social, visible: !editingUser.social?.visible } })}
-                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                            editingUser.social?.visible 
-                              ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 hover:bg-amber-500/20' 
-                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20'
-                          }`}
-                        >
-                          {editingUser.social?.visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          {editingUser.social?.visible ? 'Profil Gizle' : 'Profil Göster'}
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <button 
-                          onClick={() => setEditingUser({ ...editingUser, socialBan: !editingUser.socialBan })}
-                          className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                            editingUser.socialBan 
-                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20' 
-                              : 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20'
-                          }`}
-                        >
-                          <Ban className="w-4 h-4" />
-                          {editingUser.socialBan ? 'Sosyal Ban Kaldır' : 'Sosyal Banla'}
-                        </button>
-                        <button 
-                          onClick={() => {
-                            if (window.confirm("Sosyal verileri tamamen silmek istediğinize emin misiniz?")) {
-                              setEditingUser({
-                                ...editingUser,
-                                social: { ...editingUser.social, enabled: false, profileCompleted: false, visible: false },
-                                nickname: '',
-                                bio: '',
-                                photos: [],
-                                interests: [],
-                                age: 0,
-                                lookingFor: 'friendship'
-                              });
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => adminService.updateUser(selectedUser.uid, {
+                            subscription: {
+                              status: 'active',
+                              type: 'monthly',
+                              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                              dailyLimit: 10,
+                              dailyLimitUsed: 0,
+                              lastResetAt: new Date().toISOString().split('T')[0],
+                              dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
                             }
-                          }}
-                          className="flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-red-500/20 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all"
+                          })}
+                          className="py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Sosyal Verileri Sil
+                          Abonelik Ver
+                        </button>
+                        <button
+                          onClick={() => adminService.updateUser(selectedUser.uid, { 'subscription.status': 'inactive' })}
+                          className="py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all"
+                        >
+                          İptal Et
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Social Subscription */}
+                    <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                      <div className="flex items-center gap-4">
+                        <div className="p-4 rounded-3xl bg-indigo-500/10 text-indigo-500">
+                          <Heart className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">Sosyal Abonelik</h3>
+                          <p className="text-sm text-white/40">Durum: {selectedUser.socialSubscription?.status === 'active' ? 'Aktif' : 'Pasif'}</p>
+                        </div>
+                      </div>
+
+                      {selectedUser.socialSubscription?.status === 'active' && (
+                        <div className="bg-black/40 border border-white/5 rounded-2xl p-6 space-y-4">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Tür:</span>
+                            <span className="text-indigo-500 font-bold uppercase">{selectedUser.socialSubscription.type}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-white/40">Bitiş:</span>
+                            <span className="text-white font-bold">{new Date(selectedUser.socialSubscription.expiresAt!).toLocaleDateString('tr-TR')}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => adminService.updateUser(selectedUser.uid, {
+                            socialSubscription: {
+                              status: 'active',
+                              type: 'monthly',
+                              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                              dailyUsage: { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: new Date().toISOString().split('T')[0] }
+                            },
+                            boostExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                          })}
+                          className="py-4 rounded-2xl bg-indigo-500 text-white font-bold hover:bg-indigo-400 transition-all"
+                        >
+                          Premium Ver
+                        </button>
+                        <button
+                          onClick={() => adminService.updateUser(selectedUser.uid, { 'socialSubscription.status': 'inactive', boostExpiresAt: null })}
+                          className="py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all"
+                        >
+                          İptal Et
                         </button>
                       </div>
                     </div>
                   </div>
+                )}
 
-                  <button
-                    onClick={() => {
-                      const updates: any = {
-                        mainCoins: editingUser.mainCoins || 0,
-                        energy: editingUser.energy || 0,
-                        superLikes: editingUser.superLikes || 0,
-                        refreshCount: editingUser.refreshCount || 0,
-                        compatibilityCount: editingUser.compatibilityCount || 0,
-                        dailyAdWatchCount: editingUser.dailyAdWatchCount || 0,
-                        dailyAdReadingsUsed: editingUser.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: new Date().toISOString() },
-                        role: editingUser.role || 'user',
-                        isBanned: editingUser.isBanned || false,
-                        social: { ...editingUser.social, enabled: editingUser.social?.enabled || false },
-                        socialProfileCompleted: editingUser.socialProfileCompleted || false,
-                        socialVisible: editingUser.social?.visible || false,
-                        nickname: editingUser.nickname || '',
-                        bio: editingUser.bio || '',
-                        photos: editingUser.photos || [],
-                        interests: editingUser.interests || [],
-                        age: editingUser.age || 0,
-                        lookingFor: editingUser.lookingFor || 'friendship',
-                        socialBan: editingUser.socialBan || false
-                      };
-                      
-                      if (editingUser.subscription) {
-                        // Remove undefined values from subscription object
-                        const sub = { ...editingUser.subscription };
-                        Object.keys(sub).forEach(key => {
-                          if ((sub as any)[key] === undefined) {
-                            delete (sub as any)[key];
-                          }
-                        });
-                        updates.subscription = sub;
-                      }
-
-                      handleUpdateUser(editingUser.uid, updates);
-                    }}
-                    className="w-full py-4 rounded-2xl bg-amber-500 text-black font-bold flex items-center justify-center gap-2 hover:bg-amber-400 transition-all"
-                  >
-                    <Save className="w-5 h-5" />
-                    <span>Değişiklikleri Kaydet</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* User Readings Modal */}
-      <AnimatePresence>
-        {showReadings && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
-            onClick={() => { setShowReadings(false); if (readingsUnsubscribe) readingsUnsubscribe(); }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-2xl bg-[#0a0a0a] rounded-[2.5rem] border border-white/10 overflow-hidden flex flex-col max-h-[80vh]"
-            >
-              <div className="p-8 border-b border-white/5 flex items-center justify-between">
-                <h2 className="text-2xl font-serif font-bold text-amber-50">Kullanıcı Geçmişi</h2>
-                <button onClick={() => { setShowReadings(false); if (readingsUnsubscribe) readingsUnsubscribe(); }} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-purple-200/40">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
-                {userReadings.length === 0 ? (
-                  <div className="text-center py-10 text-purple-200/20 italic">Henüz fal geçmişi bulunmuyor.</div>
-                ) : (
-                  userReadings.map(reading => (
-                    <div key={reading.id} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">{reading.type} Falı</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
-                            reading.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                            reading.status === 'interpreting' ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-amber-500/20 text-amber-400'
-                          }`}>
-                            {reading.status === 'completed' ? 'Tamamlandı' : reading.status === 'interpreting' ? 'Yorumlanıyor' : 'Bekliyor'}
-                          </span>
+                {userModalTab === 'social' && (
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                        <h3 className="text-lg font-bold">Profil Ayarları</h3>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5">
+                            <span className="text-sm font-bold">Sosyal Modül</span>
+                            <button
+                              onClick={() => handleUpdateUser(selectedUser.uid, { 'social.enabled': !selectedUser.social?.enabled })}
+                              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase transition-all ${
+                                selectedUser.social?.enabled ? 'bg-green-500 text-black' : 'bg-white/5 text-white/40'
+                              }`}
+                            >
+                              {selectedUser.social?.enabled ? 'Açık' : 'Kapalı'}
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5">
+                            <span className="text-sm font-bold">Görünürlük</span>
+                            <button
+                              onClick={() => handleUpdateUser(selectedUser.uid, { 'social.visible': !selectedUser.social?.visible })}
+                              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase transition-all ${
+                                selectedUser.social?.visible ? 'bg-amber-500 text-black' : 'bg-white/5 text-white/40'
+                              }`}
+                            >
+                              {selectedUser.social?.visible ? 'Herkes' : 'Gizli'}
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => handleUpdateUser(selectedUser.uid, { social: null })}
+                            className="w-full py-4 rounded-2xl bg-red-500/10 text-red-500 font-bold border border-red-500/20 hover:bg-red-500 hover:text-black transition-all"
+                          >
+                            Sosyal Verileri Sıfırla
+                          </button>
                         </div>
-                        <span className="text-[10px] text-purple-200/40">{reading.date ? new Date(reading.date).toLocaleString('tr-TR') : 'Tarih Yok'}</span>
                       </div>
-                      <div className="flex items-center gap-3 text-[10px] text-purple-200/40">
-                        {reading.balanceType && (
-                          <div className="flex items-center gap-1">
-                            <CreditCard className="w-3 h-3" />
-                            <span>{reading.balanceType === 'main' ? 'Ana Jeton' : reading.balanceType === 'ad' ? 'Enerji Kredisi' : 'Abonelik'}</span>
+
+                      <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                        <h3 className="text-lg font-bold">Profil Düzenle</h3>
+                        <div className="space-y-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-white/20 uppercase">Nickname</label>
+                            <input
+                              type="text"
+                              defaultValue={selectedUser.social?.nickname}
+                              onBlur={(e) => handleUpdateUser(selectedUser.uid, { 'social.nickname': e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                            />
                           </div>
-                        )}
-                        {reading.creditsUsed !== undefined && (
-                          <div className="flex items-center gap-1">
-                            <DollarSign className="w-3 h-3" />
-                            <span>{reading.creditsUsed} Jeton</span>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-white/20 uppercase">Bio</label>
+                            <textarea
+                              defaultValue={selectedUser.social?.bio}
+                              onBlur={(e) => handleUpdateUser(selectedUser.uid, { 'social.bio': e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 min-h-[100px]"
+                            />
                           </div>
-                        )}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-white/20 uppercase">Yaş</label>
+                              <input
+                                type="number"
+                                defaultValue={selectedUser.social?.age}
+                                onBlur={(e) => handleUpdateUser(selectedUser.uid, { 'social.age': parseInt(e.target.value) })}
+                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-white/20 uppercase">Aradığı</label>
+                              <select
+                                defaultValue={selectedUser.social?.lookingFor}
+                                onChange={(e) => handleUpdateUser(selectedUser.uid, { 'social.lookingFor': e.target.value })}
+                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                              >
+                                <option value="friendship">Arkadaşlık</option>
+                                <option value="relationship">İlişki</option>
+                                <option value="chat">Sohbet</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm text-purple-100 line-clamp-3">{reading.content || 'Yorum henüz hazır değil.'}</p>
                     </div>
-                  ))
+                  </div>
+                )}
+
+                {userModalTab === 'moderation' && (
+                  <div className="max-w-2xl mx-auto space-y-8">
+                    <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                      <h3 className="text-lg font-bold flex items-center gap-2">
+                        <Gavel className="w-5 h-5 text-red-500" />
+                        Kritik Moderasyon İşlemleri
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="p-6 bg-red-500/5 border border-red-500/10 rounded-3xl space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-bold text-red-500">Kullanıcıyı Yasakla</h4>
+                              <p className="text-xs text-white/40">Kullanıcının tüm sisteme erişimi kesilir.</p>
+                            </div>
+                            <button
+                              onClick={() => selectedUser.isBanned ? adminService.unbanUser(selectedUser.uid) : adminService.banUser(selectedUser.uid, "Admin manuel ban.")}
+                              className={`px-6 py-3 rounded-2xl font-bold transition-all ${
+                                selectedUser.isBanned ? 'bg-green-500 text-black' : 'bg-red-500 text-white'
+                              }`}
+                            >
+                              {selectedUser.isBanned ? 'Yasağı Kaldır' : 'Yasakla'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-6 bg-amber-500/5 border border-amber-500/10 rounded-3xl space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-bold text-amber-500">Admin Yetkisi</h4>
+                              <p className="text-xs text-white/40">Kullanıcıya admin paneli erişimi verilir.</p>
+                            </div>
+                            <button
+                              onClick={() => handleUpdateUser(selectedUser.uid, { role: selectedUser.role === 'admin' ? 'user' : 'admin' })}
+                              className={`px-6 py-3 rounded-2xl font-bold transition-all ${
+                                selectedUser.role === 'admin' ? 'bg-white/10 text-white' : 'bg-amber-500 text-black'
+                              }`}
+                            >
+                              {selectedUser.role === 'admin' ? 'Yetkiyi Al' : 'Admin Yap'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-6 bg-indigo-500/5 border border-indigo-500/10 rounded-3xl space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-bold text-indigo-500">Sosyal Ban</h4>
+                              <p className="text-xs text-white/40">Kullanıcının sosyal modülü kullanması engellenir.</p>
+                            </div>
+                            <button
+                              onClick={() => adminService.toggleSocialBan(selectedUser.uid, !selectedUser.social?.banned)}
+                              className={`px-6 py-3 rounded-2xl font-bold transition-all ${
+                                selectedUser.social?.banned ? 'bg-green-500 text-black' : 'bg-indigo-500 text-white'
+                              }`}
+                            >
+                              {selectedUser.social?.banned ? 'Banı Kaldır' : 'Sosyal Banla'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {userModalTab === 'messages' && (
+                  <div className="flex gap-8 h-full min-h-[500px]">
+                    {/* Chat List */}
+                    <div className="w-1/3 border-r border-white/5 pr-6 space-y-4">
+                      <h3 className="text-xs font-black text-white/20 uppercase tracking-widest">Sohbetler</h3>
+                      {loadingChats ? (
+                        <div className="flex items-center justify-center py-12">
+                          <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
+                        </div>
+                      ) : userChats.length === 0 ? (
+                        <div className="text-center py-12 bg-white/5 rounded-3xl border border-white/5">
+                          <MessageSquare className="w-8 h-8 text-white/10 mx-auto mb-3" />
+                          <p className="text-xs text-white/40">Henüz sohbet yok.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
+                          {userChats.map(chat => {
+                            const otherId = chat.participants.find((p: string) => p !== selectedUser.uid);
+                            const otherSnap = chat.participantSnapshots?.[otherId];
+                            
+                            return (
+                              <button
+                                key={chat.id}
+                                onClick={() => {
+                                  setSelectedChat(chat);
+                                  fetchChatMessages(chat.id, selectedUser.uid);
+                                }}
+                                className={`w-full p-4 rounded-2xl border transition-all text-left flex items-center gap-4 ${
+                                  selectedChat?.id === chat.id 
+                                    ? 'bg-amber-500 border-amber-500 text-black shadow-lg' 
+                                    : 'bg-white/5 border-white/5 hover:bg-white/10 text-white'
+                                }`}
+                              >
+                                <div className="w-10 h-10 rounded-xl bg-white/10 overflow-hidden flex-shrink-0">
+                                  {otherSnap?.photoURL ? (
+                                    <img src={otherSnap.photoURL} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User className="w-5 h-5 m-auto mt-2.5 opacity-20" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-bold truncate">{otherSnap?.nickname || 'Bilinmeyen'}</span>
+                                    <span className={`text-[8px] font-bold uppercase ${selectedChat?.id === chat.id ? 'text-black/60' : 'text-white/20'}`}>
+                                      {chat.lastMessageAt ? (typeof chat.lastMessageAt === 'string' ? new Date(chat.lastMessageAt).toLocaleDateString() : new Date(chat.lastMessageAt.seconds * 1000).toLocaleDateString()) : ''}
+                                    </span>
+                                  </div>
+                                  <p className={`text-[10px] truncate ${selectedChat?.id === chat.id ? 'text-black/60' : 'text-white/40'}`}>
+                                    {chat.lastMessage || 'Mesaj yok'}
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chat Detail */}
+                    <div className="flex-1 flex flex-col">
+                      {selectedChat ? (
+                        <>
+                          <div className="flex-shrink-0 flex items-center justify-between pb-4 border-b border-white/5 mb-4">
+                            <div className="flex items-center gap-3">
+                              <h4 className="text-sm font-bold">Sohbet Detayı</h4>
+                              <span className="text-[10px] font-mono text-white/20">{selectedChat.id}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleModerationAction('delete_chat', { chatId: selectedChat.id })}
+                                className="p-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black transition-all"
+                                title="Sohbeti Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar max-h-[500px]">
+                            {loadingMessages ? (
+                              <div className="flex items-center justify-center py-12">
+                                <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
+                              </div>
+                            ) : chatMessages.length === 0 ? (
+                              <p className="text-center text-white/20 text-xs py-12">Mesaj bulunamadı.</p>
+                            ) : (
+                              chatMessages.map(msg => (
+                                <div 
+                                  key={msg.id}
+                                  className={`flex flex-col ${msg.senderId === selectedUser.uid ? 'items-end' : 'items-start'}`}
+                                >
+                                  <div className={`max-w-[80%] p-4 rounded-2xl text-sm relative group ${
+                                    msg.senderId === selectedUser.uid 
+                                      ? 'bg-amber-500 text-black rounded-tr-none' 
+                                      : 'bg-white/5 text-white border border-white/10 rounded-tl-none'
+                                  }`}>
+                                    {msg.text}
+                                    <button
+                                      onClick={() => handleModerationAction('flag_message', { messageId: msg.id, reason: 'Admin incelemesi' })}
+                                      className={`absolute top-2 p-1 rounded-lg bg-white/5 text-white/20 opacity-0 group-hover:opacity-100 transition-all hover:text-amber-500 ${
+                                        msg.senderId === selectedUser.uid ? '-left-8' : '-right-8'
+                                      }`}
+                                    >
+                                      <Flag className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                  <span className="text-[8px] font-bold text-white/20 mt-1 uppercase">
+                                    {msg.createdAt ? (typeof msg.createdAt === 'string' ? new Date(msg.createdAt).toLocaleString() : new Date(msg.createdAt.seconds * 1000).toLocaleString()) : ''}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center">
+                          <div className="w-16 h-16 rounded-3xl bg-white/5 flex items-center justify-center text-white/10 mb-4">
+                            <MessageSquare className="w-8 h-8" />
+                          </div>
+                          <h4 className="text-sm font-bold text-white/40">Bir sohbet seçin</h4>
+                          <p className="text-[10px] text-white/20 max-w-[200px] mt-2">
+                            Kullanıcının mesaj geçmişini incelemek için soldaki listeden bir sohbet seçin.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </motion.div>
-          </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Report Detail Modal */}
+      <AnimatePresence>
+        {selectedReport && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedReport(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-2xl bg-[#121212] border border-white/10 rounded-[2.5rem] p-8 space-y-8"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                    <Flag className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">Rapor Detayı</h2>
+                    <p className="text-sm text-white/40">{selectedReport.id}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedReport(null)} className="p-2 text-white/20 hover:text-white"><X /></button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span className="text-[10px] font-bold text-white/20 uppercase block mb-1">Raporlayan</span>
+                  <p className="text-xs font-mono text-amber-500 truncate">{selectedReport.reporterId}</p>
+                  <button 
+                    onClick={() => {
+                      const u = users.find(u => u.uid === selectedReport.reporterId);
+                      if (u) setSelectedUser(u);
+                    }}
+                    className="mt-2 text-[10px] text-white/40 hover:text-white flex items-center gap-1"
+                  >
+                    Profile Git <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span className="text-[10px] font-bold text-white/20 uppercase block mb-1">Raporlanan</span>
+                  <p className="text-xs font-mono text-red-500 truncate">{selectedReport.reportedUserId}</p>
+                  <button 
+                    onClick={() => {
+                      const u = users.find(u => u.uid === selectedReport.reportedUserId);
+                      if (u) setSelectedUser(u);
+                    }}
+                    className="mt-2 text-[10px] text-white/40 hover:text-white flex items-center gap-1"
+                  >
+                    Profile Git <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white/40 uppercase">Açıklama</span>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    selectedReport.status === 'pending' ? 'bg-amber-500/20 text-amber-500' : 'bg-green-500/20 text-green-500'
+                  }`}>
+                    {selectedReport.status}
+                  </span>
+                </div>
+                <div className="bg-black/40 border border-white/10 rounded-2xl p-6 text-sm text-white/80 leading-relaxed">
+                  <p className="font-bold text-amber-500 mb-2">{selectedReport.reason}</p>
+                  {selectedReport.description || 'Ek açıklama belirtilmemiş.'}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => adminService.updateReportStatus(selectedReport.id, 'resolved', 'İncelendi ve çözüldü.')}
+                  className="flex-1 py-4 rounded-2xl bg-green-500 text-black font-bold hover:bg-green-400 transition-all"
+                >
+                  Çözüldü Olarak İşaretle
+                </button>
+                <button
+                  onClick={() => adminService.updateReportStatus(selectedReport.id, 'dismissed', 'Gerekli görülmedi.')}
+                  className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all"
+                >
+                  Raporu Reddet
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

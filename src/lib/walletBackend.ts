@@ -13,6 +13,7 @@ import {
   getDocs,
   limit,
   addDoc,
+  deleteDoc,
   Timestamp
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
@@ -238,5 +239,116 @@ export const walletBackend = {
 
       return { success: true };
     });
+  },
+
+  // 5. Admin Wallet Management
+  async adminSetWallet(adminId: string, targetUserId: string, updates: any): Promise<{ success: boolean }> {
+    if (!await this.verifyAdmin(adminId)) throw new Error("Yetkisiz işlem.");
+    const userRef = doc(db, "users", targetUserId);
+    await updateDoc(userRef, updates);
+    
+    // Log action
+    await addDoc(collection(db, "moderationLogs"), {
+      adminId,
+      targetUid: targetUserId,
+      action: 'SET_WALLET',
+      details: updates,
+      timestamp: new Date().toISOString()
+    });
+    
+    return { success: true };
+  },
+
+  async adminAdjustWallet(adminId: string, targetUserId: string, field: string, amount: number): Promise<{ success: boolean }> {
+    if (!await this.verifyAdmin(adminId)) throw new Error("Yetkisiz işlem.");
+    const userRef = doc(db, "users", targetUserId);
+    await updateDoc(userRef, { [field]: increment(amount) });
+    
+    // Log action
+    await addDoc(collection(db, "moderationLogs"), {
+      adminId,
+      targetUid: targetUserId,
+      action: 'ADJUST_WALLET',
+      details: { field, amount },
+      timestamp: new Date().toISOString()
+    });
+    
+    return { success: true };
+  },
+
+  // 6. Admin Chat Access
+  async getAdminUserChats(adminId: string, targetUserId: string): Promise<{ chats: any[] }> {
+    if (!await this.verifyAdmin(adminId)) throw new Error("Yetkisiz işlem.");
+    
+    console.log(`[ADMIN] Fetching chats for user: ${targetUserId}`);
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", targetUserId),
+      orderBy("lastMessageAt", "desc")
+    );
+    
+    const snap = await getDocs(q);
+    const chats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    console.log(`[ADMIN] Found ${chats.length} chats for user ${targetUserId}`);
+    
+    // Audit Log
+    await addDoc(collection(db, "moderationLogs"), {
+      adminId,
+      targetUid: targetUserId,
+      action: 'VIEW_CHATS',
+      timestamp: new Date().toISOString()
+    });
+    
+    return { chats };
+  },
+
+  async getAdminChatMessages(adminId: string, chatId: string): Promise<{ messages: any[] }> {
+    if (!await this.verifyAdmin(adminId)) throw new Error("Yetkisiz işlem.");
+    
+    console.log(`[ADMIN] Fetching messages for chat: ${chatId}`);
+    const q = query(
+      collection(db, "messages"),
+      where("chatId", "==", chatId),
+      orderBy("createdAt", "desc"),
+      limit(100)
+    );
+    
+    const snap = await getDocs(q);
+    const messages = snap.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
+    
+    console.log(`[ADMIN] Found ${messages.length} messages for chat ${chatId}`);
+    
+    return { messages };
+  },
+
+  // 7. Admin Moderation Action
+  async adminModerationAction(adminId: string, data: any): Promise<{ success: boolean }> {
+    if (!await this.verifyAdmin(adminId)) throw new Error("Yetkisiz işlem.");
+    
+    const { action, targetUserId, chatId, messageId, reason } = data;
+    
+    switch (action) {
+      case 'ban_user':
+        await updateDoc(doc(db, "users", targetUserId), { isBanned: true, banReason: reason });
+        break;
+      case 'delete_chat':
+        await deleteDoc(doc(db, "chats", chatId));
+        // Also delete messages? (Optional for simulation)
+        break;
+      case 'flag_message':
+        await updateDoc(doc(db, "messages", messageId), { flagged: true, flagReason: reason });
+        break;
+    }
+    
+    await addDoc(collection(db, "moderationLogs"), {
+      adminId,
+      targetUid: targetUserId || chatId || messageId,
+      action: `MODERATION_${action.toUpperCase()}`,
+      reason,
+      timestamp: new Date().toISOString()
+    });
+    
+    return { success: true };
   }
 };

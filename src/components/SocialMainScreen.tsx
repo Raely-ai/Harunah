@@ -6,9 +6,9 @@ import SocialMatchScreen from "./SocialMatchScreen";
 import SocialMessagesScreen from "./SocialMessagesScreen";
 import SocialProfileScreen from "./SocialProfileScreen";
 import SocialWalletScreen from "./SocialWalletScreen";
-import { UserProfile } from "../types";
+import { UserProfile, EconomyConfig } from "../types";
 
-export default function SocialMainScreen({ currentUser, onBack, onEdit }: { currentUser: UserProfile, onBack: () => void, onEdit: () => void }) {
+export default function SocialMainScreen({ currentUser, onBack, onEdit, economyConfig }: { currentUser: UserProfile, onBack: () => void, onEdit: () => void, economyConfig: EconomyConfig | null }) {
   const [activeTab, setActiveTab] = useState('discover');
   const [isChatOpen, setIsChatOpen] = useState(false);
 
@@ -45,7 +45,7 @@ export default function SocialMainScreen({ currentUser, onBack, onEdit }: { curr
         {activeTab === 'match' && <SocialMatchScreen currentUser={currentUser} onNavigate={handleNavigate} />}
         {activeTab === 'messages' && <SocialMessagesScreen currentUser={currentUser} onNavigate={handleNavigate} onChatOpenChange={setIsChatOpen} />}
         {activeTab === 'profile' && <SocialProfileScreen currentUser={currentUser} onNavigate={handleNavigate} />}
-        {activeTab === 'wallet' && <SocialWalletScreen currentUser={currentUser} onNavigate={handleNavigate} />}
+        {activeTab === 'wallet' && <SocialWalletScreen currentUser={currentUser} onNavigate={handleNavigate} economyConfig={economyConfig} />}
       </main>
 
       {/* Bottom Nav */}

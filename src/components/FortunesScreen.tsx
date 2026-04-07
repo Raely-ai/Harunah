@@ -21,13 +21,14 @@ import {
   RefreshCw,
   Loader2
 } from "lucide-react";
-import { FortuneType, AppConfig, UserProfile, FortuneReading } from "../types";
+import { FortuneType, AppConfig, UserProfile, FortuneReading, EconomyConfig } from "../types";
 import { toast } from "sonner";
 
 interface FortunesScreenProps {
   onSelectFortune: (type: FortuneType) => void;
   onBack?: () => void;
   config: AppConfig | null;
+  economyConfig: EconomyConfig | null;
   userProfile: UserProfile | null;
   history: FortuneReading[];
   onDeleteHistory: (id: string) => void;
@@ -55,6 +56,7 @@ export default function FortunesScreen({
   onSelectFortune, 
   onBack, 
   config, 
+  economyConfig,
   userProfile,
   history,
   onDeleteHistory,
@@ -119,7 +121,7 @@ export default function FortunesScreen({
       color: 'from-amber-500/20 to-amber-900/40', 
       iconColor: 'text-amber-400',
       configIcon: config?.icons?.coffee,
-      price: config?.prices?.coffee || 50
+      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? 50
     },
     { 
       id: 'tarot' as FortuneType, 
@@ -129,7 +131,7 @@ export default function FortunesScreen({
       color: 'from-purple-500/20 to-purple-900/40', 
       iconColor: 'text-purple-400',
       configIcon: config?.icons?.tarot,
-      price: config?.prices?.tarot || 40
+      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? 40
     },
     { 
       id: 'water' as FortuneType, 
@@ -139,7 +141,7 @@ export default function FortunesScreen({
       color: 'from-cyan-500/20 to-cyan-900/40', 
       iconColor: 'text-cyan-400',
       configIcon: config?.icons?.water,
-      price: config?.prices?.water || 30
+      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? 30
     },
     { 
       id: 'ebced' as FortuneType, 
@@ -149,7 +151,7 @@ export default function FortunesScreen({
       color: 'from-rose-500/20 to-rose-900/40', 
       iconColor: 'text-rose-400',
       configIcon: config?.icons?.ebced,
-      price: config?.prices?.ebced || 30
+      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? 30
     },
     { 
       id: 'yildizname' as FortuneType, 
@@ -159,7 +161,7 @@ export default function FortunesScreen({
       color: 'from-indigo-500/20 to-indigo-900/40', 
       iconColor: 'text-indigo-400',
       configIcon: config?.icons?.yildizname,
-      price: config?.prices?.yildizname || 30
+      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? 30
     },
     { 
       id: 'havas' as FortuneType, 
@@ -169,7 +171,7 @@ export default function FortunesScreen({
       color: 'from-emerald-500/20 to-emerald-900/40', 
       iconColor: 'text-emerald-400',
       configIcon: config?.icons?.havas,
-      price: config?.prices?.havas || 30
+      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? 30
     },
   ];
 

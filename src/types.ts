@@ -61,6 +61,7 @@ export interface UserProfile {
   };
   isBanned?: boolean;
   role?: 'user' | 'admin' | 'social_operator';
+  lastLoginAt?: string;
   
   // Managed Profiles for Social Operators
   isManagedProfile?: boolean;
@@ -83,6 +84,7 @@ export interface UserProfile {
     profileCompleted: boolean;
     nickname: string;
     gender: 'erkek' | 'kadın';
+    age?: number;
     lookingFor: string;
     bio: string;
     photos: string[];
@@ -233,6 +235,60 @@ export interface AdminWalletConfig {
     price: number;
     bonus: number;
   }[];
+}
+
+export interface EconomyConfig {
+  fortunePricing: {
+    coffee: number;
+    tarot: number;
+    water: number;
+    ebced: number;
+    yildizname: number;
+    havas: number;
+    extraQuestion: number;
+  };
+  rewards: {
+    adRewardEnergy: number;
+    maxDailyAds: number;
+    adRewardExpiryDays: number;
+    dailyLoginRewardEnergy: number;
+    dailyLoginExpiryDays: number;
+    customRewards: {
+      id: string;
+      name: string;
+      amount: number;
+      balanceType: 'main' | 'energy';
+      description: string;
+    }[];
+  };
+  coinPackages: {
+    id: string;
+    coins: number;
+    priceTRY: number;
+    bonus: number;
+  }[];
+  socialPricing: {
+    superLike: { id: string; count: number; priceCoins: number }[];
+    refresh: { id: string; count: number; priceCoins: number }[];
+    compatibility: { id: string; count: number; priceCoins: number }[];
+  };
+  socialSubscriptions: {
+    weekly: { 
+      priceTRY: number; 
+      dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
+      description: string;
+    };
+    monthly: { 
+      priceTRY: number; 
+      dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
+      description: string;
+    };
+  };
+  fortuneSubscriptions: {
+    daily: { priceTRY: number; dailyLimit: number; description: string };
+    weekly: { priceTRY: number; dailyLimit: number; description: string };
+    monthly: { priceTRY: number; dailyLimit: number; description: string };
+  };
 }
 
 export interface DailyMessage {
@@ -489,6 +545,20 @@ export interface Chat {
   unreadCount?: Record<string, number>;
   typing?: Record<string, boolean>;
   deletedFor?: string[];
+}
+
+export interface CentralizedReport {
+  id: string;
+  reporterId: string;
+  reportedUserId: string;
+  source: 'discover' | 'match' | 'messages' | 'profile' | 'room';
+  reason: string;
+  description?: string;
+  createdAt: string;
+  status: 'pending' | 'investigating' | 'resolved' | 'dismissed';
+  adminNotes?: string;
+  actionTaken?: 'none' | 'warned' | 'muted' | 'banned' | 'social_banned';
+  metadata?: any; // e.g. chatId, messageId
 }
 
 export interface Message {

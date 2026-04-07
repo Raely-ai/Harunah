@@ -596,22 +596,6 @@ export const socialService = {
     });
   },
 
-  async reportUser(reporterId: string, reportedUserId: string, chatId: string, reason: string, message?: string) {
-    const reportRef = doc(collection(db, "socialReports"));
-    await setDoc(reportRef, {
-      id: reportRef.id,
-      fromUid: reporterId,
-      toUid: reportedUserId,
-      chatId,
-      reason,
-      description: message || "",
-      context: 'chat',
-      timestamp: new Date().toISOString(),
-      createdAt: serverTimestamp(), // Keep for ordering if needed
-      status: 'pending'
-    });
-  },
-
   async markAsSeen(chatId: string, currentUserId: string, otherUserId: string) {
     const q = query(
       collection(db, "messages"),

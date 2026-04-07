@@ -248,17 +248,20 @@
       }
     },
     "Report": {
-      "title": "User Report",
-      "description": "A report against a user for inappropriate behavior.",
+      "title": "Centralized Report",
+      "description": "A report against a user or content for inappropriate behavior.",
       "type": "object",
       "properties": {
-        "reporterUserId": { "type": "string" },
-        "targetUserId": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reportedUserId": { "type": "string" },
+        "source": { "type": "string", "description": "Module or screen where the report originated (e.g., 'messages', 'profile', 'match')" },
         "reason": { "type": "string" },
-        "details": { "type": "string" },
+        "description": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["pending", "reviewed", "resolved"] }
-      }
+        "status": { "type": "string", "enum": ["pending", "reviewed", "resolved", "dismissed"], "default": "pending" },
+        "metadata": { "type": "object", "description": "Additional context about the report" }
+      },
+      "required": ["reporterId", "reportedUserId", "source", "reason", "createdAt", "status"]
     }
   },
   "firestore": {
@@ -308,7 +311,7 @@
     },
     "/reports/{reportId}": {
       "schema": "Report",
-      "description": "User reports"
+      "description": "Centralized user and content reports"
     },
     "/walletTransactions/{transactionId}": {
       "schema": "WalletTransaction",

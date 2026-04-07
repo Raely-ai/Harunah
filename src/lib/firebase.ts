@@ -2,12 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
 import { initializeFirestore, memoryLocalCache, doc, getDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 console.log("Firebase config loaded:", firebaseConfig);
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
 
 // Initialize Firestore with specific settings to stabilize connection
 export const db = initializeFirestore(app, {

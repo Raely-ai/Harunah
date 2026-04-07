@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban } from "lucide-react";
+import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
 import { auth, db, handleFirestoreError, OperationType } from "./lib/firebase";
@@ -33,7 +33,7 @@ import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
-import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope } from "./types";
+import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope, EconomyConfig } from "./types";
 import { generateFortune } from "./services/geminiService";
 import { socialService } from "./lib/socialService";
 import { isSocialProfileReady } from "./lib/socialUtils";
@@ -51,7 +51,9 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [economyConfig, setEconomyConfig] = useState<EconomyConfig | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [previewUser, setPreviewUser] = useState<UserProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [horoscopes, setHoroscopes] = useState<Record<string, Horoscope>>({});
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -82,6 +84,21 @@ export default function App() {
   }, [user?.uid]);
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
+
+  // Admin Preview Mode
+  useEffect(() => {
+    const previewId = localStorage.getItem('admin_preview_user_id');
+    if (previewId && isAdmin) {
+      const unsubscribe = onSnapshot(doc(db, "users", previewId), (snapshot) => {
+        if (snapshot.exists()) {
+          setPreviewUser({ uid: snapshot.id, ...snapshot.data() } as UserProfile);
+        }
+      });
+      return () => unsubscribe();
+    } else {
+      setPreviewUser(null);
+    }
+  }, [isAdmin, user?.uid]);
 
   // Fetch Global Config
   useEffect(() => {
@@ -114,6 +131,19 @@ export default function App() {
         subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
         packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
       });
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch Economy Config
+  useEffect(() => {
+    const economyRef = doc(db, "adminSettings", "economy");
+    const unsubscribe = onSnapshot(economyRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setEconomyConfig(snapshot.data() as EconomyConfig);
+      }
+    }, (err) => {
+      console.error("Economy config fetch error:", err);
     });
     return () => unsubscribe();
   }, []);
@@ -357,7 +387,8 @@ export default function App() {
   const handleSelectFortune = (type: FortuneType) => {
     if (!userProfile || !appConfig) return;
 
-    const price = appConfig.prices[type as keyof typeof appConfig.prices] || 0;
+    const prices = economyConfig?.fortunePricing || appConfig.prices;
+    const price = (prices as any)[type] || 0;
     const isSubscribed = userProfile.subscription?.status === 'active';
     const isAdEligible = ['coffee', 'tarot'].includes(type);
 
@@ -554,12 +585,13 @@ export default function App() {
     setIsSubmitting(true);
 
     const type = data.type as FortuneType;
-    const basePrice = appConfig.prices[type as keyof typeof appConfig.prices] || 0;
+    const prices = economyConfig?.fortunePricing || appConfig.prices;
+    const basePrice = (prices as any)[type] || 0;
     
     let extraQuestionsPrice = 0;
     if (data.questions && data.questions.length > 3) {
       const extraCount = data.questions.length - 3;
-      extraQuestionsPrice = extraCount * (appConfig.prices.extraQuestion || 10);
+      extraQuestionsPrice = extraCount * (prices.extraQuestion || 10);
     }
     
     const totalPrice = basePrice + extraQuestionsPrice;
@@ -852,8 +884,10 @@ export default function App() {
     }
   };
 
+  const activeProfile = previewUser || userProfile;
+
   // Show loading while checking auth or fetching profile for logged in user
-  if (loading || (user && isProfileLoading)) {
+  if (loading || (user && isProfileLoading && !activeProfile)) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-6">
@@ -894,7 +928,7 @@ export default function App() {
     );
   }
 
-  if (userProfile?.isBanned) {
+  if (activeProfile?.isBanned) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center space-y-6">
         <div className="w-24 h-24 rounded-[2.5rem] bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-4">
@@ -917,6 +951,24 @@ export default function App() {
 
   return (
     <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
+      {/* Admin Preview Banner */}
+      {previewUser && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-black py-2 px-4 flex items-center justify-between font-bold text-xs shadow-lg">
+          <div className="flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            <span>ÖNİZLEME MODU: {previewUser.displayName} ({previewUser.uid}) olarak görüntülüyorsunuz.</span>
+          </div>
+          <button 
+            onClick={() => {
+              localStorage.removeItem('admin_preview_user_id');
+              setPreviewUser(null);
+            }}
+            className="bg-black/10 hover:bg-black/20 px-3 py-1 rounded-lg transition-all"
+          >
+            Önizlemeyi Kapat
+          </button>
+        </div>
+      )}
       {/* Noise Texture Overlay */}
       <div className="fixed inset-0 noise-bg z-[1] opacity-[0.03]" />
       
@@ -1004,7 +1056,7 @@ export default function App() {
 
       <div className={`relative z-10 w-full ${activeTab === 'home' ? 'h-screen overflow-hidden' : 'pb-32'}`}>
         <AnimatePresence mode="wait">
-          {activeTab === 'home' && userProfile && (
+          {activeTab === 'home' && activeProfile && (
             <motion.div
               key="home"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1015,7 +1067,7 @@ export default function App() {
             >
               <HomeScreen 
                 user={user} 
-                userProfile={userProfile}
+                userProfile={activeProfile}
                 history={history}
                 onSelectFortune={handleSelectFortune}
                 onNavigate={handleNavigate}
@@ -1025,7 +1077,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'fortunes' && userProfile && (
+          {activeTab === 'fortunes' && activeProfile && (
             <motion.div
               key="fortunes"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1037,7 +1089,8 @@ export default function App() {
                 onSelectFortune={handleSelectFortune}
                 onBack={() => handleNavigate('home')}
                 config={appConfig}
-                userProfile={userProfile}
+                economyConfig={economyConfig}
+                userProfile={activeProfile}
                 history={history}
                 onDeleteHistory={handleDeleteHistory}
                 onToggleFavorite={handleToggleFavorite}
@@ -1046,7 +1099,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'messages' && userProfile && (
+          {activeTab === 'messages' && activeProfile && (
             <motion.div
               key="messages"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1056,7 +1109,7 @@ export default function App() {
               className="fixed inset-0 z-40 bg-[#F6F4F8] pb-20"
             >
               <SocialMessagesScreen 
-                currentUser={userProfile}
+                currentUser={activeProfile}
                 onNavigate={handleNavigate}
                 onChatOpenChange={setIsChatOpen}
               />
@@ -1074,7 +1127,7 @@ export default function App() {
             >
               <HistoryScreen 
                 history={history}
-                userProfile={userProfile}
+                userProfile={activeProfile}
                 onBack={() => handleNavigate('home')}
                 onDelete={handleDeleteHistory}
                 onToggleFavorite={handleToggleFavorite}
@@ -1094,12 +1147,12 @@ export default function App() {
             >
               <HoroscopeScreen 
                 onBack={() => handleNavigate('home')}
-                userSign={userProfile?.horoscope}
+                userSign={activeProfile?.horoscope}
               />
             </motion.div>
           )}
 
-          {activeTab === 'wallet' && userProfile && (
+          {activeTab === 'wallet' && activeProfile && (
             <motion.div
               key="wallet"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1109,13 +1162,14 @@ export default function App() {
               className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
               <SocialWalletScreen 
-                currentUser={userProfile}
+                currentUser={activeProfile}
                 onNavigate={handleNavigate}
+                economyConfig={economyConfig}
               />
             </motion.div>
           )}
 
-          {activeTab === 'profile' && userProfile && (
+          {activeTab === 'profile' && activeProfile && (
             <motion.div
               key="profile"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1125,7 +1179,7 @@ export default function App() {
               className="pt-8"
             >
               <ProfileView 
-                user={userProfile}
+                user={activeProfile}
                 isAdmin={isAdmin}
                 onSettings={() => setIsSettingsOpen(true)}
                 onLogout={() => signOut(auth)}
@@ -1136,7 +1190,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'social-profile' && userProfile && (
+          {activeTab === 'social-profile' && activeProfile && (
             <motion.div
               key="social-profile"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1146,13 +1200,13 @@ export default function App() {
               className="fixed inset-0 z-[70] bg-[#F6F4F8]"
             >
               <SocialProfileScreen 
-                currentUser={userProfile}
+                currentUser={activeProfile}
                 onNavigate={handleNavigate}
               />
             </motion.div>
           )}
 
-          {activeTab === 'social-intro' && userProfile && (
+          {activeTab === 'social-intro' && activeProfile && (
             <motion.div
               key="social-intro"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1164,7 +1218,7 @@ export default function App() {
               <SocialIntroScreen 
                 onBack={() => handleNavigate('home')}
                 onContinue={async () => {
-                  if (isSocialProfileReady(userProfile)) {
+                  if (isSocialProfileReady(activeProfile)) {
                     handleNavigate('home');
                   } else {
                     handleNavigate('social-onboarding');
@@ -1174,7 +1228,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'social-onboarding' && userProfile && (
+          {activeTab === 'social-onboarding' && activeProfile && (
             <motion.div
               key="social-onboarding"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1184,14 +1238,14 @@ export default function App() {
               className="fixed inset-0 z-[70] bg-white"
             >
               <SocialOnboardingFlow 
-                initialData={userProfile}
+                initialData={activeProfile}
                 onBack={() => handleNavigate('social-intro')}
                 onComplete={() => handleNavigate('home')}
               />
             </motion.div>
           )}
 
-          {activeTab === 'social-management' && userProfile && (
+          {activeTab === 'social-management' && activeProfile && (
             <motion.div
               key="social-management"
               initial={{ opacity: 0, y: 20 }}
@@ -1200,7 +1254,7 @@ export default function App() {
               className="min-h-screen pb-20"
             >
               <SocialManagementScreen 
-                user={userProfile} 
+                user={activeProfile} 
                 onNavigate={handleNavigate} 
               />
             </motion.div>
@@ -1221,7 +1275,7 @@ export default function App() {
           activeTab={activeTab} 
           onTabChange={handleNavigate} 
           className={['social-intro', 'social-onboarding'].includes(activeTab) ? 'hidden' : ''}
-          userRole={userProfile?.role}
+          userRole={activeProfile?.role}
         />
       )}
 
@@ -1229,7 +1283,7 @@ export default function App() {
         {activeFortune && (
           <FortuneFlow 
             type={activeFortune} 
-            userProfile={userProfile}
+            userProfile={activeProfile}
             config={appConfig!}
             onUpdateProfile={(updates) => setUserProfile(prev => ({ ...prev, ...updates }))}
             onClose={() => setActiveFortune(null)}
@@ -1245,6 +1299,8 @@ export default function App() {
         {isSubscriptionOpen && (
           <SubscriptionScreen 
             onClose={() => setIsSubscriptionOpen(false)}
+            economyConfig={economyConfig}
+            userProfile={activeProfile}
             onSubscribe={(planId) => {
               toast.success(`${planId} planı başarıyla seçildi!`);
               setUserProfile(prev => ({
