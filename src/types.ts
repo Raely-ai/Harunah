@@ -4,7 +4,7 @@ export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
 export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-onboarding' | 'social-profile' | 'social-management';
 
-export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error';
+export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error' | 'searching' | 'found';
 
 export interface FortuneReading {
   id: string;
@@ -25,14 +25,43 @@ export interface FortuneReading {
   // New Timestamp Fields for Queue Management
   queueStartedAt?: string;
   interpretationStartedAt?: string;
+  expectedReaderFoundAt?: string;
+  expectedCompletedAt?: string;
   expectedReadyAt?: string;
   priority?: boolean;
+  priorityMode?: boolean;
   updatedAt?: string;
   
   // AI Metadata
   promptSource?: 'admin' | 'default';
   promptId?: string;
+  promptVersion?: string;
   error?: string;
+  resultText?: string;
+  notificationFlags?: {
+    searchingSent?: boolean;
+    foundSent?: boolean;
+    interpretingSent?: boolean;
+    completedSent?: boolean;
+  };
+
+  // Form Data
+  formData?: {
+    adSoyad: string;
+    dogumTarihi: string;
+    iliskiDurumu: string;
+    motherName?: string;
+    fatherName?: string;
+    targetName?: string;
+    jobStatus?: string;
+    extraInfo?: string;
+  };
+  priceBreakdown?: {
+    base: number;
+    extraQuestions: number;
+    priority: number;
+    total: number;
+  };
 }
 
 export interface UserProfile {
@@ -47,6 +76,7 @@ export interface UserProfile {
   extraInfo?: string;
   horoscope?: string;
   createdAt: string;
+  // Wallet & Economy (New Structure)
   mainCoins: number;
   energy: number;
   superLikes: number;
@@ -54,6 +84,16 @@ export interface UserProfile {
   compatibilityCount: number;
   dailyAdWatchCount: number;
   lastAdReset: string;
+
+  // Deprecated Wallet Fields (Do not use in new code)
+  credits?: number;
+  adCredits?: number;
+  dailyAdCount?: number;
+  lastAdDate?: string;
+  superLikeCount?: number;
+  analysisCount?: number;
+  discoverRefreshCount?: number;
+  extraSwipeQuota?: number;
   dailyAdReadingsUsed?: {
     coffee: number;
     tarot: number;
@@ -106,7 +146,6 @@ export interface UserProfile {
     };
     lastDiscoverRefreshAt?: string;
     discoverRefreshCredits?: number;
-    compatibilityCredits?: number;
   };
 
   zodiacSign?: string;
@@ -129,10 +168,6 @@ export interface UserProfile {
   extraSwipeLimit?: number;
   
   // Social Wallet Fields
-  superLikeCount?: number;
-  analysisCount?: number;
-  extraSwipeQuota?: number;
-  discoverRefreshCount?: number;
   boostExpiresAt?: string;
   socialSubscriptionType?: 'none' | 'daily' | 'weekly' | 'monthly';
   socialSubscriptionExpireAt?: string;
@@ -162,6 +197,88 @@ export interface UserProfile {
       advanced: number;
     };
   };
+}
+
+/**
+ * Normalizes a UserProfile object from Firestore, ensuring new fields are populated
+ * from old fields if they are missing (Backward Compatibility).
+ */
+export function normalizeUserProfile(data: any, uid: string): UserProfile {
+  const profile = { ...data, uid } as UserProfile;
+
+  // 1. Wallet Normalization
+  if (profile.mainCoins === undefined && data.credits !== undefined) profile.mainCoins = data.credits;
+  if (profile.energy === undefined && data.adCredits !== undefined) profile.energy = data.adCredits;
+  if (profile.dailyAdWatchCount === undefined && data.dailyAdCount !== undefined) profile.dailyAdWatchCount = data.dailyAdCount;
+  if (profile.lastAdReset === undefined && data.lastAdDate !== undefined) profile.lastAdReset = data.lastAdDate;
+  if (profile.superLikes === undefined && data.superLikeCount !== undefined) profile.superLikes = data.superLikeCount;
+  if (profile.refreshCount === undefined && data.discoverRefreshCount !== undefined) profile.refreshCount = data.discoverRefreshCount;
+  if (profile.compatibilityCount === undefined && data.analysisCount !== undefined) profile.compatibilityCount = data.analysisCount;
+  if (profile.compatibilityCount === undefined && data.social?.compatibilityCredits !== undefined) profile.compatibilityCount = data.social.compatibilityCredits;
+
+  // Defaults for required wallet fields
+  if (profile.mainCoins === undefined) profile.mainCoins = 0;
+  if (profile.energy === undefined) profile.energy = 0;
+  if (profile.superLikes === undefined) profile.superLikes = 0;
+  if (profile.refreshCount === undefined) profile.refreshCount = 0;
+  if (profile.compatibilityCount === undefined) profile.compatibilityCount = 0;
+  if (profile.dailyAdWatchCount === undefined) profile.dailyAdWatchCount = 0;
+  if (profile.lastAdReset === undefined) profile.lastAdReset = new Date().toISOString();
+
+  // 2. Social Normalization
+  if (!profile.social) {
+    profile.social = {
+      enabled: data.socialEnabled || false,
+      profileCompleted: data.socialProfileCompleted || false,
+      nickname: data.nickname || data.displayName || "Gezgin",
+      gender: (data.gender as any) || 'erkek',
+      lookingFor: data.lookingFor || 'arkadaş',
+      bio: data.bio || '',
+      photos: data.photos || [],
+      interests: data.interests || [],
+      visible: data.socialVisible !== undefined ? data.socialVisible : true,
+      banned: data.socialBan || false,
+      settings: {
+        whoCanMessage: 'everyone',
+        whoCanAddFriend: 'everyone',
+        notifications: {
+          messages: true,
+          friendRequests: true,
+          roomInvites: true,
+          gifts: true
+        }
+      }
+    };
+  }
+
+  // 3. Subscription Normalization
+  if (!profile.subscription) {
+    profile.subscription = {
+      status: 'none',
+      type: 'none',
+      expiresAt: new Date().toISOString(),
+      dailyLimit: 0,
+      dailyLimitUsed: 0,
+      dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 },
+      lastResetAt: new Date().toISOString()
+    };
+  }
+
+  if (!profile.socialSubscription) {
+    profile.socialSubscription = {
+      status: 'none',
+      type: 'none',
+      expiresAt: new Date().toISOString(),
+      dailyUsage: {
+        superLikes: 0,
+        refreshes: 0,
+        compatibility: 0,
+        lastResetDate: new Date().toISOString().split('T')[0]
+      }
+    };
+  }
+
+  return profile;
 }
 
 export interface WalletTransaction {
@@ -245,7 +362,22 @@ export interface EconomyConfig {
     ebced: number;
     yildizname: number;
     havas: number;
+    horoscope: number;
+    dream: number;
     extraQuestion: number;
+    priorityFee: number;
+  };
+  interpretationTimes: {
+    coffee: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
+    tarot: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
+    advanced: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
+  };
+  energyPaymentEnabled: boolean;
+  subscriptionLimits: {
+    totalDaily: number;
+  };
+  aiSettings: {
+    [key in FortuneType]: FortuneAIConfig;
   };
   rewards: {
     adRewardEnergy: number;
@@ -291,6 +423,16 @@ export interface EconomyConfig {
   };
 }
 
+export interface FortuneAIConfig {
+  systemPrompt: string;
+  templatePrompt: string;
+  tone: string;
+  minLength: number;
+  maxLength: number;
+  mysticLevel: number;
+  extraQuestionBehavior: string;
+}
+
 export interface DailyMessage {
   text: string;
   category: 'love' | 'career' | 'general';
@@ -306,7 +448,10 @@ export interface AppConfig {
     ebced: number;
     yildizname: number;
     havas: number;
+    horoscope: number;
+    dream: number;
     extraQuestion: number;
+    priorityFee: number;
   };
   icons: {
     coffee: string;
@@ -325,21 +470,28 @@ export interface AppConfig {
     coffee: number;
     tarot: number;
     advanced: number;
+    totalDaily: number;
   };
   interpretationTimes?: {
     coffee: {
+      minSearchTime: number;
+      maxSearchTime: number;
       minInterpreterTime: number;
       maxInterpreterTime: number;
       minReadingTime: number;
       maxReadingTime: number;
     };
     tarot: {
+      minSearchTime: number;
+      maxSearchTime: number;
       minInterpreterTime: number;
       maxInterpreterTime: number;
       minReadingTime: number;
       maxReadingTime: number;
     };
     advanced: {
+      minSearchTime: number;
+      maxSearchTime: number;
       minInterpreterTime: number;
       maxInterpreterTime: number;
       minReadingTime: number;

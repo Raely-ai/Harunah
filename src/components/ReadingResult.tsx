@@ -35,7 +35,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[110] bg-[#050505] overflow-y-auto custom-scrollbar"
+      className="fixed inset-0 z-[110] bg-[#FDFCFE] overflow-y-auto custom-scrollbar"
     >
       {/* Mystical Background */}
       <div className="fixed inset-0 pointer-events-none">
@@ -48,18 +48,18 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
         <div className="flex items-center justify-between mb-12">
           <button 
             onClick={onClose}
-            className="p-3 rounded-2xl bg-white/5 border border-white/10 text-purple-200/40 hover:text-amber-400 transition-colors"
+            className="p-3 rounded-2xl bg-white border border-black/5 text-muted hover:text-amber-600 transition-colors shadow-sm"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-3">
-            <button className="p-3 rounded-2xl bg-white/5 border border-white/10 text-purple-200/40 hover:text-amber-400 transition-colors">
+            <button className="p-3 rounded-2xl bg-white border border-black/5 text-muted hover:text-amber-600 transition-colors shadow-sm">
               <Heart className="w-5 h-5" />
             </button>
-            <button className="p-3 rounded-2xl bg-white/5 border border-white/10 text-purple-200/40 hover:text-amber-400 transition-colors">
+            <button className="p-3 rounded-2xl bg-white border border-black/5 text-muted hover:text-amber-600 transition-colors shadow-sm">
               <Share2 className="w-5 h-5" />
             </button>
-            <button className="p-3 rounded-2xl bg-white/5 border border-white/10 text-purple-200/40 hover:text-amber-400 transition-colors">
+            <button className="p-3 rounded-2xl bg-white border border-black/5 text-muted hover:text-amber-600 transition-colors shadow-sm">
               <Save className="w-5 h-5" />
             </button>
           </div>
@@ -70,12 +70,12 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="inline-flex p-4 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-4"
+            className="inline-flex p-4 rounded-3xl bg-amber-50 border border-amber-100 text-amber-600 mb-4 shadow-sm"
           >
             <Sparkles className="w-8 h-8" />
           </motion.div>
-          <h1 className="text-4xl font-serif font-bold text-amber-50 tracking-tight">{reading.title}</h1>
-          <div className="flex items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-[0.2em] text-purple-200/40">
+          <h1 className="text-4xl font-serif font-bold text-heading tracking-tight">{reading.title}</h1>
+          <div className="flex items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
             <div className="flex items-center gap-2">
               <Calendar className="w-3 h-3" />
               <span>{reading.date}</span>
@@ -89,9 +89,9 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
 
         {/* Content with Progressive Reveal */}
         <div className="space-y-8">
-          <div className="p-8 rounded-[2.5rem] border border-white/5 bg-white/5 backdrop-blur-xl relative overflow-hidden">
+          <div className="p-8 rounded-[2.5rem] border border-black/5 bg-white shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-5">
-              <Star className="w-32 h-32 text-amber-400" />
+              <Star className="w-32 h-32 text-amber-600" />
             </div>
             
             <motion.div
@@ -100,7 +100,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
               transition={{ delay: 0.5, duration: 1 }}
               className="relative z-10"
             >
-              <div className="text-lg font-serif italic text-amber-100/80 leading-relaxed space-y-6">
+              <div className="text-lg font-serif italic text-body leading-relaxed space-y-6">
                 {reading.content.split('\n\n').map((paragraph, i) => (
                   <motion.p
                     key={i}
@@ -114,8 +114,8 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
               </div>
             </motion.div>
 
-            <div className="mt-12 pt-8 border-t border-white/5 flex justify-center">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400/40">
+            <div className="mt-12 pt-8 border-t border-black/5 flex justify-center">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-600/40">
                 <Sparkles className="w-3 h-3" />
                 <span>LASYA'nın Kehaneti</span>
                 <Sparkles className="w-3 h-3" />
@@ -128,10 +128,10 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 2 }}
-            className="p-6 rounded-3xl bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/20"
+            className="p-6 rounded-3xl bg-indigo-50 border border-indigo-100 shadow-sm"
           >
-            <h4 className="text-xs font-bold uppercase tracking-widest text-purple-400 mb-2">Günün Tavsiyesi</h4>
-            <p className="text-sm text-purple-200/60 leading-relaxed italic">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-indigo-600 mb-2">Günün Tavsiyesi</h4>
+            <p className="text-sm text-muted leading-relaxed italic">
               "Evrenin akışına güven, bugün karşına çıkan tesadüfler aslında senin için hazırlanmış birer rehber."
             </p>
           </motion.div>

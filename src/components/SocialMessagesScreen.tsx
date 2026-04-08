@@ -38,7 +38,7 @@ import {
   limit
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message } from "../types";
+import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message, normalizeUserProfile } from "../types";
 import { format, formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { toast } from "sonner";
@@ -100,7 +100,7 @@ export default function SocialMessagesScreen({
         let otherUser = profilesCache.current[otherUserId!];
         if (!otherUser) {
           const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
-          otherUser = { uid: otherUserSnap.id, ...otherUserSnap.data() } as UserProfile;
+          otherUser = normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id);
           profilesCache.current[otherUserId!] = otherUser;
         }
         
@@ -192,7 +192,7 @@ export default function SocialMessagesScreen({
 
           return {
             id: swipeDoc.id,
-            user: { uid: senderSnap.id, ...senderSnap.data() } as UserProfile,
+            user: normalizeUserProfile(senderSnap.data(), senderSnap.id),
             createdAt: swipeData.createdAt
           };
         } catch (err) {
@@ -787,7 +787,8 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     const q = query(
       collection(db, "messages"),
       where("chatId", "==", chat.id),
-      orderBy("createdAt", "asc")
+      orderBy("createdAt", "desc"),
+      limit(100)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -795,7 +796,9 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
         id: doc.id,
         ...doc.data()
       } as Message));
-      setMessages(msgs);
+      
+      // Reverse to show in chronological order
+      setMessages(msgs.reverse());
       
       // Mark as seen when chat is open
       socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);

@@ -47,9 +47,13 @@ const TYPE_ICONS: Record<string, any> = {
 };
 
 const STATUS_CONFIG = {
-  waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
+  searching: { label: 'Yorumcu Aranıyor', color: 'text-purple-600', bg: 'bg-purple-500/10', icon: Search },
+  found: { label: 'Yorumcu Bulundu', color: 'text-indigo-600', bg: 'bg-indigo-500/10', icon: User },
   interpreting: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: AlertCircle },
-  completed: { label: 'Tamamlandı', color: 'text-emerald-600', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+  completed: { label: 'Yorumlandı', color: 'text-emerald-600', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+  waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
+  error: { label: 'Hata', color: 'text-red-600', bg: 'bg-red-500/10', icon: AlertCircle },
+  pending: { label: 'Hazırlanıyor', color: 'text-gray-600', bg: 'bg-gray-500/10', icon: Clock },
 };
 
 export default function FortunesScreen({ 
@@ -109,7 +113,7 @@ export default function FortunesScreen({
       }
       return <span className="text-sm">{icon}</span>;
     }
-    return type === 'main' ? <Coins className="w-4 h-4 text-amber-500" /> : <Zap className="w-4 h-4 text-blue-500" />;
+    return type === 'main' ? <Coins className="w-4 h-4 text-amber-600" /> : <Zap className="w-4 h-4 text-indigo-600" />;
   };
 
   const CATEGORIES = [
@@ -118,89 +122,100 @@ export default function FortunesScreen({
       title: 'Kahve Falı', 
       description: 'Fincandaki sembollerin gizemli dünyası.',
       icon: Coffee, 
-      color: 'from-amber-500/20 to-amber-900/40', 
-      iconColor: 'text-amber-400',
+      color: 'from-amber-50 to-amber-100/50', 
+      iconColor: 'text-amber-600',
       configIcon: config?.icons?.coffee,
-      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? 50
+      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? 50,
+      energyEligible: true
     },
     { 
       id: 'tarot' as FortuneType, 
       title: 'Tarot', 
       description: 'Kartların kadim bilgeliği.',
       icon: CreditCard, 
-      color: 'from-purple-500/20 to-purple-900/40', 
-      iconColor: 'text-purple-400',
+      color: 'from-purple-50 to-purple-100/50', 
+      iconColor: 'text-purple-600',
       configIcon: config?.icons?.tarot,
-      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? 40
+      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? 40,
+      energyEligible: true
     },
     { 
       id: 'water' as FortuneType, 
       title: 'Su Falı', 
       description: 'Suyun duruluğunda saklı gerçekler.',
       icon: Droplets, 
-      color: 'from-cyan-500/20 to-cyan-900/40', 
-      iconColor: 'text-cyan-400',
+      color: 'from-cyan-50 to-cyan-100/50', 
+      iconColor: 'text-cyan-600',
       configIcon: config?.icons?.water,
-      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? 30
+      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? 30,
+      energyEligible: false
     },
     { 
       id: 'ebced' as FortuneType, 
       title: 'Ebced Aşk', 
       description: 'İsimlerin ve sayıların aşkı.',
       icon: Heart, 
-      color: 'from-rose-500/20 to-rose-900/40', 
-      iconColor: 'text-rose-400',
+      color: 'from-rose-50 to-rose-100/50', 
+      iconColor: 'text-rose-600',
       configIcon: config?.icons?.ebced,
-      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? 30
+      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? 30,
+      energyEligible: false
     },
     { 
       id: 'yildizname' as FortuneType, 
       title: 'Yıldızname', 
       description: 'Yıldızların rehberliği.',
       icon: Star, 
-      color: 'from-indigo-500/20 to-indigo-900/40', 
-      iconColor: 'text-indigo-400',
+      color: 'from-indigo-50 to-indigo-100/50', 
+      iconColor: 'text-indigo-600',
       configIcon: config?.icons?.yildizname,
-      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? 30
+      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? 30,
+      energyEligible: false
     },
     { 
       id: 'havas' as FortuneType, 
       title: 'İlmi Havas', 
       description: 'Gizli ilimlerin derinlikleri.',
       icon: Zap, 
-      color: 'from-emerald-500/20 to-emerald-900/40', 
-      iconColor: 'text-emerald-400',
+      color: 'from-emerald-50 to-emerald-100/50', 
+      iconColor: 'text-emerald-600',
       configIcon: config?.icons?.havas,
-      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? 30
+      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? 30,
+      energyEligible: false
     },
   ];
 
   const renderIcon = (cat: any) => {
     if (cat.configIcon) {
       if (cat.configIcon.startsWith('http')) {
-        return <img src={cat.configIcon} alt={cat.title} className="w-10 h-10 object-contain" />;
+        return <img src={cat.configIcon} alt={cat.title} className="w-12 h-12 object-contain" />;
       }
-      return <span className="text-4xl">{cat.configIcon}</span>;
+      return <span className="text-5xl">{cat.configIcon}</span>;
     }
     const Icon = cat.icon;
-    return <Icon className={`w-10 h-10 ${cat.iconColor}`} />;
+    return <Icon className={`w-12 h-12 ${cat.iconColor}`} />;
   };
 
+  const isSubscribed = userProfile?.subscription?.status === 'active';
+  const subLimit = config?.subscriptionLimits?.totalDaily ?? 10;
+  const subUsed = userProfile?.subscription?.dailyLimitUsed ?? 0;
+
   return (
-    <div className="relative min-h-screen pb-32 overflow-hidden flex flex-col bg-[#F6F4F8]">
+    <div className="relative min-h-screen pb-32 overflow-hidden flex flex-col bg-[#FDFCFE]">
       {/* Celestial Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/5 blur-[120px] rounded-full" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-600/5 blur-[120px] rounded-full" />
+      <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-purple-600/5 blur-[120px] rounded-full" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-amber-600/5 blur-[120px] rounded-full" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none grayscale" />
 
       {/* Top Tabs */}
-      <div className="sticky top-0 z-30 header-gradient backdrop-blur-xl px-6 py-4 flex items-center justify-center border-b border-black/5">
+      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-2xl px-6 py-4 flex items-center justify-center border-b border-black/5">
         <div className="flex bg-black/5 p-1 rounded-2xl border border-black/5 w-full max-w-[320px]">
           <button
             onClick={() => setActiveSubTab('fortunes')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
               activeSubTab === 'fortunes' 
-                ? 'bg-white text-heading shadow-sm border border-black/5' 
-                : 'text-muted hover:text-body'
+                ? 'bg-white text-heading shadow-md border border-black/5' 
+                : 'text-muted hover:text-heading'
             }`}
           >
             Fallarım
@@ -209,8 +224,8 @@ export default function FortunesScreen({
             onClick={() => setActiveSubTab('history')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
               activeSubTab === 'history' 
-                ? 'bg-white text-heading shadow-sm border border-black/5' 
-                : 'text-muted hover:text-body'
+                ? 'bg-white text-heading shadow-md border border-black/5' 
+                : 'text-muted hover:text-heading'
             }`}
           >
             Geçmiş Yorumlarım
@@ -223,91 +238,122 @@ export default function FortunesScreen({
           {activeSubTab === 'fortunes' ? (
             <motion.div
               key="fortunes-list"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
               className="space-y-8 pt-6"
             >
               {/* Header: Balances & Name */}
               {userProfile && (
                 <section className="px-4 relative z-10">
-                  <div className="p-5 rounded-[2.5rem] bg-white border border-black/5 shadow-sm">
+                  <div className="p-6 rounded-[2.5rem] bg-white border border-black/5 shadow-xl">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-4">
                         <div className="relative">
-                          <div className="w-14 h-14 rounded-2xl bg-black border border-white/10 flex items-center justify-center overflow-hidden shadow-xl relative z-10">
-                            {userProfile.photoURL ? (
-                              <img src={userProfile.photoURL} alt={userProfile.displayName || ""} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              <User className="w-7 h-7 text-amber-200/60" />
-                            )}
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 p-[1px] shadow-lg relative z-10">
+                            <div className="w-full h-full rounded-2xl bg-white flex items-center justify-center overflow-hidden">
+                              {userProfile.photoURL ? (
+                                <img src={userProfile.photoURL} alt={userProfile.displayName || ""} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <User className="w-8 h-8 text-amber-600/20" />
+                              )}
+                            </div>
                           </div>
+                          {isSubscribed && (
+                            <div className="absolute -top-2 -right-2 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center border-2 border-white z-20 shadow-lg">
+                              <Star className="w-3 h-3 text-white fill-current" />
+                            </div>
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-1">Mistik Gezgin</p>
-                          <h2 className="text-xl font-serif font-bold text-heading leading-tight truncate max-w-[140px]">
+                          <h2 className="text-2xl font-serif font-bold text-heading leading-tight truncate max-w-[140px]">
                             {userProfile.displayName}
                           </h2>
+                          {isSubscribed && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Premium Üye</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-500/5 border border-amber-500/10">
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-50 border border-amber-100">
                           {renderBalanceIcon('main')}
-                          <span className="text-sm font-bold text-amber-700 tracking-tight">{userProfile.mainCoins || 0}</span>
+                          <span className="text-sm font-bold text-amber-600 tracking-tight">{userProfile.mainCoins || 0}</span>
                         </div>
-                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-purple-500/5 border border-purple-500/10">
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-50 border border-indigo-100">
                           {renderBalanceIcon('ad')}
-                          <span className="text-sm font-bold text-purple-700 tracking-tight">{userProfile.energy || 0}</span>
+                          <span className="text-sm font-bold text-indigo-600 tracking-tight">{userProfile.energy || 0}</span>
                         </div>
                       </div>
                     </div>
+
+                    {isSubscribed && (
+                      <div className="mt-6 pt-4 border-t border-black/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Günlük Fal Hakkı</span>
+                          <span className="text-[10px] font-bold text-amber-600">{subUsed} / {subLimit}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(subUsed / subLimit) * 100}%` }}
+                            className="h-full bg-gradient-to-r from-amber-500 to-amber-300"
+                          />
+                        </div>
+                        <p className="text-[9px] font-medium text-muted mt-2 text-center italic">"Abonesin, öncelikli sıradasın ve mistik güçlerin daha yoğun."</p>
+                      </div>
+                    )}
                   </div>
                 </section>
               )}
 
               <div className="px-8 relative z-10">
-                <p className="text-muted text-sm font-medium tracking-wide">Kaderini aydınlatacak bir yöntem seç.</p>
+                <h3 className="text-heading text-lg font-serif font-bold">Kaderini Aydınlat</h3>
+                <p className="text-muted text-sm font-medium tracking-wide">Sana en yakın gelen yöntemi seç ve başla.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 px-6 relative z-10">
+              <div className="grid grid-cols-1 gap-6 px-6 relative z-10">
                 {CATEGORIES.map((cat, idx) => {
-                  const getTheme = () => {
-                    switch(cat.id) {
-                      case 'coffee': return { glow: 'rgba(212,175,55,0.3)', border: 'border-amber-500/10', bg: 'from-amber-500/5 to-white' };
-                      case 'tarot': return { glow: 'rgba(109,40,217,0.3)', border: 'border-purple-500/10', bg: 'from-purple-500/5 to-white' };
-                      case 'water': return { glow: 'rgba(6,182,212,0.3)', border: 'border-cyan-500/10', bg: 'from-cyan-500/5 to-white' };
-                      case 'ebced': return { glow: 'rgba(244,63,94,0.3)', border: 'border-rose-500/10', bg: 'from-rose-500/5 to-white' };
-                      case 'yildizname': return { glow: 'rgba(79,70,229,0.3)', border: 'border-indigo-500/10', bg: 'from-indigo-500/5 to-white' };
-                      case 'havas': return { glow: 'rgba(16,185,129,0.3)', border: 'border-emerald-500/10', bg: 'from-emerald-500/5 to-white' };
-                      default: return { glow: 'rgba(255,255,255,0.1)', border: 'border-black/5', bg: 'from-white to-white' };
-                    }
-                  };
-                  const theme = getTheme();
-
                   return (
                     <button
                       key={cat.id}
                       onClick={() => onSelectFortune(cat.id)}
-                      className={`relative flex flex-col items-center p-6 rounded-[2.5rem] overflow-hidden bg-gradient-to-br ${theme.bg} border ${theme.border} text-center space-y-4 shadow-sm group min-h-[200px] justify-center active:scale-[0.98] transition-transform duration-150`}
+                      className="relative flex items-center p-6 rounded-[2.5rem] overflow-hidden bg-white border border-black/5 group active:scale-[0.98] transition-all duration-300 hover:border-amber-500/20 shadow-lg"
                     >
-                      <div className="p-4 rounded-3xl bg-black/5 border border-black/5 relative z-10">
-                        <div>
+                      <div className={`absolute inset-0 bg-gradient-to-r ${cat.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                      
+                      <div className="relative z-10 flex items-center gap-6 w-full">
+                        <div className="p-4 rounded-3xl bg-white border border-black/5 shadow-sm group-hover:scale-110 transition-transform duration-500">
                           {renderIcon(cat)}
                         </div>
-                      </div>
-                      
-                      <div className="space-y-1.5 relative z-10">
-                        <h3 className="text-base font-bold text-heading group-hover:text-amber-600 transition-colors">{cat.title}</h3>
-                        <p className="text-[11px] text-muted font-medium line-clamp-2 leading-relaxed px-2">
-                          {cat.description}
-                        </p>
-                      </div>
+                        
+                        <div className="flex-1 text-left space-y-1">
+                          <h3 className="text-xl font-serif font-bold text-heading group-hover:text-amber-700 transition-colors">{cat.title}</h3>
+                          <p className="text-xs text-body font-medium leading-relaxed">
+                            {cat.description}
+                          </p>
+                          
+                          <div className="flex items-center gap-3 mt-3">
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] font-bold text-amber-600 shadow-sm">
+                              {renderBalanceIcon('main')}
+                              <span className="tracking-tighter">{cat.price}</span>
+                            </div>
+                            {cat.energyEligible && (
+                              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-[10px] font-bold text-indigo-600 shadow-sm">
+                                {renderBalanceIcon('ad')}
+                                <span className="tracking-tighter">{cat.price}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
-                      <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-black/5 text-[11px] font-bold text-amber-600 relative z-10 group-hover:border-amber-500/30 transition-colors shadow-sm">
-                        {renderBalanceIcon('main')}
-                        <span className="tracking-tighter">{cat.price}</span>
+                        <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all duration-500">
+                          <ChevronRight className="w-5 h-5" />
+                        </div>
                       </div>
                     </button>
                   );
@@ -345,7 +391,7 @@ export default function FortunesScreen({
                     placeholder="Kehanetlerde ara..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white border border-black/5 rounded-2xl py-3.5 pl-12 pr-4 text-sm focus:outline-none focus:border-indigo-600/50 transition-colors text-heading placeholder:text-muted shadow-sm"
+                    className="w-full bg-white border border-black/5 rounded-2xl py-3.5 pl-12 pr-4 text-sm focus:outline-none focus:border-amber-600/50 transition-colors text-heading placeholder:text-muted shadow-sm"
                   />
                 </div>
                 
@@ -353,7 +399,7 @@ export default function FortunesScreen({
                   <button
                     onClick={() => setFilter('all')}
                     className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
-                      filter === 'all' ? 'bg-heading text-white' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
+                      filter === 'all' ? 'bg-heading text-white shadow-md' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
                     }`}
                   >
                     Tümü
@@ -363,7 +409,7 @@ export default function FortunesScreen({
                       key={type}
                       onClick={() => setFilter(type as FortuneType)}
                       className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
-                        filter === type ? 'bg-heading text-white' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
+                        filter === type ? 'bg-heading text-white shadow-md' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
                       }`}
                     >
                       {type === 'coffee' ? 'Kahve' : (type === 'su' || type === 'water') ? 'Su' : type.charAt(0).toUpperCase() + type.slice(1)}
@@ -392,12 +438,12 @@ export default function FortunesScreen({
                     return (
                       <div
                         key={reading.id}
-                        className="p-5 rounded-[2rem] border border-black/5 bg-white shadow-sm transition-all duration-500"
+                        className="p-5 rounded-[2rem] border border-black/5 bg-white shadow-lg transition-all duration-500"
                       >
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                              reading.type === 'coffee' ? 'bg-amber-500/10 text-amber-600' : 'bg-purple-500/10 text-purple-600'
+                              reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
                             }`}>
                               <Icon className="w-6 h-6" />
                             </div>
@@ -406,7 +452,7 @@ export default function FortunesScreen({
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{reading.date.split('T')[0]}</span>
                                 <span className="w-1 h-1 rounded-full bg-black/5" />
-                                <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
+                                <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color} border border-black/5`}>
                                   <StatusIcon className="w-2.5 h-2.5" />
                                   <span className="text-[8px] font-black uppercase tracking-widest">{status.label}</span>
                                 </div>
@@ -418,14 +464,14 @@ export default function FortunesScreen({
                             <button
                               onClick={() => onToggleFavorite(reading.id)}
                               className={`p-2 rounded-lg transition-colors ${
-                                reading.isFavorite ? 'text-amber-600 bg-amber-500/10' : 'text-muted hover:text-amber-600 hover:bg-black/5'
+                                reading.isFavorite ? 'text-amber-600 bg-amber-50' : 'text-muted hover:text-amber-600 hover:bg-black/5'
                               }`}
                             >
                               <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
                             </button>
                             <button
                               onClick={() => onDeleteHistory(reading.id)}
-                              className="p-2 rounded-lg text-muted hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                              className="p-2 rounded-lg text-muted hover:text-red-600 hover:bg-red-50 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -492,20 +538,20 @@ export default function FortunesScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-md p-4"
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
             onClick={() => setSelectedReading(null)}
           >
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              className="w-full max-w-lg bg-white rounded-t-[3rem] p-8 max-h-[90vh] overflow-y-auto no-scrollbar"
+              className="w-full max-w-lg bg-white rounded-t-[3rem] p-8 max-h-[90vh] overflow-y-auto no-scrollbar shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-12 h-1.5 bg-black/10 rounded-full mx-auto mb-8" />
+              <div className="w-12 h-1.5 bg-black/5 rounded-full mx-auto mb-8" />
               
               <div className="flex items-center gap-4 mb-8">
-                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center shadow-sm">
                   {(() => {
                     const Icon = TYPE_ICONS[selectedReading.type] || History;
                     return <Icon className="w-8 h-8 text-amber-600" />;
@@ -528,7 +574,7 @@ export default function FortunesScreen({
                   <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted mb-4">Seçilen Kartlar</h4>
                   <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
                     {selectedReading.cards.map((card, idx) => (
-                      <div key={idx} className="flex-shrink-0 w-24 aspect-[2/3] rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-2xl">
+                      <div key={idx} className="flex-shrink-0 w-24 aspect-[2/3] rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-2xl shadow-sm">
                         🎴
                       </div>
                     ))}
@@ -546,7 +592,7 @@ export default function FortunesScreen({
                 </button>
                 <button
                   onClick={() => setSelectedReading(null)}
-                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-amber-700 transition-colors"
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-amber-700 transition-colors shadow-lg"
                 >
                   Kapat
                 </button>

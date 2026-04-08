@@ -15,14 +15,13 @@ export default function FortuneCard({ title, description, icon: Icon, onClick, c
       onClick={onClick}
       className="relative w-full text-left group overflow-hidden active:scale-[0.98] transition-transform duration-150"
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-10`} />
-      <div className="relative p-6 rounded-2xl border border-white/10 bg-black/40 flex items-center gap-6">
-        <div className={`p-4 rounded-xl bg-gradient-to-br ${color} text-white shadow-lg shadow-black/40`}>
+      <div className="relative p-6 rounded-2xl border border-black/5 bg-white flex items-center gap-6 shadow-sm group-hover:shadow-md transition-shadow">
+        <div className={`p-4 rounded-xl bg-gradient-to-br ${color} text-white shadow-lg`}>
           <Icon className="w-8 h-8" />
         </div>
         <div className="flex-1">
-          <h3 className="text-xl font-serif font-bold text-amber-50 mb-1">{title}</h3>
-          <p className="text-sm text-purple-200/60 leading-relaxed font-medium">{description}</p>
+          <h3 className="text-xl font-serif font-bold text-heading mb-1">{title}</h3>
+          <p className="text-sm text-muted leading-relaxed font-medium">{description}</p>
         </div>
       </div>
     </button>

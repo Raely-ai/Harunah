@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Sparkles, Heart, Briefcase, Lock } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { Star, Sparkles, Heart, Briefcase } from 'lucide-react';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../lib/firebase';
 import { AppConfig } from '../types';
 
 interface DailyMessageCardProps {
@@ -39,18 +40,9 @@ export default function DailyMessageCard({ config }: DailyMessageCardProps) {
     setLoading(true);
     setError(null);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: "Günün falı için kısa, gizemli ve motive edici bir cümle yaz. Aşk, kariyer veya genel bir tavsiye olsun. Sadece cümleyi döndür. Maksimum 15 kelime.",
-        config: {
-          systemInstruction: "Sen bilge bir kahinsin. Kullanıcılara günlük kısa, etkileyici ve mistik mesajlar veriyorsun.",
-        }
-      });
-
-      const text = response.text || "Yıldızlar bugün senin için parlıyor.";
-      const categories: ('love' | 'career' | 'general')[] = ['love', 'career', 'general'];
-      const category = categories[Math.floor(Math.random() * categories.length)];
+      const generateFn = httpsCallable(functions, 'generateDailyMessage');
+      const result = await generateFn();
+      const { text, category } = result.data as any;
       
       const newMessage: DailyMessage = {
         text,

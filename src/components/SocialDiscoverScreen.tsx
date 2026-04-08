@@ -10,7 +10,7 @@ import {
   doc 
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile, AppConfig, Horoscope } from "../types";
+import { UserProfile, AppConfig, Horoscope, normalizeUserProfile } from "../types";
 import { calculateCompatibility } from "../lib/compatibilityEngine";
 import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
 import { toast } from "sonner";
@@ -143,7 +143,7 @@ export default function SocialDiscoverScreen({
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allFetched = snapshot.docs
-        .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
+        .map(doc => normalizeUserProfile(doc.data(), doc.id))
         .filter(u => isEligibleSocialUser(u, currentUser.uid, targetGender));
 
       const usedUserIds = new Set<string>();
@@ -203,13 +203,13 @@ export default function SocialDiscoverScreen({
 
   const handleCompatibilityCheck = async (user: UserProfile) => {
     if (isProcessing) return;
-    if ((currentUser.social?.compatibilityCredits || 0) <= 0) {
+    if ((currentUser.compatibilityCount || 0) <= 0) {
       onNavigate('wallet');
       return;
     }
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, "users", currentUser.uid), { "social.compatibilityCredits": (currentUser.social?.compatibilityCredits || 0) - 1 });
+      await updateDoc(doc(db, "users", currentUser.uid), { "compatibilityCount": (currentUser.compatibilityCount || 0) - 1 });
       toast.success("Uyum hesaplanıyor...");
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `users/${currentUser.uid}`);

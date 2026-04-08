@@ -38,12 +38,12 @@ export const isSocialProfileReady = (user: UserProfile | null | undefined): bool
   // This handles legacy users or cases where the flag wasn't set correctly.
   const social = user.social;
   
+  // A profile is considered ready if it has the core identity fields
   const hasNickname = !!(social?.nickname || user.nickname);
   const hasPhotos = (social?.photos?.length || 0) > 0 || (user.photos?.length || 0) > 0;
   const hasGender = !!(social?.gender || user.gender);
-  const hasBirthDate = !!(user.birthDate);
-  const hasLookingFor = !!(social?.lookingFor || user.lookingFor);
   
-  // All fields must be present for the profile to be considered "ready" as a fallback
-  return !!(hasNickname && hasPhotos && hasGender && hasBirthDate && hasLookingFor);
+  // If they have these 3, they are basically "in", even if some details are missing.
+  // We want to be permissive here to avoid the "profile not found" bug.
+  return !!(hasNickname && hasPhotos && hasGender);
 };

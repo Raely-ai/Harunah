@@ -2,30 +2,15 @@
   "entities": {
     "UserProfile": {
       "title": "User Profile",
-      "description": "Stores user balance, subscription and ad credit information.",
+      "description": "Stores user balance, subscription and social profile information.",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "displayName": { "type": "string" },
         "email": { "type": "string" },
         "photoURL": { "type": "string" },
-        "birthDate": { "type": "string", "format": "date" },
-        "zodiac": { "type": "string" },
+        "horoscope": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "credits": { "type": "integer", "description": "Main balance" },
-        "adCredits": { "type": "integer", "description": "Credits earned from ads" },
-        "dailyAdCount": { "type": "integer", "description": "Ads watched today" },
-        "lastAdDate": { "type": "string", "format": "date" },
-        "dailyAdReadingsUsed": {
-          "type": "object",
-          "properties": {
-            "coffee": { "type": "integer", "default": 0 },
-            "tarot": { "type": "integer", "default": 0 },
-            "lastResetDate": { "type": "string", "format": "date-time" }
-          }
-        },
-        "isBanned": { "type": "boolean", "default": false },
-        "role": { "type": "string", "enum": ["user", "admin"], "default": "user" },
         "mainCoins": { "type": "integer", "default": 0 },
         "energy": { "type": "integer", "default": 0 },
         "superLikes": { "type": "integer", "default": 0 },
@@ -33,6 +18,23 @@
         "compatibilityCount": { "type": "integer", "default": 0 },
         "dailyAdWatchCount": { "type": "integer", "default": 0 },
         "lastAdReset": { "type": "string", "format": "date-time" },
+        "isBanned": { "type": "boolean", "default": false },
+        "role": { "type": "string", "enum": ["user", "admin", "social_operator"], "default": "user" },
+        "social": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "profileCompleted": { "type": "boolean" },
+            "nickname": { "type": "string" },
+            "gender": { "type": "string", "enum": ["erkek", "kadın"] },
+            "lookingFor": { "type": "string" },
+            "bio": { "type": "string" },
+            "photos": { "type": "array", "items": { "type": "string" } },
+            "interests": { "type": "array", "items": { "type": "string" } },
+            "visible": { "type": "boolean" },
+            "banned": { "type": "boolean" }
+          }
+        },
         "subscription": {
           "type": "object",
           "properties": {
@@ -43,7 +45,7 @@
           }
         }
       },
-      "required": ["uid", "email", "credits", "adCredits", "dailyAdCount"]
+      "required": ["uid", "email", "mainCoins", "energy", "role"]
     },
     "AdminWalletConfig": {
       "title": "Admin Wallet Config",

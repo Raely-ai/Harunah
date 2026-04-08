@@ -2,7 +2,16 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /chats/{chatId}/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null && (
+        request.auth.uid in firestore.get(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/chats/$(chatId)).data.participants ||
+        (firestore.exists(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)) && 
+         firestore.get(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)).data.get('role', 'user') in ['admin', 'social_operator'])
+      );
+      allow write: if request.auth != null && (
+        request.auth.uid in firestore.get(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/chats/$(chatId)).data.participants ||
+        (firestore.exists(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)) && 
+         firestore.get(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)).data.get('role', 'user') in ['admin', 'social_operator'])
+      );
     }
     match /profiles/{userId}/{allPaths=**} {
       allow read: if true;

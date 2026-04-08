@@ -19,67 +19,11 @@ import {
   UserProfile, AppConfig, AdminWalletConfig, CentralizedReport,
   WalletTransaction, SocialTransaction, WithdrawalRequest,
   ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
-  SocialCommerceConfig
+  SocialCommerceConfig, normalizeUserProfile, FortuneAIConfig, FortuneType, EconomyConfig
 } from '../types';
 import { adminService } from '../services/adminService';
 import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
-import { EconomyConfig } from '../types';
-
-const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
-  fortunePricing: {
-    coffee: 100,
-    tarot: 150,
-    water: 200,
-    ebced: 250,
-    yildizname: 300,
-    havas: 500,
-    extraQuestion: 50
-  },
-  rewards: {
-    adRewardEnergy: 10,
-    maxDailyAds: 5,
-    adRewardExpiryDays: 7,
-    dailyLoginRewardEnergy: 5,
-    dailyLoginExpiryDays: 1,
-    customRewards: []
-  },
-  coinPackages: [
-    { id: 'pkg_1', coins: 100, priceTRY: 19.99, bonus: 0 },
-    { id: 'pkg_2', coins: 500, priceTRY: 89.99, bonus: 50 },
-    { id: 'pkg_3', coins: 1000, priceTRY: 169.99, bonus: 150 }
-  ],
-  socialPricing: {
-    superLike: [
-      { id: 'sl_1', count: 1, priceCoins: 10 },
-      { id: 'sl_5', count: 5, priceCoins: 45 },
-      { id: 'sl_10', count: 10, priceCoins: 80 }
-    ],
-    refresh: [
-      { id: 'rf_1', count: 1, priceCoins: 5 },
-      { id: 'rf_5', count: 5, priceCoins: 20 }
-    ],
-    compatibility: [
-      { id: 'cm_1', count: 1, priceCoins: 25 }
-    ]
-  },
-  socialSubscriptions: {
-    weekly: { 
-      priceTRY: 49.99, 
-      dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 1 },
-      description: "Haftalık Sosyal Paket"
-    },
-    monthly: { 
-      priceTRY: 149.99, 
-      dailyLimits: { superLikes: 10, refreshes: 5, compatibility: 3 },
-      description: "Aylık Sosyal Paket"
-    }
-  },
-  fortuneSubscriptions: {
-    daily: { priceTRY: 9.99, dailyLimit: 1, description: "Günlük Fal Paketi" },
-    weekly: { priceTRY: 59.99, dailyLimit: 3, description: "Haftalık Fal Paketi" },
-    monthly: { priceTRY: 199.99, dailyLimit: 5, description: "Aylık Fal Paketi" }
-  }
-};
+import { DEFAULT_AI_CONFIG, DEFAULT_ECONOMY_CONFIG } from '../constants';
 
 const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions'>('users');
@@ -116,7 +60,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       // Users Listener
       const usersUnsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+        const fetchedUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
         setUsers(fetchedUsers);
         setLoading(false);
       });
@@ -150,10 +94,25 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       // Economy Config Listener
       const economyUnsub = onSnapshot(doc(db, 'adminSettings', 'economy'), (docSnap) => {
         if (docSnap.exists()) {
-          setEconomyConfig(docSnap.data() as EconomyConfig);
+          const data = docSnap.data();
+          setEconomyConfig({
+            ...DEFAULT_ECONOMY_CONFIG,
+            ...data,
+            fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
+            interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
+            subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
+            aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
+            rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
+            socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
+            socialSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.socialSubscriptions, ...(data.socialSubscriptions || {}) },
+            fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
+          } as EconomyConfig);
         } else {
           setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
         }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, "adminSettings/economy");
+        setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
       });
       unsubscribes.push(economyUnsub);
     };
@@ -161,6 +120,16 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setupListeners();
     return () => unsubscribes.forEach(unsub => unsub());
   }, []);
+
+  // Keep selectedUser in sync with real-time updates
+  useEffect(() => {
+    if (selectedUser) {
+      const updated = users.find(u => u.uid === selectedUser.uid);
+      if (updated) {
+        setSelectedUser(updated);
+      }
+    }
+  }, [users]);
 
   const filteredUsers = users.filter(u => 
     u.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -568,13 +537,258 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1 capitalize">{key}</label>
                       <input
                         type="number"
-                        value={price}
-                        onChange={(e) => setEconomyConfig({
-                          ...economyConfig,
-                          fortunePricing: { ...economyConfig.fortunePricing, [key]: parseInt(e.target.value) || 0 }
-                        })}
+                        value={economyConfig?.fortunePricing?.[key as keyof typeof economyConfig.fortunePricing] || 0}
+                        onChange={(e) => {
+                          if (!economyConfig) return;
+                          setEconomyConfig({
+                            ...economyConfig,
+                            fortunePricing: { ...economyConfig.fortunePricing, [key]: parseInt(e.target.value) || 0 }
+                          });
+                        }}
                         className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
                       />
+                    </div>
+                  ))}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Öncelikli Sıra Ücreti</label>
+                    <input
+                      type="number"
+                      value={economyConfig?.fortunePricing?.priorityFee || 0}
+                      onChange={(e) => {
+                        if (!economyConfig) return;
+                        setEconomyConfig({
+                          ...economyConfig,
+                          fortunePricing: { ...economyConfig.fortunePricing, priorityFee: parseInt(e.target.value) || 0 }
+                        });
+                      }}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Günlük Abone Fal Hakkı</label>
+                    <input
+                      type="number"
+                      value={economyConfig?.subscriptionLimits?.totalDaily || 0}
+                      onChange={(e) => {
+                        if (!economyConfig) return;
+                        setEconomyConfig({
+                          ...economyConfig,
+                          subscriptionLimits: { ...(economyConfig.subscriptionLimits || {}), totalDaily: parseInt(e.target.value) || 0 }
+                        });
+                      }}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-blue-400 font-bold focus:outline-none focus:border-blue-500/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-white/5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-white/20 uppercase tracking-widest">Enerji ile Ödeme</h4>
+                    <button
+                      onClick={() => setEconomyConfig({ ...economyConfig, energyPaymentEnabled: !economyConfig.energyPaymentEnabled })}
+                      className={`w-12 h-6 rounded-full transition-all relative ${economyConfig.energyPaymentEnabled ? 'bg-green-500' : 'bg-white/10'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${economyConfig.energyPaymentEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black text-white/20 uppercase tracking-widest">Zamanlama Ayarları (Dakika)</h4>
+                    {Object.entries(economyConfig.interpretationTimes).map(([type, times]) => (
+                      <div key={type} className="bg-black/20 p-4 rounded-2xl space-y-3">
+                        <span className="text-[10px] font-bold text-amber-500/60 uppercase tracking-widest">{type}</span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[8px] text-white/20 uppercase">Arama (Min/Max)</label>
+                            <div className="flex gap-1">
+                              <input 
+                                type="number" 
+                                value={times.minSearchTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minSearchTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                              <input 
+                                type="number" 
+                                value={times.maxSearchTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxSearchTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] text-white/20 uppercase">Yorumcu (Min/Max)</label>
+                            <div className="flex gap-1">
+                              <input 
+                                type="number" 
+                                value={times.minInterpreterTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minInterpreterTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                              <input 
+                                type="number" 
+                                value={times.maxInterpreterTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxInterpreterTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] text-white/20 uppercase">Yorum (Min/Max)</label>
+                            <div className="flex gap-1">
+                              <input 
+                                type="number" 
+                                value={times.minReadingTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minReadingTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                              <input 
+                                type="number" 
+                                value={times.maxReadingTime} 
+                                onChange={(e) => {
+                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxReadingTime: parseInt(e.target.value) || 0 } };
+                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {/* AI Fortune Settings */}
+              <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-serif font-bold text-white">AI Fal Ayarları</h3>
+                    <p className="text-xs text-white/40">Ahlas'ın kehanet motoru ayarları</p>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  {(Object.keys(economyConfig.aiSettings) as FortuneType[]).map((type) => (
+                    <div key={type} className="p-6 bg-black/20 rounded-3xl border border-white/5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">{type} Ayarları</h4>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/20 uppercase px-1">System Prompt</label>
+                          <textarea
+                            value={economyConfig.aiSettings[type].systemPrompt}
+                            onChange={(e) => {
+                              const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], systemPrompt: e.target.value } };
+                              setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                            }}
+                            rows={4}
+                            className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/20 uppercase px-1">Template Prompt</label>
+                          <textarea
+                            value={economyConfig.aiSettings[type].templatePrompt}
+                            onChange={(e) => {
+                              const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], templatePrompt: e.target.value } };
+                              setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                            }}
+                            rows={4}
+                            className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/20 uppercase px-1">Cevap Tonu</label>
+                            <input
+                              type="text"
+                              value={economyConfig.aiSettings[type].tone}
+                              onChange={(e) => {
+                                const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], tone: e.target.value } };
+                                setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/20 uppercase px-1">Mistik Seviye (1-10)</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={economyConfig.aiSettings[type].mysticLevel}
+                              onChange={(e) => {
+                                const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], mysticLevel: parseInt(e.target.value) || 1 } };
+                                setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/20 uppercase px-1">Min Kelime</label>
+                            <input
+                              type="number"
+                              value={economyConfig.aiSettings[type].minLength}
+                              onChange={(e) => {
+                                const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], minLength: parseInt(e.target.value) || 0 } };
+                                setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/20 uppercase px-1">Max Kelime</label>
+                            <input
+                              type="number"
+                              value={economyConfig.aiSettings[type].maxLength}
+                              onChange={(e) => {
+                                const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], maxLength: parseInt(e.target.value) || 0 } };
+                                setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                              }}
+                              className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/20 uppercase px-1">Ekstra Soru Davranışı</label>
+                          <input
+                            type="text"
+                            value={economyConfig.aiSettings[type].extraQuestionBehavior}
+                            onChange={(e) => {
+                              const newSettings = { ...economyConfig.aiSettings, [type]: { ...economyConfig.aiSettings[type], extraQuestionBehavior: e.target.value } };
+                              setEconomyConfig({ ...economyConfig, aiSettings: newSettings });
+                            }}
+                            className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-2 text-xs text-white/80 focus:outline-none focus:border-indigo-500/50"
+                          />
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1101,7 +1315,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         { label: 'Enerji', field: 'energy', color: 'text-purple-400', icon: Zap },
                         { label: 'Süper Like', field: 'superLikes', color: 'text-rose-500', icon: Heart },
                         { label: 'Yenileme', field: 'refreshCount', color: 'text-blue-400', icon: RefreshCw },
-                        { label: 'Uyum Analizi', field: 'compatibilityCount', color: 'text-green-400', icon: Search }
+                        { label: 'Uyum Analizi', field: 'compatibilityCount', color: 'text-green-400', icon: Search },
+                        { label: 'Günlük Kaydırma', field: 'dailySwipeLimit', color: 'text-indigo-400', icon: ArrowRight },
+                        { label: 'Ekstra Kaydırma', field: 'extraSwipeLimit', color: 'text-pink-400', icon: Plus }
                       ].map(item => (
                         <div key={item.field} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
                           <div className="flex items-center justify-between">
@@ -1117,16 +1333,22 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           <div className="flex items-center gap-2">
                             <input
                               type="number"
-                              placeholder="Miktar"
+                              id={`wallet-input-${item.field}`}
+                              defaultValue={(selectedUser as any)[item.field] || 0}
                               className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:border-amber-500/50"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  const val = parseInt((e.target as HTMLInputElement).value);
-                                  if (!isNaN(val)) adminService.adminSetWallet(selectedUser.uid, { [item.field]: val });
-                                }
-                              }}
                             />
                             <div className="flex gap-1">
+                              <button 
+                                onClick={() => {
+                                  const input = document.getElementById(`wallet-input-${item.field}`) as HTMLInputElement;
+                                  const val = parseInt(input.value);
+                                  if (!isNaN(val)) adminService.adminSetWallet(selectedUser.uid, { [item.field]: val });
+                                }}
+                                className="p-2 rounded-xl bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-black transition-all"
+                                title="Kaydet"
+                              >
+                                <Save className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => adminService.adminAdjustWallet(selectedUser.uid, item.field, 10)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all"

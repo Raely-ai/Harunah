@@ -23,7 +23,8 @@ import {
   RefreshCw,
   ChevronLeft,
   Sparkles,
-  Loader2
+  Loader2,
+  User
 } from "lucide-react";
 import { FortuneReading, FortuneType, UserProfile } from "../types";
 import { toast } from "sonner";
@@ -47,9 +48,13 @@ const TYPE_ICONS: Record<string, any> = {
 };
 
 const STATUS_CONFIG = {
-  waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
+  searching: { label: 'Yorumcu Aranıyor', color: 'text-purple-600', bg: 'bg-purple-500/10', icon: Search },
+  found: { label: 'Yorumcu Bulundu', color: 'text-indigo-600', bg: 'bg-indigo-500/10', icon: User },
   interpreting: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: AlertCircle },
   completed: { label: 'Tamamlandı', color: 'text-emerald-600', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+  waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
+  error: { label: 'Hata', color: 'text-red-600', bg: 'bg-red-500/10', icon: AlertCircle },
+  pending: { label: 'Hazırlanıyor', color: 'text-gray-600', bg: 'bg-gray-500/10', icon: Clock },
 };
 
 export default function HistoryScreen({ history, userProfile, onBack, onDelete, onToggleFavorite, onRefresh }: HistoryScreenProps) {
@@ -166,22 +171,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
             filteredHistory.map((reading) => {
               const Icon = TYPE_ICONS[reading.type] || History;
               
-              // Dynamic Status Logic
-              let currentStatus = reading.status;
-              const now = new Date();
-              
-              if (reading.status !== 'completed' && reading.status !== 'error' && reading.expectedReadyAt) {
-                const expectedReadyAt = new Date(reading.expectedReadyAt);
-                const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
-                
-                if (now >= expectedReadyAt) {
-                  currentStatus = 'completed'; // It should be completed, sync hook will handle actual data
-                } else if (interpretationStartedAt && now >= interpretationStartedAt) {
-                  currentStatus = 'interpreting';
-                }
-              }
-
-              const status = STATUS_CONFIG[currentStatus as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
+              const status = STATUS_CONFIG[reading.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
               const StatusIcon = status.icon;
 
               return (
@@ -233,7 +223,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                       </div>
                     </div>
 
-                    {currentStatus === 'completed' ? (
+                    {reading.status === 'completed' ? (
                       <div className="space-y-4">
                         <p className="text-sm text-body line-clamp-2 leading-relaxed italic">
                           "{reading.content || 'Kehanetin hazırlanıyor...'}"
@@ -259,7 +249,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                       <div className="space-y-4">
                         <div className="p-4 rounded-xl bg-black/5 border border-dashed border-black/10 text-center">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
-                            {currentStatus === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
+                            {reading.status === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-2">

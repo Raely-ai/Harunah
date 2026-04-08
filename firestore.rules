@@ -14,8 +14,7 @@ service cloud.firestore {
     }
 
     function isOwnerNotBanned(userId) {
-      return isOwner(userId) && 
-             (resource == null || resource.data.get('isBanned', false) == false);
+      return isOwner(userId) && isNotBanned();
     }
     
     function isOwner(userId) {
@@ -41,6 +40,33 @@ service cloud.firestore {
       return isAdmin() || isSocialOperator();
     }
 
+    function isTimestampOrString(val) {
+      return val is timestamp || (val is string && val.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$"));
+    }
+
+    function hasOnlyAllowedFields(data, allowedFields) {
+      return data.keys().hasOnly(allowedFields);
+    }
+
+    function isValidUserCreate(data) {
+      return data.uid == request.auth.uid &&
+             data.role == 'user' &&
+             data.isBanned == false &&
+             data.mainCoins == 0 &&
+             data.energy == 0;
+    }
+
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.email is string &&
+             (!('social' in data) || (
+               data.social.get('nickname', '') is string &&
+               data.social.get('gender', '') in ['erkek', 'kadın', ''] &&
+               data.social.get('enabled', false) is bool &&
+               data.social.get('profileCompleted', false) is bool
+             ));
+    }
+
     function isValidReport(data) {
       return data.reporterId == request.auth.uid &&
              data.reportedUserId is string &&
@@ -48,23 +74,19 @@ service cloud.firestore {
              data.reason is string && data.reason.size() > 0 && data.reason.size() <= 100 &&
              data.description is string && data.description.size() <= 500 &&
              data.status == 'pending' &&
-             data.createdAt is timestamp;
+             isTimestampOrString(data.createdAt);
     }
 
     // User Profile
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isOwner(userId);
       allow update: if isAdmin() || (
-        isAuthenticated() && request.auth.uid == userId && 
+        isOwner(userId) && 
         (resource.data.get('isBanned', false) == false) &&
-        isValidUser(request.resource.data) &&
-        // 1. Prevent self-promotion or unbanning
+        // Prevent self-promotion or unbanning
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned']) &&
-        // 2. PRODUCTION HARDENING: Prevent direct modification of wallet/subscription fields
-        // These fields MUST only be updated via Cloud Functions (Admin SDK) in production.
-        // We allow the update IF the field is being set to its current value (no change)
-        // OR if the field was missing and is being set to 0/initial value (initialization)
+        // Wallet Protection
         (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
@@ -89,7 +111,9 @@ service cloud.firestore {
         resource.data.toUserId == request.auth.uid || 
         hasElevatedAccess()
       );
-      allow create: if isAuthenticated() && isNotBanned() && (request.resource.data.fromUserId == request.auth.uid || hasElevatedAccess());
+      allow create: if isAuthenticated() && isNotBanned() && 
+                    request.resource.data.fromUserId == request.auth.uid &&
+                    isTimestampOrString(request.resource.data.get('createdAt', ''));
       allow update: if isAuthenticated() && isNotBanned() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid || hasElevatedAccess());
       allow delete: if isAuthenticated() && (
         resource == null || // Allow deleting non-existent docs (cleanup)
@@ -108,9 +132,10 @@ service cloud.firestore {
         hasElevatedAccess()
       );
       allow create: if isAuthenticated() && isNotBanned() && 
-                      (request.resource.data.fromUserId == request.auth.uid || hasElevatedAccess()) &&
+                      request.resource.data.fromUserId == request.auth.uid &&
                       request.resource.data.get('type', '') in ['like', 'message', 'super_like', 'message_request'] &&
-                      request.resource.data.get('message', '').size() <= 500;
+                      request.resource.data.get('message', '').size() <= 500 &&
+                      isTimestampOrString(request.resource.data.get('createdAt', ''));
       allow update: if isAuthenticated() && isNotBanned() && (
         (request.auth.uid in [resource.data.fromUserId, resource.data.toUserId] || hasElevatedAccess()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'updatedAt']) &&
@@ -134,7 +159,8 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isNotBanned() && (
         (request.auth.uid in request.resource.data.participants || hasElevatedAccess()) &&
         request.resource.data.participants.size() == 2 &&
-        request.resource.data.get('lastMessage', '').size() <= 500
+        request.resource.data.get('lastMessage', '').size() <= 500 &&
+        isTimestampOrString(request.resource.data.get('createdAt', ''))
       );
       allow update: if isAuthenticated() && isNotBanned() && (
         (request.auth.uid in resource.data.participants && 
@@ -152,11 +178,15 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) &&
          request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants)
       );
-      allow create: if isAuthenticated() && (
-        request.resource.data.senderId == request.auth.uid || 
+      allow create: if isAuthenticated() && isNotBanned() && (
+        (
+          request.resource.data.senderId == request.auth.uid &&
+          exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants
+        ) || 
         request.resource.data.senderId == "system" ||
         hasElevatedAccess()
-      );
+      ) && isTimestampOrString(request.resource.data.get('createdAt', ''));
       allow update: if isAuthenticated() && (
         hasElevatedAccess() || 
         request.auth.uid == resource.data.senderId ||
@@ -274,7 +304,7 @@ service cloud.firestore {
 
     // Admin Settings
     match /adminSettings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
   }

@@ -18,7 +18,7 @@ import {
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile, CentralizedReport, AppConfig, AdminWalletConfig, EconomyConfig } from "../types";
+import { UserProfile, CentralizedReport, AppConfig, AdminWalletConfig, EconomyConfig, normalizeUserProfile } from "../types";
 import { callFunction } from "../lib/walletService";
 import { toast } from "sonner";
 
@@ -27,7 +27,7 @@ export const adminService = {
   async getUsers(): Promise<UserProfile[]> {
     try {
       const snap = await getDocs(collection(db, "users"));
-      return snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+      return snap.docs.map(d => normalizeUserProfile(d.data(), d.id));
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "users");
       return [];
@@ -214,19 +214,23 @@ export const adminService = {
   },
 
   async adminSetWallet(targetUserId: string, updates: any): Promise<void> {
+    console.log(`[ADMIN SERVICE] Setting wallet for ${targetUserId}:`, updates);
     try {
       await callFunction('adminSetWallet', { targetUserId, updates });
       toast.success("Cüzdan güncellendi.");
     } catch (error) {
+      console.error(`[ADMIN SERVICE] Error setting wallet for ${targetUserId}:`, error);
       handleFirestoreError(error, OperationType.UPDATE, `users/${targetUserId}/wallet`);
     }
   },
 
   async adminAdjustWallet(targetUserId: string, field: string, amount: number): Promise<void> {
+    console.log(`[ADMIN SERVICE] Adjusting wallet for ${targetUserId}: ${field} by ${amount}`);
     try {
       await callFunction('adminAdjustWallet', { targetUserId, field, amount });
       toast.success("Cüzdan ayarlandı.");
     } catch (error) {
+      console.error(`[ADMIN SERVICE] Error adjusting wallet for ${targetUserId}:`, error);
       handleFirestoreError(error, OperationType.UPDATE, `users/${targetUserId}/wallet`);
     }
   }

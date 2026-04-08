@@ -25,15 +25,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import RitualScreen from "./RitualScreen";
-import { FortuneType, UserProfile, AppConfig } from "../types";
+import PaymentSummary from "./PaymentSummary";
+import { FortuneType, UserProfile, AppConfig, EconomyConfig } from "../types";
 
 interface AdvancedFlowProps {
   type: FortuneType;
   userProfile: UserProfile;
   config: AppConfig;
+  economyConfig: EconomyConfig;
   onUpdateProfile: (updates: Partial<UserProfile>) => void;
-  onComplete: (data: any) => void;
+  onComplete: (data: any) => Promise<any>;
   onClose: () => void;
+  onSocialClick?: () => void;
 }
 
 const TITLES: Record<string, string> = {
@@ -50,13 +53,14 @@ const DURATIONS: Record<string, string> = {
   havas: '90 Dakika'
 };
 
-export default function AdvancedFlow({ type, userProfile, config, onUpdateProfile, onComplete, onClose }: AdvancedFlowProps) {
+export default function AdvancedFlow({ type, userProfile, config, economyConfig, onUpdateProfile, onComplete, onClose, onSocialClick }: AdvancedFlowProps) {
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeReading, setActiveReading] = useState<any>(null);
   const [formData, setFormData] = useState({
-    name: '',
-    birthDate: '',
+    adSoyad: userProfile.displayName || '',
+    dogumTarihi: userProfile.birthDate || '',
+    iliskiDurumu: userProfile.relationshipStatus || 'single',
     birthTime: '',
     motherName: '',
     fatherName: '',
@@ -64,6 +68,8 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
     userPhoto: null as string | null,
     targetPhoto: null as string | null,
     questions: [
+      { text: '', photo: null as string | null },
+      { text: '', photo: null as string | null },
       { text: '', photo: null as string | null }
     ]
   });
@@ -78,7 +84,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
   };
 
   const removeQuestion = (index?: number) => {
-    if (formData.questions.length > 1) {
+    if (formData.questions.length > 3) {
       const newQuestions = [...formData.questions];
       if (typeof index === 'number') {
         newQuestions.splice(index, 1);
@@ -109,33 +115,33 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#050505] flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-[#FDFCFE] flex flex-col">
       {/* Header */}
-      <header className="flex-shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5 px-4 py-6 flex items-center justify-between">
+      <header className="flex-shrink-0 bg-white/80 backdrop-blur-xl border-b border-black/5 px-4 py-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={onClose}
-            className="p-2 rounded-full bg-white/5 text-purple-200/60"
+            className="p-2 rounded-full bg-black/5 text-muted"
           >
             <ChevronLeft className="w-6 h-6" />
           </motion.button>
           <div>
-            <h1 className="text-xl font-serif font-bold text-amber-50">{type === 'water' ? 'Su Falı' : type.charAt(0).toUpperCase() + type.slice(1)}</h1>
-            <p className="text-xs text-purple-200/40">Derin ilimlerle geleceği keşfet</p>
+            <h1 className="text-xl font-serif font-bold text-heading">{type === 'water' ? 'Su Falı' : type.charAt(0).toUpperCase() + type.slice(1)}</h1>
+            <p className="text-xs text-muted">Derin ilimlerle geleceği keşfet</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
-          <CreditCard className="w-3 h-3 text-amber-400" />
-          <span className="text-xs font-bold text-amber-400">{userProfile.mainCoins || 0}</span>
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-full">
+          <CreditCard className="w-3 h-3 text-amber-600" />
+          <span className="text-xs font-bold text-amber-600">{userProfile.mainCoins || 0}</span>
         </div>
       </header>
 
       {/* Progress Bar */}
-      <div className="relative h-1 bg-white/5">
+      <div className="relative h-1 bg-black/5">
         <motion.div 
-          className="h-full bg-indigo-500"
+          className="h-full bg-indigo-600"
           initial={{ width: "0%" }}
           animate={{ width: `${(step / 3) * 100}%` }}
         />
@@ -159,7 +165,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                     animate={{ 
                       y: [0, -100, 0],
                       x: [0, Math.random() * 50 - 25, 0],
-                      opacity: [0.1, 0.3, 0.1],
+                      opacity: [0.05, 0.15, 0.05],
                       scale: [1, 1.2, 1]
                     }}
                     transition={{ 
@@ -177,77 +183,81 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
               </div>
 
               <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-indigo-50">{TITLES[type]}</h2>
-                <p className="text-purple-200/40">Derin bir kehanet için temel bilgilerini gir.</p>
+                <h2 className="text-3xl font-serif font-bold text-heading">{TITLES[type]}</h2>
+                <p className="text-muted">Derin bir kehanet için temel bilgilerini gir.</p>
               </div>
 
               <div className="space-y-6">
                 <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">İsim</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Ad Soyad</label>
                     <input 
                       type="text"
-                      placeholder="İsim giriniz..."
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
+                      placeholder="Adınız ve soyadınız..."
+                      value={formData.adSoyad}
+                      onChange={(e) => setFormData({ ...formData, adSoyad: e.target.value })}
+                      className="w-full bg-black/5 border border-black/10 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Doğum Tarihi</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Doğum Tarihi</label>
                       <input 
                         type="date"
-                        value={formData.birthDate}
-                        onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
+                        value={formData.dogumTarihi}
+                        onChange={(e) => setFormData({ ...formData, dogumTarihi: e.target.value })}
+                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Doğum Saati (Opsiyonel)</label>
-                      <input 
-                        type="time"
-                        value={formData.birthTime}
-                        onChange={(e) => setFormData({ ...formData, birthTime: e.target.value })}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                      />
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">İlişki Durumu</label>
+                      <select 
+                        value={formData.iliskiDurumu}
+                        onChange={(e) => setFormData({ ...formData, iliskiDurumu: e.target.value })}
+                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm appearance-none"
+                      >
+                        <option value="single">Bekar</option>
+                        <option value="taken">İlişkisi Var</option>
+                        <option value="complicated">Karışık</option>
+                        <option value="divorced">Boşanmış</option>
+                      </select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Anne Adı (Opsiyonel)</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Anne Adı (Opsiyonel)</label>
                       <input 
                         type="text"
                         placeholder="Anne adı..."
                         value={formData.motherName}
                         onChange={(e) => setFormData({ ...formData, motherName: e.target.value })}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
+                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Baba Adı (Opsiyonel)</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Baba Adı (Opsiyonel)</label>
                       <input 
                         type="text"
                         placeholder="Baba adı..."
                         value={formData.fatherName}
                         onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
+                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Hedef Kişi (Opsiyonel)</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Hedef Kişi (Opsiyonel)</label>
                     <div className="relative">
-                      <Users className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
+                      <Users className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40" />
                       <input 
                         type="text"
                         placeholder="Kimin hakkında sormak istersin?"
                         value={formData.targetName}
                         onChange={(e) => setFormData({ ...formData, targetName: e.target.value })}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-14 pr-6 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
+                        className="w-full bg-black/5 border border-black/10 rounded-2xl pl-14 pr-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
                       />
                     </div>
                   </div>
@@ -255,9 +265,9 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
               </div>
 
               <button
-                disabled={!formData.name || !formData.birthDate}
+                disabled={!formData.adSoyad || !formData.dogumTarihi}
                 onClick={nextStep}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-2xl shadow-indigo-900/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-xl shadow-indigo-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
               >
                 <span>Sorulara Geç</span>
                 <ArrowRight className="w-5 h-5" />
@@ -274,15 +284,15 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
               className="space-y-8"
             >
               <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-indigo-50">Sorularını Sor</h2>
-                <p className="text-purple-200/40">LASYA'ya sormak istediğin her şeyi detaylıca yaz.</p>
+                <h2 className="text-3xl font-serif font-bold text-heading">Sorularını Sor</h2>
+                <p className="text-muted">LASYA'ya sormak istediğin her şeyi detaylıca yaz.</p>
               </div>
 
               {/* Identity Photos */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Sizin Fotoğrafınız</label>
-                  <div className="relative aspect-square rounded-2xl border border-white/10 bg-white/5 overflow-hidden group">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Sizin Fotoğrafınız</label>
+                  <div className="relative aspect-square rounded-2xl border border-black/10 bg-black/5 overflow-hidden group shadow-sm">
                     <input 
                       type="file" 
                       accept="image/*"
@@ -300,15 +310,15 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                       <img src={formData.userPhoto} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <Camera className="w-6 h-6 text-purple-200/20" />
-                        <span className="text-[8px] font-bold text-purple-200/40 uppercase">İsteğe Bağlı</span>
+                        <Camera className="w-6 h-6 text-muted/40" />
+                        <span className="text-[8px] font-bold text-muted/40 uppercase">İsteğe Bağlı</span>
                       </div>
                     )}
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Hedef Kişi</label>
-                  <div className="relative aspect-square rounded-2xl border border-white/10 bg-white/5 overflow-hidden group">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Hedef Kişi</label>
+                  <div className="relative aspect-square rounded-2xl border border-black/10 bg-black/5 overflow-hidden group shadow-sm">
                     <input 
                       type="file" 
                       accept="image/*"
@@ -326,33 +336,33 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                       <img src={formData.targetPhoto} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <Camera className="w-6 h-6 text-purple-200/20" />
-                        <span className="text-[8px] font-bold text-purple-200/40 uppercase">İsteğe Bağlı</span>
+                        <Camera className="w-6 h-6 text-muted/40" />
+                        <span className="text-[8px] font-bold text-muted/40 uppercase">İsteğe Bağlı</span>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50 border border-indigo-100 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <Wallet className="w-5 h-5 text-indigo-400" />
+                  <Wallet className="w-5 h-5 text-indigo-600" />
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40">Toplam Maliyet</p>
-                    <p className="text-sm font-bold text-indigo-50">{creditCost} Kredi</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Toplam Maliyet</p>
+                    <p className="text-sm font-bold text-heading">{creditCost} Kredi</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => removeQuestion()}
-                    className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                    className="p-2 rounded-lg bg-black/5 text-muted hover:bg-red-50 hover:text-red-600 transition-colors"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <div className="w-8 text-center font-bold text-indigo-400">{formData.questions.length}</div>
+                  <div className="w-8 text-center font-bold text-indigo-600">{formData.questions.length}</div>
                   <button 
                     onClick={addQuestion}
-                    className="p-2 rounded-lg bg-white/5 text-purple-200/40 hover:bg-indigo-500/10 hover:text-indigo-400 transition-colors"
+                    className="p-2 rounded-lg bg-black/5 text-muted hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -360,7 +370,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
               </div>
 
               <div className="space-y-6">
-                <p className="text-[10px] font-bold text-purple-200/40 uppercase tracking-widest text-center px-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-widest text-center px-4">
                   Sorularla ilgili fotoğraf yükleyebilirsiniz, özellikle başkası hakkında soracaksanız fotoğraf eklemeniz kehaneti güçlendirir.
                 </p>
                 
@@ -369,10 +379,10 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                     key={i}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="space-y-3 p-4 rounded-3xl border border-white/5 bg-white/5"
+                    className="space-y-3 p-4 rounded-3xl border border-black/5 bg-white shadow-sm"
                   >
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Soru {i + 1}</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Soru {i + 1}</label>
                       {formData.questions.length > 1 && (
                         <button 
                           type="button"
@@ -380,7 +390,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                             e.stopPropagation();
                             removeQuestion(i);
                           }}
-                          className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                          className="p-1 text-red-600 hover:text-red-700 transition-colors"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -391,7 +401,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                       value={q.text}
                       onChange={(e) => handleQuestionChange(i, e.target.value)}
                       rows={3}
-                      className="w-full bg-black/20 border border-white/5 rounded-2xl px-6 py-4 text-indigo-50 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
+                      className="w-full bg-black/5 border border-black/5 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
                     />
                     
                     <div className="flex items-center gap-3">
@@ -410,7 +420,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                           }}
                         />
                         <button className={`w-full py-3 rounded-xl border border-dashed flex items-center justify-center gap-2 transition-all ${
-                          q.photo ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-white/10 bg-white/5 text-purple-200/40'
+                          q.photo ? 'border-emerald-500/50 bg-emerald-50 text-emerald-600' : 'border-black/10 bg-black/5 text-muted'
                         }`}>
                           {q.photo ? <CheckCircle2 className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
                           <span className="text-[10px] font-bold uppercase tracking-widest">
@@ -421,7 +431,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                       {q.photo && (
                         <button 
                           onClick={() => handleQuestionPhoto(i, null)}
-                          className="p-3 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20"
+                          className="p-3 rounded-xl bg-red-50 text-red-600 border border-red-100"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -433,7 +443,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                 {formData.questions.length < 50 && (
                   <button
                     onClick={addQuestion}
-                    className="w-full py-4 rounded-2xl border border-dashed border-white/10 bg-white/5 text-purple-200/40 font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:border-indigo-500/30 hover:text-indigo-400 transition-all"
+                    className="w-full py-4 rounded-2xl border border-dashed border-black/10 bg-white text-muted font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:border-indigo-500/30 hover:text-indigo-600 transition-all shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Soru Ekle</span>
@@ -441,27 +451,37 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
                 )}
               </div>
 
+              <PaymentSummary 
+                type={type}
+                userProfile={userProfile}
+                economyConfig={economyConfig}
+                extraQuestionsCount={Math.max(0, formData.questions.length - 3)}
+                priorityMode={false}
+              />
+
               <button
                 disabled={formData.questions.some(q => !q.text.trim()) || isProcessing}
                 onClick={async () => {
+                  if (isProcessing) return;
                   setIsProcessing(true);
                   try {
                     const reading = await onComplete({ ...formData, type });
                     setActiveReading(reading);
                     nextStep();
-                  } catch (error) {
+                  } catch (error: any) {
                     console.error("Submit error:", error);
+                    toast.error(error.message || "Bir hata oluştu");
                   } finally {
                     setIsProcessing(false);
                   }
                 }}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-2xl shadow-indigo-900/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-xl shadow-indigo-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
               >
                 {isProcessing ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    <span>Kehaneti Başlat</span>
+                    <span>Yoruma Al</span>
                     <Sparkles className="w-5 h-5" />
                   </>
                 )}
@@ -470,7 +490,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
           )}
 
           {step === 3 && (
-            <RitualScreen type={type} reading={activeReading} onClose={onClose} />
+            <RitualScreen type={type} reading={activeReading} onClose={onClose} onSocialClick={onSocialClick} />
           )}
         </AnimatePresence>
       </div>
@@ -478,7 +498,7 @@ export default function AdvancedFlow({ type, userProfile, config, onUpdateProfil
       {step < 3 && (
         <button 
           onClick={onClose}
-          className="absolute top-6 right-6 p-2 rounded-full bg-white/5 text-purple-200/40"
+          className="absolute top-6 right-6 p-2 rounded-full bg-black/5 text-muted"
         >
           <X className="w-5 h-5" />
         </button>

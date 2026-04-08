@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
-import { auth, db, handleFirestoreError, OperationType } from "./lib/firebase";
-import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction } from "firebase/firestore";
+import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
+import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
 
 import Header from "./components/Header";
@@ -33,12 +34,23 @@ import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
-import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope, EconomyConfig } from "./types";
-import { generateFortune } from "./services/geminiService";
+import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope, EconomyConfig, normalizeUserProfile } from "./types";
+import { DEFAULT_ECONOMY_CONFIG } from "./constants";
 import { socialService } from "./lib/socialService";
+import { walletService } from "./lib/walletService";
 import { isSocialProfileReady } from "./lib/socialUtils";
 
+import { ErrorBoundary } from "./components/ErrorBoundary";
+
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [user, loading, error] = useAuthState(auth);
   const [showSplash, setShowSplash] = useState(true);
   const [authScreen, setAuthScreen] = useState<AuthScreen>('welcome');
@@ -83,6 +95,32 @@ export default function App() {
     };
   }, [user?.uid]);
 
+  useEffect(() => {
+    // Auto-fix: If profile has core data but flag is missing, fix it.
+    if (userProfile && !userProfile.social?.profileCompleted) {
+      const hasNickname = !!(userProfile.social?.nickname || userProfile.nickname);
+      const hasPhotos = (userProfile.social?.photos?.length || 0) > 0 || (userProfile.photos?.length || 0) > 0;
+      const hasGender = !!(userProfile.social?.gender || userProfile.gender);
+
+      if (hasNickname && hasPhotos && hasGender) {
+        const fixProfileFlag = async () => {
+          try {
+            const { doc, updateDoc } = await import("firebase/firestore");
+            await updateDoc(doc(db, "users", userProfile.uid), { 
+              "social.profileCompleted": true,
+              "social.enabled": true,
+              "social.visible": true
+            });
+            console.log("Auto-fixed social profile flags for user:", userProfile.uid);
+          } catch (error) {
+            console.error("Auto-fix profile flag error:", error);
+          }
+        };
+        fixProfileFlag();
+      }
+    }
+  }, [userProfile]);
+
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
   // Admin Preview Mode
@@ -91,7 +129,7 @@ export default function App() {
     if (previewId && isAdmin) {
       const unsubscribe = onSnapshot(doc(db, "users", previewId), (snapshot) => {
         if (snapshot.exists()) {
-          setPreviewUser({ uid: snapshot.id, ...snapshot.data() } as UserProfile);
+          setPreviewUser(normalizeUserProfile(snapshot.data(), snapshot.id));
         }
       });
       return () => unsubscribe();
@@ -109,12 +147,12 @@ export default function App() {
       } else {
         // Provide a default config if not found in Firestore yet
         const defaultConfig: AppConfig = {
-          prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
+          prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, horoscope: 30, dream: 30, extraQuestion: 10, priorityFee: 20 },
           icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
           dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
           adRewardEnergy: 5,
           maxDailyAds: 5,
-          subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
+          subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5, totalDaily: 10 },
           packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
         };
         setAppConfig(defaultConfig);
@@ -123,12 +161,12 @@ export default function App() {
       console.error("Config fetch error:", err);
       // Fallback on error too
       setAppConfig({
-        prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10 },
+        prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, horoscope: 30, dream: 30, extraQuestion: 10, priorityFee: 20 },
         icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
         dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
         adRewardEnergy: 5,
         maxDailyAds: 5,
-        subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5 },
+        subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5, totalDaily: 10 },
         packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
       });
     });
@@ -137,13 +175,29 @@ export default function App() {
 
   // Fetch Economy Config
   useEffect(() => {
+    if (!user) return;
     const economyRef = doc(db, "adminSettings", "economy");
     const unsubscribe = onSnapshot(economyRef, (snapshot) => {
       if (snapshot.exists()) {
-        setEconomyConfig(snapshot.data() as EconomyConfig);
+        const data = snapshot.data();
+        setEconomyConfig({
+          ...DEFAULT_ECONOMY_CONFIG,
+          ...data,
+          fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
+          interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
+          subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
+          aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
+          rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
+          socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
+          socialSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.socialSubscriptions, ...(data.socialSubscriptions || {}) },
+          fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
+        } as EconomyConfig);
+      } else {
+        setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
       }
     }, (err) => {
-      console.error("Economy config fetch error:", err);
+      handleFirestoreError(err, OperationType.GET, "adminSettings/economy");
+      setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
     });
     return () => unsubscribe();
   }, []);
@@ -179,141 +233,128 @@ export default function App() {
     { type: 'havas', content: "Merhaba {isim}, ilmi havas ile gizli enerjilere bakıyorum. {cinsiyet} olarak hayatındaki {iliskidurumu} durumunu ve {isdurumu} hayatını inceliyorum. Doğum tarihin {dogumtarihi}. Ekstra bilgi: {ekbilgi}. Lütfen bu derin ilme göre hayatını detaylıca yorumla." },
   ]);
   
-  // Real Profile Sync
-  useEffect(() => {
-    if (!user) {
-      setUserProfile(null);
-      setIsProfileLoading(false);
-      return;
-    }
+    // Real Profile Sync
+    useEffect(() => {
+      if (!user) {
+        setUserProfile(null);
+        setIsProfileLoading(false);
+        return;
+      }
 
-    setIsProfileLoading(true);
-    const userRef = doc(db, "users", user.uid);
-    const unsubscribe = onSnapshot(userRef, async (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        let profile = { uid: snapshot.id, ...data } as UserProfile;
-        
-        // Ensure social object exists for existing users
-        if (!profile.social) {
-          const defaultSocial = {
-            enabled: profile.socialEnabled || false,
-            profileCompleted: profile.socialProfileCompleted || false,
-            nickname: profile.nickname || profile.displayName || "Gezgin",
-            gender: (profile.gender as any) || 'erkek',
-            lookingFor: profile.lookingFor || 'arkadaş',
-            bio: profile.bio || '',
-            photos: profile.photos || [],
-            interests: profile.interests || [],
-            visible: profile.socialVisible !== undefined ? profile.socialVisible : true,
-            banned: profile.socialBan || false,
-            settings: {
-              whoCanMessage: 'everyone' as const,
-              whoCanAddFriend: 'everyone' as const,
-              notifications: {
-                messages: true,
-                friendRequests: true,
-                roomInvites: true,
-                gifts: true
+      setIsProfileLoading(true);
+      const userRef = doc(db, "users", user.uid);
+
+      // CRITICAL FIX: Ensure document exists before listening, and only create if missing.
+      // This prevents race conditions and accidental overwrites on page refresh.
+      const initializeUser = async () => {
+        try {
+          const snap = await getDoc(userRef);
+          if (!snap.exists()) {
+            console.log("Creating initial profile for new user:", user.uid);
+            const initialProfile: UserProfile = {
+              uid: user.uid,
+              email: user.email || "",
+              displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
+              photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
+              horoscope: 'Koç',
+              dailyAdReadingsUsed: {
+                coffee: 0,
+                tarot: 0,
+                lastResetDate: new Date().toISOString().split('T')[0]
+              },
+              createdAt: new Date().toISOString(),
+              isBanned: false,
+              role: 'user',
+              mainCoins: 0,
+              energy: 0,
+              superLikes: 0,
+              refreshCount: 0,
+              compatibilityCount: 0,
+              dailyAdWatchCount: 0,
+              lastAdReset: new Date().toISOString(),
+              social: {
+                enabled: false,
+                profileCompleted: false,
+                nickname: user.displayName || "Gezgin",
+                gender: 'erkek' as const,
+                lookingFor: 'arkadaş',
+                bio: '',
+                photos: [] as string[],
+                interests: [] as string[],
+                visible: true,
+                banned: false,
+                settings: {
+                  whoCanMessage: 'everyone' as const,
+                  whoCanAddFriend: 'everyone' as const,
+                  notifications: {
+                    messages: true,
+                    friendRequests: true,
+                    roomInvites: true,
+                    gifts: true
+                  }
+                }
+              },
+              subscription: {
+                status: 'none',
+                type: 'none',
+                dailyLimitUsed: 0,
+                dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
               }
+            };
+            try {
+              await setDoc(userRef, initialProfile);
+            } catch (setErr) {
+              console.error("Error creating initial profile:", setErr);
+              handleFirestoreError(setErr, OperationType.CREATE, `users/${user.uid}`);
             }
-          };
-          
-          // Update Firestore immediately to fix the profile
-          updateDoc(doc(db, "users", user.uid), { social: defaultSocial })
-            .catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`));
-          
-          profile = { ...profile, social: defaultSocial };
-        }
-        
-        // Auto-fix: If they have all required fields but profileCompleted is false, fix it
-        if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
-          console.log("Auto-fixing profileCompleted for user:", user.uid);
-          updateDoc(doc(db, "users", user.uid), { 
-            "social.profileCompleted": true,
-            "social.enabled": true 
-          }).catch(err => console.error("Auto-fix error:", err));
-          
-          if (profile.social) {
-            profile.social.profileCompleted = true;
-            profile.social.enabled = true;
           }
+        } catch (err) {
+          console.error("User initialization error:", err);
+          if (err instanceof Error && err.message.includes('authInfo')) {
+            // Already handled and formatted
+            throw err;
+          }
+          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
         }
-        
-        if (profile.isBanned) {
+      };
+
+      initializeUser();
+
+      const unsubscribe = onSnapshot(userRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          let profile = normalizeUserProfile(data, snapshot.id);
+          
+          // Auto-fix: If they have all required fields but profileCompleted is false, fix it
+          if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
+            console.log("Auto-fixing profileCompleted for user:", user.uid);
+            updateDoc(doc(db, "users", user.uid), { 
+              "social.profileCompleted": true,
+              "social.enabled": true 
+            }).catch(err => console.error("Auto-fix error:", err));
+            
+            if (profile.social) {
+              profile.social.profileCompleted = true;
+              profile.social.enabled = true;
+            }
+          }
+          
+          if (profile.isBanned) {
+            setUserProfile(profile);
+            setIsProfileLoading(false);
+            return;
+          }
+          
           setUserProfile(profile);
           setIsProfileLoading(false);
-          // We don't sign out immediately to show the banned screen
-          return;
         }
-        
-        setUserProfile(profile);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
         setIsProfileLoading(false);
-      } else {
-        // Create initial profile if it doesn't exist
-        const initialProfile: UserProfile = {
-          uid: user.uid,
-          email: user.email || "",
-          displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-          photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault", // Use Google photo if available, else default
-          horoscope: 'Koç', // Default horoscope
-          dailyAdReadingsUsed: {
-            coffee: 0,
-            tarot: 0,
-            lastResetDate: new Date().toISOString().split('T')[0]
-          },
-          createdAt: new Date().toISOString(),
-          isBanned: false,
-          role: 'user',
-          mainCoins: 0,
-          energy: 0,
-          superLikes: 0,
-          refreshCount: 0,
-          compatibilityCount: 0,
-          dailyAdWatchCount: 0,
-          lastAdReset: new Date().toISOString(),
-          social: {
-            enabled: false,
-            profileCompleted: false,
-            nickname: user.displayName || "Gezgin",
-            gender: 'erkek' as const,
-            lookingFor: 'arkadaş',
-            bio: '',
-            photos: [] as string[],
-            interests: [] as string[],
-            visible: true,
-            banned: false,
-            settings: {
-              whoCanMessage: 'everyone' as const,
-              whoCanAddFriend: 'everyone' as const,
-              notifications: {
-                messages: true,
-                friendRequests: true,
-                roomInvites: true,
-                gifts: true
-              }
-            }
-          },
-          subscription: {
-            status: 'none',
-            type: 'none',
-            dailyLimitUsed: 0,
-            dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
-          }
-        };
-        setDoc(doc(db, "users", user.uid), initialProfile)
-          .then(() => setIsProfileLoading(false))
-          .catch(err => handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`));
-      }
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
-      setIsProfileLoading(false);
-    });
+      });
 
-    return () => {
-      unsubscribe();
-    };
-  }, [user]);
+      return () => unsubscribe();
+    }, [user]);
 
   // Fetch Horoscopes
   useEffect(() => {
@@ -457,7 +498,7 @@ export default function App() {
       const q = query(
         collection(db, "readings"),
         where("userId", "==", user.uid),
-        where("status", "in", ["pending", "waiting", "interpreting"])
+        where("status", "in", ["searching", "found", "interpreting", "waiting"])
       );
       
       const snapshot = await getDocs(q);
@@ -466,83 +507,38 @@ export default function App() {
       for (const docSnap of snapshot.docs) {
         const reading = docSnap.data() as FortuneReading;
         
-        // Case 0: Cleanup stuck 'pending' readings (failed transactions)
-        if (reading.status === 'pending') {
-          const updatedAt = new Date(reading.updatedAt || reading.date);
-          const diffMins = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
-          
-          if (diffMins > 2) {
-            console.log(`Sync: Marking stuck pending reading ${reading.id} as error`);
-            await updateDoc(docSnap.ref, {
-              status: 'error',
-              error: 'İşlem zaman aşımına uğradı (pending stuck)',
-              updatedAt: new Date().toISOString()
-            });
-          }
+        // New Status Flow Logic
+        const expectedReaderFoundAt = reading.expectedReaderFoundAt ? new Date(reading.expectedReaderFoundAt) : null;
+        const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
+        const expectedCompletedAt = reading.expectedCompletedAt ? new Date(reading.expectedCompletedAt) : null;
+
+        // 1. Searching -> Found
+        if (reading.status === 'searching' && expectedReaderFoundAt && now >= expectedReaderFoundAt) {
+          await updateDoc(docSnap.ref, {
+            status: 'found',
+            updatedAt: now.toISOString()
+          });
           continue;
         }
 
-        // Skip old readings without timestamp fields
-        if (!reading.expectedReadyAt) continue;
-
-        const expectedReadyAt = new Date(reading.expectedReadyAt);
-        const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
-
-        // Case 1: Time is up, but status is not completed
-        if (now >= expectedReadyAt) {
-          console.log(`Sync: Reading ${reading.id} is overdue. Completing...`);
-          
-          // If content already exists, just update status
-          if (reading.content && reading.content !== 'Kehanetin hazırlanıyor...') {
-            await updateDoc(docSnap.ref, {
-              status: 'completed',
-              updatedAt: now.toISOString()
-            });
-            continue;
-          }
-
-          // Trigger AI generation if content is missing
-          try {
-            const aiResult = await generateFortune({
-              name: userProfile.displayName || "Gezgin",
-              birthDate: userProfile.birthDate || "1990-01-01",
-              relationshipStatus: userProfile.relationshipStatus || "Belirtilmedi",
-              jobStatus: userProfile.jobStatus || "Belirtilmedi",
-              gender: userProfile.gender || "Belirtilmedi",
-              extraInfo: userProfile.extraInfo || "Belirtilmedi",
-              type: reading.type,
-              cards: reading.cards,
-              images: reading.images,
-              questions: reading.questions || []
-            });
-
-            await updateDoc(docSnap.ref, {
-              status: 'completed',
-              content: aiResult.text,
-              promptSource: aiResult.promptSource,
-              promptId: aiResult.promptId,
-              updatedAt: now.toISOString()
-            });
-          } catch (aiErr) {
-            console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
-            const diffMins = (now.getTime() - expectedReadyAt.getTime()) / (1000 * 60);
-            if (diffMins > 10) {
-              await updateDoc(docSnap.ref, {
-                status: 'error',
-                error: aiErr instanceof Error ? aiErr.message : "Sync error",
-                content: "Üzgünüz, kehanetiniz hazırlanırken bir sorun oluştu. Lütfen daha sonra tekrar deneyin.",
-                updatedAt: now.toISOString()
-              });
-            }
-          }
-        } 
-        // Case 2: Interpretation should have started
-        else if (interpretationStartedAt && now >= interpretationStartedAt && reading.status === 'waiting') {
-          console.log(`Sync: Reading ${reading.id} should be interpreting.`);
+        // 2. Found -> Interpreting
+        if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
           await updateDoc(docSnap.ref, {
             status: 'interpreting',
             updatedAt: now.toISOString()
           });
+          continue;
+        }
+
+        // 3. Interpreting -> Completed (Trigger AI)
+        if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
+          // Call Cloud Function to process AI
+          try {
+            const processFortuneAIFn = httpsCallable(functions, 'processFortuneAI');
+            await processFortuneAIFn({ readingId: reading.id });
+          } catch (aiErr) {
+            console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
+          }
         }
       }
     } catch (err) {
@@ -561,260 +557,67 @@ export default function App() {
   }, [user, userProfile]);
 
   const handleFortuneComplete = async (data: any) => {
-    if (!userProfile || !appConfig || isSubmitting) return;
-
-    // 1. Duplicate Check (Atomic Guard)
-    try {
-      const q = query(
-        collection(db, "readings"),
-        where("userId", "==", user?.uid),
-        where("status", "in", ["waiting", "interpreting"]),
-        limit(1)
-      );
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        toast.error("Zaten aktif bir falın var!", {
-          description: "Lütfen mevcut falının tamamlanmasını bekle."
-        });
-        return;
-      }
-    } catch (err) {
-      console.error("Duplicate check error:", err);
-    }
+    if (!user || !userProfile || !appConfig || isSubmitting) return;
 
     setIsSubmitting(true);
-
-    const type = data.type as FortuneType;
-    const prices = economyConfig?.fortunePricing || appConfig.prices;
-    const basePrice = (prices as any)[type] || 0;
-    
-    let extraQuestionsPrice = 0;
-    if (data.questions && data.questions.length > 3) {
-      const extraCount = data.questions.length - 3;
-      extraQuestionsPrice = extraCount * (prices.extraQuestion || 10);
-    }
-    
-    const totalPrice = basePrice + extraQuestionsPrice;
-    const isAdEligible = ['coffee', 'tarot'].includes(type);
-
-    // Calculate Timestamps for Queue Management
-    const typeKey = (data.type === 'coffee' || data.type === 'tarot') ? data.type : 'advanced';
-    const times = appConfig.interpretationTimes?.[typeKey as 'coffee' | 'tarot' | 'advanced'] || {
-      minInterpreterTime: 5,
-      maxInterpreterTime: 15,
-      minReadingTime: 15,
-      maxReadingTime: 30
-    };
-
-    const interpreterDelay = Math.floor(Math.random() * (times.maxInterpreterTime - times.minInterpreterTime + 1) + times.minInterpreterTime) * 60 * 1000;
-    const readingDelay = Math.floor(Math.random() * (times.maxReadingTime - times.minReadingTime + 1) + times.minReadingTime) * 60 * 1000;
-
-    const now = new Date();
-    const queueStartedAt = now.toISOString();
-    const interpretationStartedAt = new Date(now.getTime() + interpreterDelay).toISOString();
-    const expectedReadyAt = new Date(now.getTime() + interpreterDelay + readingDelay).toISOString();
-
-    const readingId = Math.random().toString(36).substr(2, 9);
-    const readingRef = doc(db, "readings", readingId);
-    const userRef = doc(db, "users", userProfile.uid);
-
-    const newReading: FortuneReading = {
-      id: readingId,
-      userId: user?.uid || "",
-      type: data.type,
-      title: data.type === 'coffee' ? 'Kahve Falı' : data.type === 'tarot' ? 'Tarot Açılımı' : (data.type === 'su' || data.type === 'water') ? 'Su Falı' : data.type.charAt(0).toUpperCase() + data.type.slice(1),
-      content: 'Kehanetin hazırlanıyor...',
-      date: new Date().toISOString(),
-      status: 'pending',
-      questions: data.questions ? data.questions.map((q: any) => typeof q === 'string' ? q : q.text).filter(Boolean) : [],
-      creditsUsed: 0,
-      balanceType: 'main',
-      queueStartedAt,
-      interpretationStartedAt,
-      expectedReadyAt,
-      priority: false,
-      updatedAt: now.toISOString()
-    };
-
-    if (data.cards) newReading.cards = data.cards;
-    if (data.images) newReading.images = data.images;
+    const loadingToast = toast.loading("Falınız hazırlanıyor...", {
+      description: "Mistik güçler harekete geçiyor..."
+    });
 
     try {
-      // 1. Create reading as pending
-      await setDoc(readingRef, newReading);
-
-      // 2. Run Transaction
-      await runTransaction(db, async (transaction) => {
-        const userDoc = await transaction.get(userRef);
-        if (!userDoc.exists()) throw new Error("Kullanıcı profili bulunamadı!");
-
-        const currentUser = userDoc.data() as UserProfile;
-        const isSubscribed = currentUser.subscription?.status === 'active';
-
-        let currentCoins = currentUser.mainCoins || 0;
-        let currentEnergy = currentUser.energy || 0;
-        let balanceType: 'main' | 'ad' | 'subscription' = 'main';
-        let creditsUsed = totalPrice;
-
-        const today = new Date().toISOString().split('T')[0];
-        const adUsage = { ...(currentUser.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: today }) };
-        if (adUsage.lastResetDate !== today) {
-          adUsage.coffee = 0;
-          adUsage.tarot = 0;
-          adUsage.lastResetDate = today;
-        }
-
-        const transUpdates: any = {};
-
-        // Subscription Logic
-        if (isSubscribed) {
-          const subLimits = appConfig.subscriptionLimits;
-          const subUsed = { ...(currentUser.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 }) };
-          const lastResetAt = currentUser.subscription?.lastResetAt || today;
-          
-          if (lastResetAt !== today) {
-            subUsed.coffee = 0;
-            subUsed.tarot = 0;
-            subUsed.advanced = 0;
-          }
-
-          const limit = ['coffee', 'tarot'].includes(type) ? subLimits[type as 'coffee' | 'tarot'] : subLimits.advanced;
-          const used = ['coffee', 'tarot'].includes(type) ? subUsed[type as 'coffee' | 'tarot'] : subUsed.advanced;
-
-          if (used < limit) {
-            balanceType = 'subscription';
-            creditsUsed = 0;
-            if (['coffee', 'tarot'].includes(type)) {
-              subUsed[type as 'coffee' | 'tarot']++;
-            } else {
-              subUsed.advanced++;
-            }
-            transUpdates.subscription = {
-              ...currentUser.subscription!,
-              dailyReadingsUsed: subUsed,
-              lastResetAt: today
-            };
-          }
-        }
-
-        // Ad Credits Logic
-        if (balanceType === 'main' && isAdEligible) {
-          const adLimit = 2;
-          const used = adUsage[type as 'coffee' | 'tarot'];
-          if (currentEnergy >= totalPrice && used < adLimit) {
-            balanceType = 'ad';
-            currentEnergy -= totalPrice;
-            adUsage[type as 'coffee' | 'tarot']++;
-            transUpdates.energy = currentEnergy;
-            transUpdates.dailyAdReadingsUsed = adUsage;
-          }
-        }
-
-        // Main Credits Logic
-        if (balanceType === 'main') {
-          if (currentCoins >= totalPrice) {
-            currentCoins -= totalPrice;
-            transUpdates.mainCoins = currentCoins;
-          } else {
-            throw new Error("Yetersiz bakiye!");
-          }
-        }
-
-        transaction.update(userRef, transUpdates);
-        transaction.update(readingRef, {
-          status: 'waiting',
-          creditsUsed,
-          balanceType,
-          updatedAt: new Date().toISOString()
-        });
-      });
-
-      setIsSubmitting(false);
-
-      // Initial Notification
-      toast.info("Şu an yorumcu bekleniyor...", {
-        description: "LASYA'nın yorumcuları senin için hazırlanıyor.",
-        icon: <Clock className="w-4 h-4 text-red-500" />,
-        className: "bg-black/80 border-red-500/20 text-red-500 backdrop-blur-xl"
-      });
-
-      // Start AI Generation in background
-      const aiContentPromise = generateFortune({
-        name: userProfile?.displayName || "Gezgin",
-        birthDate: userProfile?.birthDate || "1990-01-01",
-        relationshipStatus: userProfile?.relationshipStatus || "Belirtilmedi",
-        jobStatus: userProfile?.jobStatus || "Belirtilmedi",
-        gender: userProfile?.gender || "Belirtilmedi",
-        extraInfo: userProfile?.extraInfo || "Belirtilmedi",
-        type: data.type,
-        cards: data.cards,
-        images: data.images,
-        questions: newReading.questions || []
-      });
-
-      // Simulation steps (Still kept for UI responsiveness, but backed by timestamps)
-      setTimeout(async () => {
-        await updateDoc(readingRef, { 
-          status: 'interpreting',
-          updatedAt: new Date().toISOString()
-        });
-        
-        setTimeout(async () => {
-          try {
-            const aiResult = await aiContentPromise;
-            
-            await updateDoc(readingRef, { 
-              status: 'completed',
-              content: aiResult.text,
-              promptSource: aiResult.promptSource,
-              promptId: aiResult.promptId,
-              updatedAt: new Date().toISOString()
-            });
-            
-            toast.success("Falınız yorumlandı!", {
-              description: "Fallarım kısmından kehanetine ulaşabilirsin.",
-              icon: <CheckCircle2 className="w-4 h-4 text-emerald-500" />,
-              className: "bg-black/80 border-emerald-500/20 text-emerald-500 backdrop-blur-xl"
-            });
-          } catch (error) {
-            console.error("AI Generation Error:", error);
-            await updateDoc(readingRef, { 
-              status: 'error',
-              error: error instanceof Error ? error.message : "Bilinmeyen bir hata oluştu",
-              content: "Üzgünüz, kehanetiniz hazırlanırken bir sorun oluştu. Lütfen daha sonra tekrar deneyin.",
-              updatedAt: new Date().toISOString()
-            });
-            
-            toast.error("Kehanet oluşturulamadı.", {
-              description: "Bir hata oluştu, lütfen destek ile iletişime geçin."
-            });
-          }
-        }, readingDelay);
-      }, interpreterDelay);
-
-      return newReading;
-    } catch (error) {
-      console.error("Fortune error:", error);
-      setIsSubmitting(false);
+      const createFortuneReadingFn = httpsCallable(functions, 'createFortuneReading');
       
-      // Cleanup pending reading if transaction failed
-      try {
-        await updateDoc(readingRef, {
-          status: 'error',
-          error: 'İşlem sırasında hata oluştu (transaction failed)',
-          updatedAt: new Date().toISOString()
+      // Collect all images (CoffeeFlow uses data.images, AdvancedFlow uses userPhoto/targetPhoto/question photos)
+      const images = [...(data.images || [])];
+      if (data.userPhoto) images.push(data.userPhoto);
+      if (data.targetPhoto) images.push(data.targetPhoto);
+      if (data.questions) {
+        data.questions.forEach((q: any) => {
+          if (q.photo) images.push(q.photo);
         });
-      } catch (cleanupErr) {
-        console.error("Cleanup error:", cleanupErr);
       }
 
-      if (error instanceof Error && error.message === "Yetersiz bakiye!") {
-        toast.error("Yetersiz bakiye!", {
-          description: "Lütfen bakiye yükleyin veya reklam izleyerek kredi kazanın."
-        });
-      } else {
-        toast.error("Kehanet başlatılırken bir hata oluştu.");
-      }
+      const result = await createFortuneReadingFn({
+        type: data.type,
+        formData: {
+          adSoyad: data.adSoyad,
+          dogumTarihi: data.dogumTarihi,
+          iliskiDurumu: data.iliskiDurumu,
+          motherName: data.motherName,
+          fatherName: data.fatherName,
+          targetName: data.targetName,
+          jobStatus: data.jobStatus,
+          extraInfo: data.extraInfo,
+          birthTime: data.birthTime
+        },
+        images,
+        cards: data.cards,
+        questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
+        priorityMode: data.priorityMode
+      });
+
+      const { readingId } = result.data as any;
+
+      toast.dismiss(loadingToast);
+      toast.success("Falınız sıraya alındı!", {
+        description: "Yorumcu aranıyor... Durumu fallarım sekmesinden takip edebilirsiniz."
+      });
+
+      setActiveFortune(null);
+      playSound('success');
+      
+      // Navigate to history to show the new reading status
+      setActiveTab('fortunes');
+      
+      return { id: readingId, status: 'searching', type: data.type };
+    } catch (error: any) {
+      console.error("Fortune creation error:", error);
+      toast.dismiss(loadingToast);
+      toast.error("İşlem başarısız", {
+        description: error.message || "Lütfen daha sonra tekrar deneyin."
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -889,16 +692,16 @@ export default function App() {
   // Show loading while checking auth or fetching profile for logged in user
   if (loading || (user && isProfileLoading && !activeProfile)) {
     return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
+      <div className="min-h-screen bg-[#FDFCFE] flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-6">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 border-4 border-amber-500/10 border-t-amber-500 rounded-full"
+            className="w-16 h-16 border-4 border-black/5 border-t-amber-500 rounded-full"
           />
           <div className="space-y-2 text-center">
-            <h2 className="text-xl font-serif font-bold text-amber-50">LASYA Yükleniyor</h2>
-            <p className="text-purple-200/40 text-sm italic">Yıldızlar senin için hizalanıyor...</p>
+            <h2 className="text-xl font-serif font-bold text-heading">LASYA Yükleniyor</h2>
+            <p className="text-muted text-sm italic">Yıldızlar senin için hizalanıyor...</p>
           </div>
         </div>
       </div>
@@ -930,18 +733,18 @@ export default function App() {
 
   if (activeProfile?.isBanned) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center space-y-6">
-        <div className="w-24 h-24 rounded-[2.5rem] bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-4">
+      <div className="min-h-screen bg-[#FDFCFE] flex flex-col items-center justify-center p-8 text-center space-y-6">
+        <div className="w-24 h-24 rounded-[2.5rem] bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 mb-4 shadow-sm">
           <Ban className="w-12 h-12" />
         </div>
-        <h1 className="text-3xl font-serif font-bold text-amber-50">Erişim Engellendi</h1>
-        <p className="text-purple-200/60 max-w-md leading-relaxed">
+        <h1 className="text-3xl font-serif font-bold text-heading">Erişim Engellendi</h1>
+        <p className="text-muted max-w-md leading-relaxed">
           Hesabınız topluluk kurallarını ihlal ettiği gerekçesiyle askıya alınmıştır. 
           Bir hata olduğunu düşünüyorsanız destek ekibiyle iletişime geçebilirsiniz.
         </p>
         <button 
           onClick={() => signOut(auth)}
-          className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 text-purple-200/60 font-bold hover:bg-white/10 transition-all"
+          className="px-8 py-4 rounded-2xl bg-white border border-black/5 text-body font-bold hover:bg-black/5 transition-all shadow-sm"
         >
           Oturumu Kapat
         </button>
@@ -1285,9 +1088,14 @@ export default function App() {
             type={activeFortune} 
             userProfile={activeProfile}
             config={appConfig!}
+            economyConfig={economyConfig!}
             onUpdateProfile={(updates) => setUserProfile(prev => ({ ...prev, ...updates }))}
             onClose={() => setActiveFortune(null)}
             onComplete={handleFortuneComplete}
+            onSocialClick={() => {
+              setActiveFortune(null);
+              setActiveTab('social-profile');
+            }}
           />
         )}
         {activeReading && (
@@ -1301,31 +1109,31 @@ export default function App() {
             onClose={() => setIsSubscriptionOpen(false)}
             economyConfig={economyConfig}
             userProfile={activeProfile}
-            onSubscribe={(planId) => {
-              toast.success(`${planId} planı başarıyla seçildi!`);
-              setUserProfile(prev => ({
-                ...prev,
-                subscription: {
-                  status: 'active',
-                  type: planId as any,
-                  expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                  dailyLimitUsed: 0,
-                  dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
+            onSubscribe={async (planId) => {
+              try {
+                const result = await walletService.buyFortuneSubscription(activeProfile!.uid, planId as any);
+                if (result.success) {
+                  toast.success(`${planId} planı başarıyla başlatıldı!`);
+                  setIsSubscriptionOpen(false);
+                } else {
+                  toast.error(result.message || "Abonelik başlatılamadı.");
                 }
-              }));
-              setIsSubscriptionOpen(false);
+              } catch (error) {
+                console.error("Subscription error:", error);
+                toast.error("İşlem sırasında bir hata oluştu.");
+              }
             }}
           />
         )}
         {isAdminPanelOpen && (
-          <div className="fixed inset-0 z-[150] bg-black">
+          <div className="fixed inset-0 z-[150] bg-white">
             <AdminPanel 
               onBack={() => setIsAdminPanelOpen(false)}
             />
           </div>
         )}
         {isSettingsOpen && (
-          <div className="fixed inset-0 z-[150] bg-black">
+          <div className="fixed inset-0 z-[150] bg-white">
             <SettingsView 
               onBack={() => setIsSettingsOpen(false)}
               onDeleteAccount={() => setIsDeleteAccountOpen(true)}

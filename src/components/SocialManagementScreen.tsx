@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { UserProfile, AppTab, Chat } from '../types';
+import { UserProfile, AppTab, Chat, normalizeUserProfile } from '../types';
 import { Lock, Unlock, MessageCircle, User, LogOut, ExternalLink, Users, ArrowLeft } from 'lucide-react';
 import SocialMessagesScreen from './SocialMessagesScreen';
 
@@ -31,7 +31,7 @@ export default function SocialManagementScreen({ user, onNavigate }: SocialManag
         where('profileType', '==', 'operator')
       );
       const snap = await getDocs(q);
-      const profiles = snap.docs.map(d => d.data() as UserProfile);
+      const profiles = snap.docs.map(d => normalizeUserProfile(d.data(), d.id));
       setManagedProfiles(profiles);
     } catch (error) {
       console.error("Error fetching managed profiles:", error);

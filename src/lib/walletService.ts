@@ -161,7 +161,7 @@ export const walletService = {
     // In production, this would be a single Cloud Function call 'purchaseSocialItem'
     if (import.meta.env.PROD) {
       const fn = httpsCallable(functions, 'purchaseSocialItem');
-      const result = await fn({ type, price, description });
+      const result = await fn({ type, description });
       return result.data as any;
     }
 
@@ -180,11 +180,17 @@ export const walletService = {
   },
 
   async purchaseSocialBundle(userId: string, bundleId: string): Promise<{ success: boolean; message?: string }> {
+    if (import.meta.env.PROD) {
+      const fn = httpsCallable(functions, 'purchaseSocialBundle');
+      const result = await fn({ bundleId });
+      return result.data as any;
+    }
+
+    // Simulation (for dev/preview)
     const config = await this.getAdminConfig();
     const bundle = config.socialBundles.find(b => b.id === bundleId);
     if (!bundle) return { success: false, message: "Paket bulunamadı." };
 
-    // Simulation/Backend Call
     const result = await this.spendBalance(userId, 'main', bundle.price, 'social_action', `${bundle.name} satın alımı`);
     if (!result.success) return result;
 

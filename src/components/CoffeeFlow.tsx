@@ -2,26 +2,29 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Camera, User, Calendar, Heart, ArrowRight, Loader2, Sparkles, CheckCircle2, Zap, X, ChevronLeft, CreditCard, Plus } from "lucide-react";
 import RitualScreen from "./RitualScreen";
-import { UserProfile, AppConfig } from "../types";
+import PaymentSummary from "./PaymentSummary";
+import { UserProfile, AppConfig, EconomyConfig } from "../types";
 import { toast } from "sonner";
 
 interface CoffeeFlowProps {
   userProfile: UserProfile;
   config: AppConfig;
+  economyConfig: EconomyConfig;
   onUpdateProfile: (updates: Partial<UserProfile>) => void;
-  onComplete: (data: any) => void;
+  onComplete: (data: any) => Promise<any>;
   onClose: () => void;
+  onSocialClick?: () => void;
 }
 
-export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onComplete, onClose }: CoffeeFlowProps) {
+export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdateProfile, onComplete, onClose, onSocialClick }: CoffeeFlowProps) {
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeReading, setActiveReading] = useState<any>(null);
   const [formData, setFormData] = useState({
     target: 'self', // 'self' or 'other'
-    name: '',
-    birthDate: '',
-    relationshipStatus: 'self',
+    adSoyad: userProfile.displayName || '',
+    dogumTarihi: userProfile.birthDate || '',
+    iliskiDurumu: userProfile.relationshipStatus || 'single',
     images: [] as string[]
   });
 
@@ -31,33 +34,33 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
   const nextStep = () => setStep(s => s + 1);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#050505] flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-[#FDFCFE] flex flex-col">
       {/* Header */}
-      <header className="flex-shrink-0 bg-black/80 backdrop-blur-xl border-b border-white/5 px-4 py-6 flex items-center justify-between">
+      <header className="flex-shrink-0 bg-white/80 backdrop-blur-xl border-b border-black/5 px-4 py-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={onClose}
-            className="p-2 rounded-full bg-white/5 text-purple-200/60"
+            className="p-2 rounded-full bg-black/5 text-muted"
           >
             <ChevronLeft className="w-6 h-6" />
           </motion.button>
           <div>
-            <h1 className="text-xl font-serif font-bold text-amber-50">Kahve Falı</h1>
-            <p className="text-xs text-purple-200/40">Fincanın gizemini çöz</p>
+            <h1 className="text-xl font-serif font-bold text-heading">Kahve Falı</h1>
+            <p className="text-xs text-muted">Fincanın gizemini çöz</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
-          <CreditCard className="w-3 h-3 text-amber-400" />
-          <span className="text-xs font-bold text-amber-400">{userProfile.mainCoins || 0}</span>
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-full">
+          <CreditCard className="w-3 h-3 text-amber-600" />
+          <span className="text-xs font-bold text-amber-600">{userProfile.mainCoins || 0}</span>
         </div>
       </header>
 
       {/* Progress Bar */}
-      <div className="relative h-1 bg-white/5">
+      <div className="relative h-1 bg-black/5">
         <motion.div 
-          className="h-full bg-amber-500"
+          className="h-full bg-amber-600"
           initial={{ width: "0%" }}
           animate={{ width: `${(step / 3) * 100}%` }}
         />
@@ -74,8 +77,8 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
               className="space-y-8"
             >
               <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-amber-50">Kimin Falı?</h2>
-                <p className="text-purple-200/40">LASYA'nın fısıltılarını kimin için duymak istersin?</p>
+                <h2 className="text-3xl font-serif font-bold text-heading">Kimin Falı?</h2>
+                <p className="text-muted">LASYA'nın fısıltılarını kimin için duymak istersin?</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -85,8 +88,8 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
                     onClick={() => setFormData({ ...formData, target: t })}
                     className={`p-6 rounded-3xl border transition-all ${
                       formData.target === t 
-                        ? "border-amber-500 bg-amber-500/10 text-amber-400" 
-                        : "border-white/5 bg-white/5 text-purple-200/40"
+                        ? "border-amber-500 bg-amber-50 text-amber-600 shadow-sm" 
+                        : "border-black/5 bg-black/5 text-muted"
                     }`}
                   >
                     <User className="w-8 h-8 mx-auto mb-3" />
@@ -99,43 +102,48 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
 
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">İsim</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Ad Soyad</label>
                   <input 
                     type="text"
-                    placeholder="İsim giriniz..."
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    placeholder="Adınız ve soyadınız..."
+                    value={formData.adSoyad}
+                    onChange={(e) => setFormData({ ...formData, adSoyad: e.target.value })}
+                    className="w-full bg-black/5 border border-black/10 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-amber-500/50 transition-colors"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">Doğum Tarihi</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Doğum Tarihi</label>
                   <div className="relative">
-                    <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-purple-200/20" />
+                    <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40" />
                     <input 
                       type="date"
-                      value={formData.birthDate}
-                      onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-14 pr-6 py-4 text-amber-50 focus:outline-none focus:border-amber-500/50 transition-colors"
+                      value={formData.dogumTarihi}
+                      onChange={(e) => setFormData({ ...formData, dogumTarihi: e.target.value })}
+                      className="w-full bg-black/5 border border-black/10 rounded-2xl pl-14 pr-6 py-4 text-heading focus:outline-none focus:border-amber-500/50 transition-colors"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-purple-200/40 ml-2">İlişki Durumu</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">İlişki Durumu</label>
                   <div className="grid grid-cols-2 gap-3">
-                    {['single', 'taken', 'complicated', 'divorced'].map((s) => (
+                    {[
+                      { id: 'single', label: 'Bekar' },
+                      { id: 'taken', label: 'İlişkisi Var' },
+                      { id: 'complicated', label: 'Karışık' },
+                      { id: 'divorced', label: 'Boşanmış' }
+                    ].map((s) => (
                       <button
-                        key={s}
-                        onClick={() => setFormData({ ...formData, relationshipStatus: s })}
+                        key={s.id}
+                        onClick={() => setFormData({ ...formData, iliskiDurumu: s.id })}
                         className={`py-3 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${
-                          formData.relationshipStatus === s 
-                            ? "border-amber-500/50 bg-amber-500/10 text-amber-400" 
-                            : "border-white/5 bg-white/5 text-purple-200/40"
+                          formData.iliskiDurumu === s.id 
+                            ? "border-amber-500/50 bg-amber-50 text-amber-600 shadow-sm" 
+                            : "border-black/5 bg-black/5 text-muted"
                         }`}
                       >
-                        {s === 'single' ? 'Bekar' : s === 'taken' ? 'İlişkisi Var' : s === 'complicated' ? 'Karışık' : 'Boşanmış'}
+                        {s.label}
                       </button>
                     ))}
                   </div>
@@ -143,9 +151,9 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
               </div>
 
               <button
-                disabled={!formData.name || !formData.birthDate}
+                disabled={!formData.adSoyad || !formData.dogumTarihi}
                 onClick={nextStep}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-2xl shadow-amber-900/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-xl shadow-amber-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
               >
                 <span>Devam Et</span>
                 <ArrowRight className="w-5 h-5" />
@@ -162,15 +170,15 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
               className="space-y-8"
             >
               <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-amber-50">Fincan Fotoğrafları</h2>
-                <p className="text-purple-200/40">LASYA'nın sembolleri görebilmesi için net fotoğraflar yükle.</p>
+                <h2 className="text-3xl font-serif font-bold text-heading">Fincan Fotoğrafları</h2>
+                <p className="text-muted">LASYA'nın sembolleri görebilmesi için net fotoğraflar yükle.</p>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
                 {[
                   { id: 1, label: 'Fincan İçi (1. Açı)' },
                   { id: 2, label: 'Fincan İçi (2. Açı)' },
-                  { id: 3, label: 'Tabak / Fincan Altı' }
+                  { id: 3, label: 'Tabak Fotoğrafı' }
                 ].map((p) => (
                   <div key={p.id} className="relative group">
                     <input 
@@ -192,24 +200,24 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
                     />
                     <div className={`p-8 rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-4 ${
                       formData.images[p.id - 1] 
-                        ? "border-emerald-500/50 bg-emerald-500/5" 
-                        : "border-white/10 bg-white/5 group-hover:border-amber-500/30"
+                        ? "border-emerald-500/50 bg-emerald-50 shadow-sm" 
+                        : "border-black/10 bg-black/5 group-hover:border-amber-500/30"
                     }`}>
                       {formData.images[p.id - 1] ? (
-                        <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+                        <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-md">
                           <img src={formData.images[p.id - 1]} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                          <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
                           </div>
                         </div>
                       ) : (
                         <>
-                          <div className="p-4 rounded-2xl bg-amber-500/10 text-amber-400">
+                          <div className="p-4 rounded-2xl bg-amber-50 text-amber-600">
                             <Camera className="w-8 h-8" />
                           </div>
                           <div className="text-center">
-                            <p className="text-sm font-bold text-amber-50">{p.label}</p>
-                            <p className="text-xs text-purple-200/40 mt-1">Yüklemek için dokun</p>
+                            <p className="text-sm font-bold text-heading">{p.label}</p>
+                            <p className="text-xs text-muted mt-1">Yüklemek için dokun</p>
                           </div>
                         </>
                       )}
@@ -218,27 +226,37 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
                 ))}
               </div>
 
+              <PaymentSummary 
+                type="coffee"
+                userProfile={userProfile}
+                economyConfig={economyConfig}
+                extraQuestionsCount={0}
+                priorityMode={false}
+              />
+
               <button
                 disabled={formData.images.filter(Boolean).length < 3 || isProcessing}
                 onClick={async () => {
+                  if (isProcessing) return;
                   setIsProcessing(true);
                   try {
                     const reading = await onComplete({ ...formData, type: 'coffee' });
                     setActiveReading(reading);
                     nextStep();
-                  } catch (error) {
+                  } catch (error: any) {
                     console.error("Submit error:", error);
+                    toast.error(error.message || "Bir hata oluştu");
                   } finally {
                     setIsProcessing(false);
                   }
                 }}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-2xl shadow-amber-900/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-xl shadow-amber-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
               >
                 {isProcessing ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    <span>Kehaneti Başlat</span>
+                    <span>Yoruma Al</span>
                     <Sparkles className="w-5 h-5" />
                   </>
                 )}
@@ -247,7 +265,7 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
           )}
 
           {step === 3 && (
-            <RitualScreen type="coffee" reading={activeReading} onClose={onClose} />
+            <RitualScreen type="coffee" reading={activeReading} onClose={onClose} onSocialClick={onSocialClick} />
           )}
         </AnimatePresence>
       </div>
@@ -255,7 +273,7 @@ export default function CoffeeFlow({ userProfile, config, onUpdateProfile, onCom
       {step < 3 && (
         <button 
           onClick={onClose}
-          className="absolute top-6 right-6 p-2 rounded-full bg-white/5 text-purple-200/40"
+          className="absolute top-6 right-6 p-2 rounded-full bg-black/5 text-muted"
         >
           <X className="w-5 h-5" />
         </button>
