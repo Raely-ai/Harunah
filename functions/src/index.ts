@@ -8,8 +8,10 @@ import * as crypto from "crypto";
 
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-admin.initializeApp();
-const db = getFirestore(admin.app(), "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
+import * as logger from "firebase-functions/logger";
+
+const app = admin.initializeApp();
+const db = getFirestore(app, "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 
 // Define OpenAI Secret
 const openAiKey = defineSecret("OPENAI_API_KEY");
@@ -32,56 +34,78 @@ function getOpenAI() {
 
 // 1. Create Fortune Reading (Backend Controlled)
 export const createFortuneReading = regionalFunctions.https.onCall(async (data, context) => {
-    let currentStep = "init";
+    let currentStep = "start";
     try {
-      console.log("createFortuneReading called");
-      
-      currentStep = "validation";
-      if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-      
+      logger.info("Step: start", { 
+        auth: context.auth ? { uid: context.auth.uid, email: context.auth.token.email } : "null",
+        payload: data 
+      });
+
+      currentStep = "auth_check";
+      if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+      }
       const userId = context.auth.uid;
-      const { type, formData, images, cards, questions, priorityMode } = data || {};
 
-      if (!type || !formData) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+      currentStep = "validation";
+      const { type, formData, questions, priorityMode } = data || {};
+      if (!type || !formData) {
+        throw new functions.https.HttpsError('invalid-argument', 'Eksik veri (type veya formData).');
+      }
 
-      // Sanitize formData to remove undefined values which Firestore doesn't like
+      // Sanitize formData
       const sanitizedFormData = JSON.parse(JSON.stringify(formData || {}));
 
-      // Create a simple hash of the request to prevent duplicates
-      const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, images: images || [], cards: cards || [], questions: questions || [] });
-      const requestHash = crypto.createHash('md5').update(requestString).digest('hex');
+      // Create hash
+      const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, questions: questions || [] });
+      const requestHash = crypto.createHash('sha256').update(requestString).digest('hex');
 
       const userRef = db.collection("users").doc(userId);
       const economyRef = db.collection("adminSettings").doc("economy");
       
       currentStep = "duplicate_check";
-      // 1. Guard: Check for active readings or exact duplicates (Outside transaction for better performance/stability)
+      logger.info("Step: duplicate_check", { userId, requestHash });
+      
+      // Check active readings
       const activeReadings = await db.collection("readings")
         .where("userId", "==", userId)
-        .where("status", "in", ["searching", "found", "interpreting", "waiting"])
-        .limit(1)
+        .limit(20)
         .get();
       
-      if (!activeReadings.empty) {
+      const hasActive = activeReadings.docs.some(doc => 
+        ["searching", "found", "interpreting", "waiting"].includes(doc.data().status)
+      );
+      
+      if (hasActive) {
         throw new functions.https.HttpsError('already-exists', 'Zaten aktif bir fal talebiniz var.');
       }
 
+      // Check exact duplicate
       const duplicateCheck = await db.collection("readings")
         .where("requestHash", "==", requestHash)
-        .where("createdAt", ">", new Date(Date.now() - 5 * 60 * 1000).toISOString())
         .limit(1)
         .get();
 
       if (!duplicateCheck.empty) {
-        throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
+        const dupData = duplicateCheck.docs[0].data();
+        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        if (dupData.createdAt > fiveMinsAgo) {
+          throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
+        }
       }
 
-      currentStep = "transaction";
+      currentStep = "transaction_start";
+      logger.info("Step: transaction_start", { userId });
+      
       return await db.runTransaction(async (transaction) => {
+        currentStep = "transaction_get_user";
         const userSnap = await transaction.get(userRef);
-        if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+        if (!userSnap.exists) {
+          throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+        }
         const userData = userSnap.data() as any;
 
+        currentStep = "transaction_get_economy";
         const economySnap = await transaction.get(economyRef);
         const economy = economySnap.exists ? economySnap.data() as any : {
           fortunePricing: { coffee: 100, tarot: 150, water: 200, ebced: 250, yildizname: 300, havas: 500, extraQuestion: 50, priorityFee: 100 },
@@ -93,7 +117,7 @@ export const createFortuneReading = regionalFunctions.https.onCall(async (data, 
           }
         };
 
-        // 2. Calculate Price
+        currentStep = "balance_calculation";
         const basePrice = Number(economy.fortunePricing?.[type]) || 100;
         const extraQuestionPrice = Number(economy.fortunePricing?.extraQuestion) || 50;
         const priorityFee = Number(economy.fortunePricing?.priorityFee) || 100;
@@ -105,138 +129,140 @@ export const createFortuneReading = regionalFunctions.https.onCall(async (data, 
         
         const totalCost = basePrice + extraQuestionsCost + (priorityMode ? priorityFee : 0);
 
-        // 3. Determine Balance Type
         let balanceType: 'subscription' | 'energy' | 'main' = 'main';
         const today = new Date().toISOString().split('T')[0];
         
-        // Priority 1: Subscription
         const sub = userData.subscription;
         if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
           const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
           const dailyUsed = sub.dailyLimitUsed || 0;
           const lastReset = sub.lastResetAt || "";
           
-          if (lastReset !== today) {
-            balanceType = 'subscription';
-          } else if (dailyUsed < subLimits.totalDaily) {
+          if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
             balanceType = 'subscription';
           }
         }
 
-        // Priority 2: Energy (if applicable)
-        if (balanceType === 'main' && economy.energyPaymentEnabled) {
-          if ((userData.energy || 0) >= totalCost) {
-            balanceType = 'energy';
-          }
+        if (balanceType === 'main' && economy.energyPaymentEnabled && (userData.energy || 0) >= totalCost) {
+          balanceType = 'energy';
         }
 
-        // Check Balance
         if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
           throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
         }
 
-        // 4. Deduct Balance
-        const userUpdates: any = {};
-        if (balanceType === 'main') {
-          userUpdates.mainCoins = FieldValue.increment(-totalCost);
-        } else if (balanceType === 'energy') {
-          userUpdates.energy = FieldValue.increment(-totalCost);
-        } else if (balanceType === 'subscription') {
-          if (userData.subscription?.lastResetAt !== today) {
-            userUpdates["subscription.dailyLimitUsed"] = 1;
-          } else {
-            userUpdates["subscription.dailyLimitUsed"] = FieldValue.increment(1);
-          }
-          userUpdates["subscription.lastResetAt"] = today;
+      currentStep = "balance_deduction";
+      logger.info("Step: balance_deduction", { userId, balanceType, totalCost });
+      const userUpdates: any = {};
+      if (balanceType === 'main') {
+        userUpdates.mainCoins = FieldValue.increment(-totalCost);
+      } else if (balanceType === 'energy') {
+        userUpdates.energy = FieldValue.increment(-totalCost);
+      } else if (balanceType === 'subscription') {
+        if (userData.subscription?.lastResetAt !== today) {
+          userUpdates["subscription.dailyLimitUsed"] = 1;
+        } else {
+          userUpdates["subscription.dailyLimitUsed"] = FieldValue.increment(1);
         }
+        userUpdates["subscription.lastResetAt"] = today;
+      }
+      
+      if (Object.keys(userUpdates).length > 0) {
         transaction.update(userRef, userUpdates);
+      } else {
+        logger.info("No user updates needed for balance deduction");
+      }
 
-        // 5. Create Reading
-        const readingRef = db.collection("readings").doc();
-        const now = new Date();
-        
-        // Subscribers get priority mode by default
-        const effectivePriorityMode = priorityMode || (balanceType === 'subscription');
-        
-        // Timing Logic
-        const rawTimes = economy.interpretationTimes?.[type === 'coffee' || type === 'tarot' ? type : 'advanced'] || {};
-        const times = {
-          minSearchTime: rawTimes.minSearchTime ?? 1,
-          maxSearchTime: rawTimes.maxSearchTime ?? 3,
-          minInterpreterTime: rawTimes.minInterpreterTime ?? 5,
-          maxInterpreterTime: rawTimes.maxInterpreterTime ?? 10,
-          minReadingTime: rawTimes.minReadingTime ?? 10,
-          maxReadingTime: rawTimes.maxReadingTime ?? 20
-        };
+      currentStep = "create_reading";
+      logger.info("Step: create_reading", { userId });
+      const readingRef = db.collection("readings").doc();
+      const now = new Date();
+      const effectivePriorityMode = priorityMode || (balanceType === 'subscription');
+      
+      const rawTimes = economy.interpretationTimes?.[type === 'coffee' || type === 'tarot' ? type : 'advanced'] || {};
+      const times = {
+        minSearchTime: rawTimes.minSearchTime ?? 1,
+        maxSearchTime: rawTimes.maxSearchTime ?? 3,
+        minInterpreterTime: rawTimes.minInterpreterTime ?? 5,
+        maxInterpreterTime: rawTimes.maxInterpreterTime ?? 10,
+        minReadingTime: rawTimes.minReadingTime ?? 10,
+        maxReadingTime: rawTimes.maxReadingTime ?? 20
+      };
 
-        const searchDelay = (Math.random() * (times.maxSearchTime - times.minSearchTime) + times.minSearchTime) * 60 * 1000;
-        const interpreterDelay = (Math.random() * (times.maxInterpreterTime - times.minInterpreterTime) + times.minInterpreterTime) * 60 * 1000;
-        const readingDelay = (Math.random() * (times.maxReadingTime - times.minReadingTime) + times.minReadingTime) * 60 * 1000;
+      const speedFactor = effectivePriorityMode ? 0.5 : 1.0;
+      const searchDelay = (Math.random() * (times.maxSearchTime - times.minSearchTime) + times.minSearchTime) * 60 * 1000;
+      const interpreterDelay = (Math.random() * (times.maxInterpreterTime - times.minInterpreterTime) + times.minInterpreterTime) * 60 * 1000;
+      const readingDelay = (Math.random() * (times.maxReadingTime - times.minReadingTime) + times.minReadingTime) * 60 * 1000;
 
-        // Priority speed up
-        const speedFactor = effectivePriorityMode ? 0.5 : 1.0;
+      const expectedReaderFoundAt = new Date(now.getTime() + searchDelay * speedFactor);
+      const interpretationStartedAt = new Date(expectedReaderFoundAt.getTime() + interpreterDelay * speedFactor);
+      const expectedCompletedAt = new Date(interpretationStartedAt.getTime() + readingDelay * speedFactor);
 
-        const expectedReaderFoundAt = new Date(now.getTime() + searchDelay * speedFactor);
-        const interpretationStartedAt = new Date(expectedReaderFoundAt.getTime() + interpreterDelay * speedFactor);
-        const expectedCompletedAt = new Date(interpretationStartedAt.getTime() + readingDelay * speedFactor);
+      const readingData = {
+        id: readingRef.id,
+        userId,
+        type,
+        status: 'searching',
+        requestHash,
+        formData: sanitizedFormData,
+        images: [],
+        cards: [],
+        questions: Array.isArray(questions) ? questions.filter((q: any) => q != null) : [],
+        priorityMode: !!effectivePriorityMode,
+        balanceType,
+        creditsUsed: balanceType === 'subscription' ? 0 : totalCost,
+        priceBreakdown: {
+          base: basePrice,
+          extraQuestions: extraQuestionsCost,
+          priority: effectivePriorityMode && !priorityMode ? 0 : (priorityMode ? priorityFee : 0),
+          total: totalCost
+        },
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        expectedReaderFoundAt: expectedReaderFoundAt.toISOString(),
+        interpretationStartedAt: interpretationStartedAt.toISOString(),
+        expectedCompletedAt: expectedCompletedAt.toISOString(),
+        title: type === 'coffee' ? 'Kahve Falı' : type === 'tarot' ? 'Tarot Açılımı' : type.charAt(0).toUpperCase() + type.slice(1)
+      };
 
-        const readingData = {
-          id: readingRef.id,
-          userId,
-          type,
-          status: 'searching',
-          requestHash,
-          formData: sanitizedFormData,
-          images: Array.isArray(images) ? images.filter((i: any) => i != null) : [],
-          cards: Array.isArray(cards) ? cards.filter((c: any) => c != null) : [],
-          questions: Array.isArray(questions) ? questions.filter((q: any) => q != null) : [],
-          priorityMode: !!effectivePriorityMode,
-          balanceType,
-          creditsUsed: balanceType === 'subscription' ? 0 : totalCost,
-          priceBreakdown: {
-            base: basePrice,
-            extraQuestions: extraQuestionsCost,
-            priority: effectivePriorityMode && !priorityMode ? 0 : (priorityMode ? priorityFee : 0),
-            total: totalCost
-          },
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-          expectedReaderFoundAt: expectedReaderFoundAt.toISOString(),
-          interpretationStartedAt: interpretationStartedAt.toISOString(),
-          expectedCompletedAt: expectedCompletedAt.toISOString(),
-          title: type === 'coffee' ? 'Kahve Falı' : type === 'tarot' ? 'Tarot Açılımı' : type.charAt(0).toUpperCase() + type.slice(1)
-        };
+      logger.info("Setting reading document", { readingId: readingRef.id });
+      transaction.set(readingRef, readingData);
 
-        transaction.set(readingRef, readingData);
+      const txRef = db.collection("walletTransactions").doc();
+      logger.info("Setting transaction document", { txId: txRef.id });
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'spend',
+        source: 'fortune_reading',
+        amount: balanceType === 'subscription' ? 0 : -totalCost,
+        balanceType: balanceType === 'energy' ? 'energy' : 'main',
+        createdAt: now.toISOString(),
+        status: 'spent',
+        description: `${readingData.title} için harcama`
+      });
 
-        // Log Transaction
-        const txRef = db.collection("walletTransactions").doc();
-        transaction.set(txRef, {
-          id: txRef.id,
-          userId,
-          type: 'spend',
-          source: 'fortune_reading',
-          amount: balanceType === 'subscription' ? 0 : -totalCost,
-          balanceType: balanceType === 'energy' ? 'energy' : 'main',
-          createdAt: now.toISOString(),
-          status: 'spent',
-          description: `${readingData.title} için harcama`
-        });
-
+        currentStep = "end";
+        logger.info("Step: end", { userId, readingId: readingRef.id });
         return { success: true, readingId: readingRef.id };
       });
     } catch (err: any) {
-      console.error("Fortune creation failed:", err);
+      logger.error(`Fortune creation failed at step: ${currentStep}`, { 
+        error: err.message, 
+        stack: err.stack,
+        userId: context.auth?.uid 
+      });
       
       const errorPayload = {
         message: err.message || String(err),
         step: currentStep,
         code: err.code || 'unknown',
-        stack: err.stack ? err.stack.split('\n').slice(0, 3).join(' ') : undefined
+        name: err.name || 'Error',
+        stack: err.stack
       };
 
       if (err instanceof functions.https.HttpsError) {
-        throw new functions.https.HttpsError(err.code, JSON.stringify(errorPayload));
+        throw err;
       }
       
       throw new functions.https.HttpsError('internal', JSON.stringify(errorPayload));

@@ -4,5 +4,17 @@
       "database": "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c",
       "rules": "firestore.rules"
     }
-  ]
+  ],
+  "functions": {
+    "source": "functions",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log"
+    ]
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
 }

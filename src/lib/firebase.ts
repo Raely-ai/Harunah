@@ -42,6 +42,21 @@ async function testConnection() {
 testConnection();
 
 export const storage = getStorage(app);
+
+/**
+ * Uploads a base64 string to Firebase Storage and returns the download URL.
+ */
+export async function uploadBase64Image(base64: string, path: string): Promise<string> {
+  const { ref, uploadString, getDownloadURL } = await import("firebase/storage");
+  const storageRef = ref(storage, path);
+  
+  // Handle data:image/jpeg;base64, prefix if present
+  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+  
+  await uploadString(storageRef, base64Data, 'base64');
+  return getDownloadURL(storageRef);
+}
+
 export const googleProvider = new GoogleAuthProvider();
 export const facebookProvider = new FacebookAuthProvider();
 

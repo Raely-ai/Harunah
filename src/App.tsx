@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
-import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
+import { auth, db, functions, handleFirestoreError, OperationType, uploadBase64Image } from "./lib/firebase";
 import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
@@ -567,17 +567,8 @@ function AppContent() {
     try {
       const createFortuneReadingFn = httpsCallable(functions, 'createFortuneReading');
       
-      // Collect all images (CoffeeFlow uses data.images, AdvancedFlow uses userPhoto/targetPhoto/question photos)
-      const images = [...(data.images || [])];
-      if (data.userPhoto) images.push(data.userPhoto);
-      if (data.targetPhoto) images.push(data.targetPhoto);
-      if (data.questions) {
-        data.questions.forEach((q: any) => {
-          if (q.photo) images.push(q.photo);
-        });
-      }
-
-      const result = await createFortuneReadingFn({
+      // Strip payload to text-only as requested
+      const payload = {
         type: data.type,
         formData: {
           adSoyad: data.adSoyad,
@@ -590,11 +581,14 @@ function AppContent() {
           extraInfo: data.extraInfo,
           birthTime: data.birthTime
         },
-        images,
-        cards: data.cards,
         questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
         priorityMode: data.priorityMode
-      });
+      };
+
+      console.log("Final Fortune Payload (Media Stripped):", payload);
+
+      toast.loading("Falınız hazırlanıyor...", { id: loadingToast });
+      const result = await createFortuneReadingFn(payload);
 
       const { readingId } = result.data as any;
 
@@ -625,7 +619,21 @@ function AppContent() {
           if (parsed.step) stepInfo = ` [Step: ${parsed.step}]`;
         }
       } catch (e) {
-        // Not a JSON error, use raw message
+        // Not a JSON error, use raw message or code
+        if (error.code) {
+          displayMessage = `${error.code}: ${error.message}`;
+        }
+      }
+
+      if (error.details) {
+        console.error("Error details:", error.details);
+        // Handle both string and object details
+        const details = typeof error.details === 'string' ? (error.details.startsWith('{') ? JSON.parse(error.details) : null) : error.details;
+        
+        if (details && typeof details === 'object') {
+          if (details.message) displayMessage = details.message;
+          if (details.step) stepInfo = ` [Step: ${details.step}]`;
+        }
       }
 
       toast.error("İşlem başarısız", {

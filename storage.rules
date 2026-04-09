@@ -17,5 +17,9 @@ service firebase.storage {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
+    match /readings/{userId}/{allPaths=**} {
+      allow read: if request.auth != null && (request.auth.uid == userId || (firestore.exists(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)) && firestore.get(/databases/ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'admin'));
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
