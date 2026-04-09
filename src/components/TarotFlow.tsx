@@ -157,152 +157,157 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 flex flex-col h-full max-w-md mx-auto"
+              className="flex flex-col h-full max-w-md mx-auto"
             >
-              <div className="text-center space-y-1">
-                <h2 className="text-2xl font-serif font-bold text-heading">Kartlarını Seç</h2>
-                <p className="text-[10px] text-muted uppercase tracking-widest font-bold">Enerjini kartlara odakla</p>
-              </div>
+              {/* Top Section: Slots (~40% height) */}
+              <div className="h-[35%] flex flex-col justify-center space-y-4 px-2">
+                <div className="text-center space-y-1">
+                  <h2 className="text-2xl font-serif font-bold text-heading">Kartlarını Seç</h2>
+                  <p className="text-[10px] text-muted uppercase tracking-widest font-bold">Enerjini kartlara odakla</p>
+                </div>
 
-              {/* Selected Cards Slots */}
-              <div className="grid grid-cols-3 gap-3 py-2">
-                {[
-                  { label: 'GEÇMİŞ', index: 0 },
-                  { label: 'ŞİMDİ', index: 1 },
-                  { label: 'GELECEK', index: 2 }
-                ].map((slot) => (
-                  <div key={slot.index} className="space-y-2">
-                    <div className="text-center">
-                      <span className={`text-[8px] font-black tracking-[0.2em] transition-colors ${formData.selectedCards[slot.index] ? 'text-purple-600' : 'text-muted/40'}`}>
-                        {slot.label}
-                      </span>
-                    </div>
-                    <div 
-                      className={`aspect-[1/1.6] rounded-xl border-2 border-dashed transition-all duration-500 relative overflow-hidden flex items-center justify-center ${
-                        formData.selectedCards[slot.index] 
-                          ? 'border-purple-500/30 bg-white shadow-lg shadow-purple-500/10' 
-                          : 'border-black/5 bg-black/[0.02]'
-                      }`}
-                    >
-                      {formData.selectedCards[slot.index] ? (
-                        <motion.div
-                          initial={{ scale: 0.8, opacity: 0, rotateY: 180 }}
-                          animate={{ scale: 1, opacity: 1, rotateY: 0 }}
-                          className="w-full h-full p-1"
-                        >
-                          <div className="w-full h-full rounded-lg bg-gradient-to-br from-purple-50 to-white border border-purple-100 flex flex-col items-center justify-center relative overflow-hidden">
-                            {/* Card Back Pattern for Selected Card */}
-                            <div className="absolute inset-0 opacity-[0.08] pointer-events-none">
-                              <div className="absolute inset-2 border-2 border-purple-900 rounded-md flex items-center justify-center">
-                                <div className="w-full h-full border border-purple-900 rounded-sm rotate-45 scale-150" />
-                                <div className="absolute w-full h-full border border-purple-900 rounded-sm -rotate-45 scale-150" />
-                              </div>
-                            </div>
-                            
-                            <Sparkles className="w-6 h-6 text-purple-400 mb-2" />
-                            <div className="w-1.5 h-1.5 bg-purple-600 rounded-full animate-pulse" />
-                            
-                            <button 
-                              onClick={() => handleCardSelect(formData.selectedCards[slot.index])}
-                              className="absolute -top-1 -right-1 p-1.5 bg-rose-500 text-white rounded-full shadow-lg z-20 hover:scale-110 transition-transform"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className={`w-8 h-8 rounded-full border border-dashed border-black/10 flex items-center justify-center transition-colors ${formData.selectedCards.length === slot.index ? 'border-purple-300 bg-purple-50/50' : ''}`}>
-                            <Plus className={`w-4 h-4 ${formData.selectedCards.length === slot.index ? 'text-purple-400 animate-pulse' : 'text-black/10'}`} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Card Deck Visualization */}
-              <div className="w-full h-[280px] bg-black/[0.02] rounded-2xl border border-black/5 p-4 overflow-y-auto custom-scrollbar relative">
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 pb-10">
-                  {TAROT_CARDS.map((card, i) => {
-                    const isSelected = formData.selectedCards.includes(card);
-                    return (
-                      <motion.button
-                        key={card}
-                        whileHover={!isSelected ? { y: -4, scale: 1.05 } : {}}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => !isSelected && handleCardSelect(card)}
-                        disabled={isSelected || formData.selectedCards.length >= 3}
-                        className={`aspect-[1/1.6] rounded-lg border transition-all relative group ${
-                          isSelected
-                            ? "opacity-0 scale-50 pointer-events-none"
-                            : "border-black/10 bg-white hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20"
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'GEÇMİŞ', index: 0 },
+                    { label: 'ŞİMDİ', index: 1 },
+                    { label: 'GELECEK', index: 2 }
+                  ].map((slot) => (
+                    <div key={slot.index} className="space-y-2">
+                      <div className="text-center">
+                        <span className={`text-[8px] font-black tracking-[0.2em] transition-colors ${formData.selectedCards[slot.index] ? 'text-purple-600' : 'text-muted/40'}`}>
+                          {slot.label}
+                        </span>
+                      </div>
+                      <div 
+                        className={`aspect-[1/1.6] rounded-xl border-2 border-dashed transition-all duration-500 relative overflow-hidden flex items-center justify-center ${
+                          formData.selectedCards[slot.index] 
+                            ? 'border-purple-500/30 bg-white shadow-lg shadow-purple-500/10' 
+                            : 'border-black/5 bg-black/[0.02]'
                         }`}
                       >
-                        {/* Card Back Pattern */}
-                        <div className="absolute inset-0 p-1">
-                          <div className="w-full h-full rounded-[4px] bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center relative overflow-hidden shadow-inner">
-                            <div className="absolute inset-0 opacity-20">
-                              <div className="absolute inset-1 border border-white/40 rounded-[2px] flex items-center justify-center">
-                                <div className="w-full h-full border border-white/20 rounded-sm rotate-45 scale-150" />
+                        {formData.selectedCards[slot.index] ? (
+                          <motion.div
+                            initial={{ scale: 0.8, opacity: 0, rotateY: 180 }}
+                            animate={{ scale: 1, opacity: 1, rotateY: 0 }}
+                            className="w-full h-full p-1"
+                          >
+                            <div className="w-full h-full rounded-lg bg-gradient-to-br from-purple-50 to-white border border-purple-100 flex flex-col items-center justify-center relative overflow-hidden">
+                              <div className="absolute inset-0 opacity-[0.08] pointer-events-none">
+                                <div className="absolute inset-2 border-2 border-purple-900 rounded-md flex items-center justify-center">
+                                  <div className="w-full h-full border border-purple-900 rounded-sm rotate-45 scale-150" />
+                                  <div className="absolute w-full h-full border border-purple-900 rounded-sm -rotate-45 scale-150" />
+                                </div>
                               </div>
+                              <Sparkles className="w-6 h-6 text-purple-400 mb-2" />
+                              <button 
+                                onClick={() => handleCardSelect(formData.selectedCards[slot.index])}
+                                className="absolute -top-1 -right-1 p-1.5 bg-rose-500 text-white rounded-full shadow-lg z-20 hover:scale-110 transition-transform"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
                             </div>
-                            <Sparkles className="w-4 h-4 text-white/40" />
+                          </motion.div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className={`w-8 h-8 rounded-full border border-dashed border-black/10 flex items-center justify-center transition-colors ${formData.selectedCards.length === slot.index ? 'border-purple-300 bg-purple-50/50' : ''}`}>
+                              <Plus className={`w-4 h-4 ${formData.selectedCards.length === slot.index ? 'text-purple-400 animate-pulse' : 'text-black/10'}`} />
+                            </div>
                           </div>
-                        </div>
-                      </motion.button>
-                    );
-                  })}
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                
-                {/* Instruction Overlay */}
-                {formData.selectedCards.length < 3 && (
-                  <div className="sticky bottom-0 left-0 right-0 py-2 bg-gradient-to-t from-[#FDFCFE] via-[#FDFCFE]/90 to-transparent pointer-events-none flex justify-center">
-                    <p className="text-[10px] font-black text-purple-600 uppercase tracking-[0.2em] animate-pulse bg-white/90 py-1.5 px-4 rounded-full shadow-sm border border-purple-100 backdrop-blur-sm">
-                      Desteden {3 - formData.selectedCards.length} kart seç
-                    </p>
-                  </div>
-                )}
               </div>
 
-              <div className="space-y-4">
-                <PaymentSummary 
-                  type="tarot"
-                  userProfile={userProfile}
-                  economyConfig={economyConfig}
-                  extraQuestionsCount={0}
-                  priorityMode={false}
-                  minimal={true}
-                />
+              {/* Bottom Section: Card Selection Board (~60% height) */}
+              <div className="flex-1 bg-black/[0.02] rounded-t-[32px] border-t border-black/5 p-6 flex flex-col">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                  <div className="grid grid-cols-3 gap-4 pb-8">
+                    {TAROT_CARDS.slice(0, 12).map((card, i) => {
+                      const isSelected = formData.selectedCards.includes(card);
+                      return (
+                        <motion.button
+                          key={card}
+                          whileHover={!isSelected ? { y: -8, scale: 1.02 } : {}}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => !isSelected && handleCardSelect(card)}
+                          disabled={isSelected || formData.selectedCards.length >= 3}
+                          className={`aspect-[1/1.6] rounded-2xl border transition-all relative group overflow-hidden ${
+                            isSelected
+                              ? "opacity-20 grayscale scale-95 pointer-events-none border-black/5"
+                              : "border-purple-200/50 bg-white shadow-md hover:shadow-xl hover:shadow-purple-500/20 hover:border-purple-400"
+                          }`}
+                        >
+                          {/* Card Back Design */}
+                          <div className="absolute inset-0 p-1.5">
+                            <div className={`w-full h-full rounded-xl flex items-center justify-center relative overflow-hidden transition-colors ${isSelected ? 'bg-gray-100' : 'bg-gradient-to-br from-purple-600 via-indigo-700 to-purple-900'}`}>
+                              {!isSelected && (
+                                <>
+                                  <div className="absolute inset-0 opacity-30">
+                                    <div className="absolute inset-2 border border-white/40 rounded-lg flex items-center justify-center">
+                                      <div className="w-full h-full border border-white/10 rounded-md rotate-45 scale-150" />
+                                      <div className="absolute w-full h-full border border-white/10 rounded-md -rotate-45 scale-150" />
+                                    </div>
+                                  </div>
+                                  <div className="relative">
+                                    <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
+                                      <Sparkles className="w-5 h-5 text-white/60" />
+                                    </div>
+                                    <div className="absolute -inset-4 bg-purple-400/20 blur-xl rounded-full animate-pulse" />
+                                  </div>
+                                </>
+                              )}
+                              {isSelected && <CheckCircle2 className="w-8 h-8 text-gray-300" />}
+                            </div>
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                <button
-                  disabled={formData.selectedCards.length < 3 || isProcessing}
-                  onClick={async () => {
-                    if (isProcessing) return;
-                    setIsProcessing(true);
-                    try {
-                      const reading = await onComplete({ ...formData, type: 'tarot', cards: formData.selectedCards });
-                      setActiveReading(reading);
-                      nextStep();
-                    } catch (error: any) {
-                      console.error("Submit error:", error);
-                      toast.error(error.message || "Bir hata oluştu");
-                    } finally {
-                      setIsProcessing(false);
-                    }
-                  }}
-                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-purple-600 to-purple-500 text-white font-bold shadow-xl shadow-purple-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3 active:scale-[0.98] transition-transform"
-                >
-                  {isProcessing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>
-                      <span className="uppercase tracking-widest text-sm">Yoruma Al</span>
-                      <Sparkles className="w-5 h-5" />
-                    </>
-                  )}
-                </button>
+                {/* Footer Actions */}
+                <div className="pt-4 space-y-4">
+                  <div className="flex justify-center">
+                    <PaymentSummary 
+                      type="tarot"
+                      userProfile={userProfile}
+                      economyConfig={economyConfig}
+                      extraQuestionsCount={0}
+                      priorityMode={false}
+                      minimal={true}
+                    />
+                  </div>
+
+                  <button
+                    disabled={formData.selectedCards.length < 3 || isProcessing}
+                    onClick={async () => {
+                      if (isProcessing) return;
+                      setIsProcessing(true);
+                      try {
+                        const reading = await onComplete({ ...formData, type: 'tarot', cards: formData.selectedCards });
+                        setActiveReading(reading);
+                        nextStep();
+                      } catch (error: any) {
+                        console.error("Submit error:", error);
+                        toast.error(error.message || "Bir hata oluştu");
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                    className="w-full py-5 rounded-2xl bg-gradient-to-r from-purple-600 to-purple-500 text-white font-bold shadow-xl shadow-purple-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3 active:scale-[0.98] transition-transform"
+                  >
+                    {isProcessing ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <span className="uppercase tracking-widest text-sm">Yoruma Al</span>
+                        <Sparkles className="w-5 h-5" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}

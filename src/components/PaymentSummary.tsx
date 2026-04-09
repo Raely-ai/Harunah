@@ -22,9 +22,9 @@ export default function PaymentSummary({
   if (!economyConfig) {
     if (minimal) {
       return (
-        <div className="mt-2 flex items-center justify-center gap-2 py-2">
-          <Loader2 className="w-3 h-3 text-muted animate-spin" />
-          <span className="text-[10px] font-medium text-muted">Fiyat hesaplanıyor...</span>
+        <div className="flex items-center justify-center gap-2 py-1 opacity-50">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          <span className="text-[9px] font-medium">Hesaplanıyor...</span>
         </div>
       );
     }
@@ -70,20 +70,20 @@ export default function PaymentSummary({
 
   if (minimal) {
     return (
-      <div className="mt-2 flex items-center justify-center gap-3 py-2 px-4 rounded-xl bg-black/5 border border-black/5">
+      <div className="flex items-center justify-center gap-4 py-1 px-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Ücret:</span>
-          <span className="text-xs font-black text-amber-600">
+          <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Ücret:</span>
+          <span className="text-[11px] font-black text-amber-600">
             {balanceType === 'subscription' ? 'ÜCRETSİZ' : `${totalCost} Jeton`}
           </span>
         </div>
-        <div className="w-px h-3 bg-black/10" />
+        <div className="w-px h-2.5 bg-black/5" />
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Bakiye:</span>
-          <span className={`text-xs font-black ${canAfford ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {balanceType === 'subscription' ? 'Abonelik Aktif' : 
-             balanceType === 'energy' ? `${userProfile.energy || 0} Enerji` : 
-             `${userProfile.mainCoins || 0} Jeton`}
+          <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Bakiye:</span>
+          <span className={`text-[11px] font-black ${canAfford ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {balanceType === 'subscription' ? 'Abonelik' : 
+             balanceType === 'energy' ? `${userProfile.energy || 0} E` : 
+             `${userProfile.mainCoins || 0} J`}
           </span>
         </div>
       </div>

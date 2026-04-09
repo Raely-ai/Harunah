@@ -48,8 +48,25 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
         try {
           const processFn = httpsCallable(functions, 'processFortuneAI');
           await processFn({ readingId: reading.id });
-        } catch (error) {
+        } catch (error: any) {
           console.error("AI Processing error:", error);
+          
+          let displayMessage = error.message || "Yorumlama sırasında bir hata oluştu.";
+          let stepInfo = "";
+
+          try {
+            const parsed = JSON.parse(error.message);
+            if (parsed.message) {
+              displayMessage = parsed.message;
+              if (parsed.step) stepInfo = ` [Step: ${parsed.step}]`;
+            }
+          } catch (e) {
+            // ignore
+          }
+
+          toast.error("Yorumlama Hatası", {
+            description: `${displayMessage}${stepInfo}`
+          });
         } finally {
           setIsAIProcessing(false);
         }

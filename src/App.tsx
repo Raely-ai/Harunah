@@ -613,8 +613,23 @@ function AppContent() {
     } catch (error: any) {
       console.error("Fortune creation error:", error);
       toast.dismiss(loadingToast);
+      
+      let displayMessage = error.message || "Lütfen daha sonra tekrar deneyin.";
+      let stepInfo = "";
+
+      // Try to parse structured error
+      try {
+        const parsed = JSON.parse(error.message);
+        if (parsed.message) {
+          displayMessage = parsed.message;
+          if (parsed.step) stepInfo = ` [Step: ${parsed.step}]`;
+        }
+      } catch (e) {
+        // Not a JSON error, use raw message
+      }
+
       toast.error("İşlem başarısız", {
-        description: error.message || "Lütfen daha sonra tekrar deneyin."
+        description: `${displayMessage}${stepInfo}`
       });
     } finally {
       setIsSubmitting(false);

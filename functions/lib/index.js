@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.buySocialSubscription = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = exports.updateReadingStatuses = exports.generateDailyMessage = exports.upgradeFortunePriority = exports.processFortuneAI = exports.createFortuneReading = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
+const regionalFunctions = functions.region('europe-west2');
 const openai_1 = __importDefault(require("openai"));
 const params_1 = require("firebase-functions/params");
 const crypto = __importStar(require("crypto"));
@@ -57,8 +58,11 @@ function getOpenAI() {
     }
     return _openai;
 }
-exports.createFortuneReading = functions.https.onCall(async (data, context) => {
+exports.createFortuneReading = regionalFunctions.https.onCall(async (data, context) => {
+    console.log("createFortuneReading called with data:", JSON.stringify(data));
+    let currentStep = "init";
     try {
+        currentStep = "validation";
         if (!context.auth)
             throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
         const userId = context.auth.uid;
@@ -70,6 +74,7 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
         const requestHash = crypto.createHash('md5').update(requestString).digest('hex');
         const userRef = db.collection("users").doc(userId);
         const economyRef = db.collection("adminSettings").doc("economy");
+        currentStep = "duplicate_check";
         const activeReadings = await db.collection("readings")
             .where("userId", "==", userId)
             .where("status", "in", ["searching", "found", "interpreting", "waiting"])
@@ -86,6 +91,7 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
         if (!duplicateCheck.empty) {
             throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
         }
+        currentStep = "transaction";
         return await db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
@@ -112,7 +118,7 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
             let balanceType = 'main';
             const today = new Date().toISOString().split('T')[0];
             const sub = userData.subscription;
-            if (sub && sub.status === 'active' && new Date(sub.expiresAt) > new Date()) {
+            if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
                 const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
                 const dailyUsed = sub.dailyLimitUsed || 0;
                 const lastReset = sub.lastResetAt || "";
@@ -133,17 +139,17 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
             }
             const userUpdates = {};
             if (balanceType === 'main') {
-                userUpdates.mainCoins = admin.firestore.FieldValue.increment(-totalCost);
+                userUpdates.mainCoins = firestore_1.FieldValue.increment(-totalCost);
             }
             else if (balanceType === 'energy') {
-                userUpdates.energy = admin.firestore.FieldValue.increment(-totalCost);
+                userUpdates.energy = firestore_1.FieldValue.increment(-totalCost);
             }
             else if (balanceType === 'subscription') {
                 if (userData.subscription?.lastResetAt !== today) {
                     userUpdates["subscription.dailyLimitUsed"] = 1;
                 }
                 else {
-                    userUpdates["subscription.dailyLimitUsed"] = admin.firestore.FieldValue.increment(1);
+                    userUpdates["subscription.dailyLimitUsed"] = firestore_1.FieldValue.increment(1);
                 }
                 userUpdates["subscription.lastResetAt"] = today;
             }
@@ -174,9 +180,9 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
                 status: 'searching',
                 requestHash,
                 formData: sanitizedFormData,
-                images: (images || []).filter((i) => i != null),
-                cards: (cards || []).filter((c) => c != null),
-                questions: (questions || []).filter((q) => q != null),
+                images: Array.isArray(images) ? images.filter((i) => i != null) : [],
+                cards: Array.isArray(cards) ? cards.filter((c) => c != null) : [],
+                questions: Array.isArray(questions) ? questions.filter((q) => q != null) : [],
                 priorityMode: !!effectivePriorityMode,
                 balanceType,
                 creditsUsed: balanceType === 'subscription' ? 0 : totalCost,
@@ -211,12 +217,20 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
     }
     catch (err) {
         console.error("Fortune creation failed:", err);
-        if (err instanceof functions.https.HttpsError)
-            throw err;
-        throw new functions.https.HttpsError('unknown', `Fortune Creation Error: ${err.message} | Stack: ${err.stack}`);
+        if (err instanceof functions.https.HttpsError) {
+            throw new functions.https.HttpsError(err.code, JSON.stringify({
+                message: err.message,
+                step: currentStep,
+                code: err.code
+            }));
+        }
+        throw new functions.https.HttpsError('internal', JSON.stringify({
+            message: err.message || String(err),
+            step: currentStep
+        }));
     }
 });
-exports.processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.processFortuneAI = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -242,7 +256,11 @@ exports.processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).ht
         });
         return { reading, proceed: true };
     }).catch(err => {
-        throw new functions.https.HttpsError('internal', `AI Process Error: ${err.message} | Stack: ${err.stack}`);
+        throw new functions.https.HttpsError('internal', JSON.stringify({
+            message: err.message || String(err),
+            step: "transaction_lock",
+            stack: err.stack
+        }));
     });
     if (result.alreadyCompleted)
         return { success: true, content: result.content };
@@ -255,7 +273,7 @@ exports.processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).ht
         title: 'Falınız Yorumlanıyor',
         message: `${reading.title} yorumunuz LASYA tarafından hazırlanıyor.`,
         read: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: firestore_1.FieldValue.serverTimestamp(),
         data: { readingId }
     });
     const economySnap = await db.collection("adminSettings").doc("economy").get();
@@ -295,9 +313,17 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
         systemPrompt = systemPrompt.replace(regex, value);
         templatePrompt = templatePrompt.replace(regex, value);
     });
+    const currentSnap = await readingRef.get();
+    if (currentSnap.data()?.status !== 'processing_ai') {
+        throw new functions.https.HttpsError('failed-precondition', 'Fal durumu geçersiz (processing_ai bekleniyordu).');
+    }
+    let currentStep = "init";
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
+        currentStep = "before_openai";
+        console.log(`[${readingId}] Step: ${currentStep}`);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("OpenAI request timed out")), 28000));
+        const openaiPromise = openai.chat.completions.create({
+            model: "gpt-4o",
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: templatePrompt }
@@ -305,36 +331,53 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
             temperature: 0.8,
             max_tokens: 2000
         });
-        let content = response.choices[0].message.content || "";
-        content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+        const response = await Promise.race([openaiPromise, timeoutPromise]);
+        currentStep = "after_openai";
+        console.log(`[${readingId}] Step: ${currentStep}`);
+        const contentRaw = response?.choices?.[0]?.message?.content;
+        if (!contentRaw) {
+            throw new Error("OpenAI empty response content");
+        }
+        let content = contentRaw.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+        if (!content) {
+            throw new Error("OpenAI processed content is empty");
+        }
+        currentStep = "before_save";
+        console.log(`[${readingId}] Step: ${currentStep}`);
         await readingRef.update({
             status: 'completed',
             content,
             resultText: content,
             updatedAt: new Date().toISOString()
         });
+        currentStep = "after_save";
+        console.log(`[${readingId}] Step: ${currentStep}`);
         await db.collection("notifications").add({
             userId: reading.userId,
             type: 'system',
             title: 'Falınız Hazır!',
             message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
             read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: firestore_1.FieldValue.serverTimestamp(),
             data: { readingId }
         });
         return { success: true, content };
     }
     catch (error) {
-        console.error("OpenAI Error:", error);
+        console.error(`[${readingId}] Error at step ${currentStep}:`, error);
+        const errorPayload = JSON.stringify({
+            message: error.message || 'Bilinmeyen hata',
+            step: currentStep
+        });
         await readingRef.update({
             status: 'error',
-            error: error.message,
+            error: errorPayload,
             updatedAt: new Date().toISOString()
-        });
-        throw new functions.https.HttpsError('internal', 'AI üretimi sırasında hata oluştu.');
+        }).catch(err => console.error("Secondary error updating status:", err));
+        throw new functions.https.HttpsError('internal', errorPayload);
     }
 });
-exports.upgradeFortunePriority = functions.https.onCall(async (data, context) => {
+exports.upgradeFortunePriority = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -363,7 +406,7 @@ exports.upgradeFortunePriority = functions.https.onCall(async (data, context) =>
             throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
         }
         transaction.update(userRef, {
-            mainCoins: admin.firestore.FieldValue.increment(-priorityFee)
+            mainCoins: firestore_1.FieldValue.increment(-priorityFee)
         });
         const now = new Date();
         const searchDelay = (new Date(reading.expectedReaderFoundAt).getTime() - new Date(reading.createdAt).getTime()) * 0.5;
@@ -388,11 +431,11 @@ exports.upgradeFortunePriority = functions.https.onCall(async (data, context) =>
         return { success: true };
     });
 });
-exports.generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.generateDailyMessage = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
     const openai = getOpenAI();
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
+            model: "gpt-4o",
             messages: [
                 { role: "system", content: "Sen bilge bir kahinsin. Kullanıcılara günlük kısa, etkileyici ve mistik mesajlar veriyorsun." },
                 { role: "user", content: "Günün falı için kısa, gizemli ve motive edici bir cümle yaz. Aşk, kariyer veya genel bir tavsiye olsun. Sadece cümleyi döndür. Maksimum 15 kelime." }
@@ -410,7 +453,7 @@ exports.generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }
         return { text: "Yıldızlar bugün senin için parlıyor.", category: 'general' };
     }
 });
-exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+exports.updateReadingStatuses = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 1 minutes').onRun(async (context) => {
     const now = new Date().toISOString();
     const openai = getOpenAI();
     const searchingReadings = await db.collection("readings")
@@ -492,7 +535,7 @@ exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
                 templatePrompt = templatePrompt.replace(regex, value);
             });
             const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo-preview",
+                model: "gpt-4o",
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: templatePrompt }
@@ -514,7 +557,7 @@ exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
                 title: 'Falınız Hazır!',
                 message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
                 read: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: firestore_1.FieldValue.serverTimestamp(),
                 data: { readingId: doc.id }
             });
         }
@@ -529,7 +572,7 @@ exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     }
     return null;
 });
-exports.watchAdReward = functions.https.onCall(async (data, context) => {
+exports.watchAdReward = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -558,7 +601,7 @@ exports.watchAdReward = functions.https.onCall(async (data, context) => {
         const expiresAt = new Date();
         expiresAt.setDate(now.getDate() + adRewardExpiryDays);
         transaction.update(userRef, {
-            energy: admin.firestore.FieldValue.increment(adRewardEnergy),
+            energy: firestore_1.FieldValue.increment(adRewardEnergy),
             dailyAdWatchCount: dailyCount + 1,
             lastAdReset: now.toISOString()
         });
@@ -579,7 +622,7 @@ exports.watchAdReward = functions.https.onCall(async (data, context) => {
         return { success: true };
     });
 });
-exports.purchaseCoins = functions.https.onCall(async (data, context) => {
+exports.purchaseCoins = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -592,9 +635,9 @@ exports.purchaseCoins = functions.https.onCall(async (data, context) => {
     await db.runTransaction(async (transaction) => {
         const updates = {};
         if (balanceType === 'main')
-            updates.mainCoins = admin.firestore.FieldValue.increment(amount);
+            updates.mainCoins = firestore_1.FieldValue.increment(amount);
         else
-            updates.energy = admin.firestore.FieldValue.increment(amount);
+            updates.energy = firestore_1.FieldValue.increment(amount);
         transaction.update(userRef, updates);
         const txRef = db.collection("walletTransactions").doc();
         transaction.set(txRef, {
@@ -613,7 +656,7 @@ exports.purchaseCoins = functions.https.onCall(async (data, context) => {
     });
     return { success: true };
 });
-exports.spendBalance = functions.https.onCall(async (data, context) => {
+exports.spendBalance = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -686,7 +729,7 @@ exports.spendBalance = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.buyFortuneSubscription = functions.https.onCall(async (data, context) => {
+exports.buyFortuneSubscription = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -723,7 +766,7 @@ exports.buyFortuneSubscription = functions.https.onCall(async (data, context) =>
             }
         }
         transaction.update(userRef, {
-            mainCoins: admin.firestore.FieldValue.increment(-price),
+            mainCoins: firestore_1.FieldValue.increment(-price),
             subscription: {
                 type,
                 status: 'active',
@@ -749,7 +792,7 @@ exports.buyFortuneSubscription = functions.https.onCall(async (data, context) =>
         return { success: true };
     });
 });
-exports.buySocialSubscription = functions.https.onCall(async (data, context) => {
+exports.buySocialSubscription = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -784,7 +827,7 @@ exports.buySocialSubscription = functions.https.onCall(async (data, context) => 
             }
         }
         transaction.update(userRef, {
-            mainCoins: admin.firestore.FieldValue.increment(-price),
+            mainCoins: firestore_1.FieldValue.increment(-price),
             socialSubscription: {
                 status: 'active',
                 type,
@@ -808,7 +851,7 @@ exports.buySocialSubscription = functions.https.onCall(async (data, context) => 
         return { success: true };
     });
 });
-exports.purchaseSocialItem = functions.https.onCall(async (data, context) => {
+exports.purchaseSocialItem = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -828,14 +871,14 @@ exports.purchaseSocialItem = functions.https.onCall(async (data, context) => {
         if ((userData.mainCoins || 0) < price)
             throw new Error("Yetersiz bakiye.");
         const updates = {
-            mainCoins: admin.firestore.FieldValue.increment(-price)
+            mainCoins: firestore_1.FieldValue.increment(-price)
         };
         if (type === 'superLike')
-            updates.superLikes = admin.firestore.FieldValue.increment(1);
+            updates.superLikes = firestore_1.FieldValue.increment(1);
         if (type === 'refresh')
-            updates.refreshCount = admin.firestore.FieldValue.increment(1);
+            updates.refreshCount = firestore_1.FieldValue.increment(1);
         if (type === 'compatibility')
-            updates.compatibilityCount = admin.firestore.FieldValue.increment(1);
+            updates.compatibilityCount = firestore_1.FieldValue.increment(1);
         transaction.update(userRef, updates);
         const txRef = db.collection("walletTransactions").doc();
         transaction.set(txRef, {
@@ -852,7 +895,7 @@ exports.purchaseSocialItem = functions.https.onCall(async (data, context) => {
         return { success: true };
     });
 });
-exports.purchaseSocialBundle = functions.https.onCall(async (data, context) => {
+exports.purchaseSocialBundle = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -884,10 +927,10 @@ exports.purchaseSocialBundle = functions.https.onCall(async (data, context) => {
         const boostExpiry = new Date();
         boostExpiry.setDate(now.getDate() + bundle.contents.boostDays);
         transaction.update(userRef, {
-            mainCoins: admin.firestore.FieldValue.increment(-bundle.price),
-            superLikes: admin.firestore.FieldValue.increment(bundle.contents.superLikes),
-            refreshCount: admin.firestore.FieldValue.increment(bundle.contents.refreshes),
-            compatibilityCount: admin.firestore.FieldValue.increment(bundle.contents.compatibility),
+            mainCoins: firestore_1.FieldValue.increment(-bundle.price),
+            superLikes: firestore_1.FieldValue.increment(bundle.contents.superLikes),
+            refreshCount: firestore_1.FieldValue.increment(bundle.contents.refreshes),
+            compatibilityCount: firestore_1.FieldValue.increment(bundle.contents.compatibility),
             boostExpiresAt: boostExpiry.toISOString()
         });
         const txRef = db.collection("walletTransactions").doc();
@@ -905,7 +948,7 @@ exports.purchaseSocialBundle = functions.https.onCall(async (data, context) => {
         return { success: true };
     });
 });
-exports.consumeSocialFeature = functions.https.onCall(async (data, context) => {
+exports.consumeSocialFeature = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -937,11 +980,11 @@ exports.consumeSocialFeature = functions.https.onCall(async (data, context) => {
         const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
         if ((userData[field] || 0) <= 0)
             throw new Error("Yetersiz hak.");
-        transaction.update(userRef, { [field]: admin.firestore.FieldValue.increment(-1) });
+        transaction.update(userRef, { [field]: firestore_1.FieldValue.increment(-1) });
         return { success: true };
     });
 });
-exports.adminGrantWalletReward = functions.https.onCall(async (data, context) => {
+exports.adminGrantWalletReward = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -957,9 +1000,9 @@ exports.adminGrantWalletReward = functions.https.onCall(async (data, context) =>
     await db.runTransaction(async (transaction) => {
         const updates = {};
         if (balanceType === 'main')
-            updates.mainCoins = admin.firestore.FieldValue.increment(amount);
+            updates.mainCoins = firestore_1.FieldValue.increment(amount);
         else
-            updates.energy = admin.firestore.FieldValue.increment(amount);
+            updates.energy = firestore_1.FieldValue.increment(amount);
         transaction.update(userRef, updates);
         const txRef = db.collection("walletTransactions").doc();
         transaction.set(txRef, {
@@ -976,7 +1019,7 @@ exports.adminGrantWalletReward = functions.https.onCall(async (data, context) =>
     });
     return { success: true };
 });
-exports.getAdminUserChats = functions.https.onCall(async (data, context) => {
+exports.getAdminUserChats = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -1011,7 +1054,7 @@ exports.getAdminUserChats = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message || 'Sohbetler getirilirken bir hata oluştu.');
     }
 });
-exports.getAdminChatMessages = functions.https.onCall(async (data, context) => {
+exports.getAdminChatMessages = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -1049,7 +1092,7 @@ exports.getAdminChatMessages = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message || 'Mesajlar getirilirken bir hata oluştu.');
     }
 });
-exports.adminModerationAction = functions.https.onCall(async (data, context) => {
+exports.adminModerationAction = regionalFunctions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
