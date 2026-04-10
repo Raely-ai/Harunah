@@ -101,7 +101,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
               className="relative z-10"
             >
               <div className="text-lg font-serif italic text-body leading-relaxed space-y-6">
-                {reading.content.split('\n\n').map((paragraph, i) => (
+                {(reading.content || "").split('\n\n').map((paragraph, i) => (
                   <motion.p
                     key={i}
                     initial={{ opacity: 0, y: 10 }}

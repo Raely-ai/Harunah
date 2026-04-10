@@ -450,7 +450,7 @@ export default function FortunesScreen({
                             <div>
                               <h3 className="font-serif font-bold text-heading">{reading.title}</h3>
                               <div className="flex items-center gap-2 mt-1">
-                                <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{reading.date.split('T')[0]}</span>
+                                <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{(reading.date || reading.createdAt || "").split('T')[0] || "Bilinmiyor"}</span>
                                 <span className="w-1 h-1 rounded-full bg-black/5" />
                                 <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color} border border-black/5`}>
                                   <StatusIcon className="w-2.5 h-2.5" />
@@ -559,7 +559,7 @@ export default function FortunesScreen({
                 </div>
                 <div>
                   <h2 className="text-2xl font-serif font-bold text-heading">{selectedReading.title}</h2>
-                  <p className="text-xs text-muted uppercase tracking-widest font-bold">{selectedReading.date.split('T')[0]}</p>
+                  <p className="text-xs text-muted uppercase tracking-widest font-bold">{(selectedReading.date || selectedReading.createdAt || "").split('T')[0] || "Bilinmiyor"}</p>
                 </div>
               </div>
 

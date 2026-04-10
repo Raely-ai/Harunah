@@ -62,10 +62,10 @@ async function updateReadingStatuses() {
       .get();
 
     for (const doc of interpretingReadings.docs) {
-      // We don't update status here, we let the /api/fortune/process handle it
-      // But we can trigger it if it's not already completed
-      // In a real system, we might have a queue or a separate worker
-      // For now, we rely on the client sync or a manual trigger
+      const reading = doc.data();
+      if (reading.isAIGenerated) {
+        await doc.ref.update({ status: 'completed', updatedAt: now });
+      }
     }
   } catch (error) {
     console.error("Background task error:", error);

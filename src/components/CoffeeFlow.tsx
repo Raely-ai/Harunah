@@ -24,13 +24,34 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
     target: 'self', // 'self' or 'other'
     adSoyad: userProfile.displayName || '',
     dogumTarihi: userProfile.birthDate || '',
-    iliskiDurumu: userProfile.relationshipStatus || 'single'
+    iliskiDurumu: userProfile.relationshipStatus || 'single',
+    images: [] as string[]
   });
 
   const price = config.prices.coffee;
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);
+  const prevStep = () => setStep(s => s - 1);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (formData.images.length >= 3) {
+        toast.error("Maksimum 3 fotoğraf yükleyebilirsiniz.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, images: [...formData.images, reader.result as string] });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setFormData({ ...formData, images: formData.images.filter((_, i) => i !== index) });
+  };
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#FDFCFE] flex flex-col">
@@ -40,7 +61,7 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={onClose}
+            onClick={step > 1 ? prevStep : onClose}
             className="p-2 rounded-full bg-black/5 text-muted"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -61,7 +82,7 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
         <motion.div 
           className="h-full bg-amber-600"
           initial={{ width: "0%" }}
-          animate={{ width: `${(step / 2) * 100}%` }}
+          animate={{ width: `${(step / 3) * 100}%` }}
         />
       </div>
 
@@ -149,6 +170,58 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
                 </div>
               </div>
 
+              <button
+                disabled={!formData.adSoyad || !formData.dogumTarihi}
+                onClick={nextStep}
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-xl shadow-amber-500/20 flex items-center justify-center gap-3"
+              >
+                <span>Devam Et</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            </motion.div>
+          )}
+
+          {step === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <div className="text-center space-y-2">
+                <h2 className="text-3xl font-serif font-bold text-heading">Fincan Fotoğrafları</h2>
+                <p className="text-muted">Fincanının ve tabağının fotoğraflarını yükle.</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                {formData.images.map((img, idx) => (
+                  <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden border border-black/5 shadow-sm">
+                    <img src={img} alt={`Fincan ${idx + 1}`} className="w-full h-full object-cover" />
+                    <button 
+                      onClick={() => removePhoto(idx)}
+                      className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {formData.images.length < 3 && (
+                  <label className="aspect-square rounded-2xl border-2 border-dashed border-black/10 flex flex-col items-center justify-center gap-2 text-muted hover:border-amber-500/50 hover:text-amber-600 transition-all cursor-pointer">
+                    <Plus className="w-6 h-6" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Ekle</span>
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                  </label>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-100 flex items-start gap-3">
+                <Camera className="w-5 h-5 text-amber-600 mt-0.5" />
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  <strong>İpucu:</strong> Fotoğrafların net ve aydınlık olması, LASYA'nın sembolleri daha iyi görmesini sağlar.
+                </p>
+              </div>
+
               <PaymentSummary 
                 type="coffee"
                 userProfile={userProfile}
@@ -158,7 +231,7 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
               />
 
               <button
-                disabled={!formData.adSoyad || !formData.dogumTarihi || isProcessing}
+                disabled={formData.images.length === 0 || isProcessing}
                 onClick={async () => {
                   if (isProcessing) return;
                   setIsProcessing(true);
@@ -187,13 +260,13 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
             </motion.div>
           )}
 
-          {step === 2 && (
+          {step === 3 && (
             <RitualScreen type="coffee" reading={activeReading} onClose={onClose} onSocialClick={onSocialClick} />
           )}
         </AnimatePresence>
       </div>
       
-      {step < 3 && (
+      {step < 4 && (
         <button 
           onClick={onClose}
           className="absolute top-6 right-6 p-2 rounded-full bg-black/5 text-muted"

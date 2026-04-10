@@ -1,13 +1,15 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
 
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+admin.initializeApp({
+  projectId: "gen-lang-client-0107919355"
+});
 
-admin.initializeApp();
-const db = getFirestore(admin.app(), "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
+const db = getFirestore("ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 
 // Define OpenAI Secret
 const openAiKey = defineSecret("OPENAI_API_KEY");
@@ -253,11 +255,23 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
 
   const readingRef = db.collection("readings").doc(readingId);
   
+  // Retry logic for document visibility
+  let readingSnap = await readingRef.get();
+  if (!readingSnap.exists) {
+    console.log(`Reading ${readingId} not found, retrying in 2s...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    readingSnap = await readingRef.get();
+  }
+
+  if (!readingSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Fal kaydı henüz oluşturulmadı veya bulunamadı.');
+  }
+
   // Use transaction for atomic status check and lock
   const result = await db.runTransaction(async (transaction) => {
-    const readingSnap = await transaction.get(readingRef);
-    if (!readingSnap.exists) throw new Error('Fal kaydı bulunamadı.');
-    const reading = readingSnap.data() as any;
+    const freshSnap = await transaction.get(readingRef);
+    if (!freshSnap.exists) throw new Error('Fal kaydı bulunamadı.');
+    const reading = freshSnap.data() as any;
 
     if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
     
@@ -265,8 +279,9 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
     if (reading.status === 'processing_ai') return { alreadyProcessing: true };
 
-    // Lock the reading (but keep searching status for now)
+    // Lock the reading and set status to interpreting
     transaction.update(readingRef, { 
+      status: 'interpreting',
       isAIGenerating: true,
       updatedAt: new Date().toISOString() 
     });
@@ -338,19 +353,34 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: templatePrompt }
+        { 
+          role: "user", 
+          content: `
+Kullanıcı Bilgileri:
+Ad Soyad: ${placeholders.adsoyad}
+Doğum Tarihi: ${placeholders.dogumtarihi}
+İlişki Durumu: ${placeholders.iliskidurumu}
+Fal Türü: ${placeholders.tur}
+Anne Adı: ${placeholders.anneadi}
+Baba Adı: ${placeholders.babaadi}
+Sorular: ${placeholders.sorular}
+
+Lütfen bu bilgilere göre mistik bir yorum yap.
+`
+        }
       ],
       temperature: 0.8,
-      max_tokens: 2000 // Optimized from 3000
+      max_tokens: 2000
     });
 
     let content = response.choices[0].message.content || "";
     content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
 
     await readingRef.update({
+      status: 'completed',
       content,
       resultText: content,
       isAIGenerated: true,
@@ -360,13 +390,19 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
 
     return { success: true, content };
   } catch (error: any) {
-    console.error("OpenAI Error:", error);
+    console.error("OpenAI Error Details:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      type: error.type
+    });
     await readingRef.update({
       status: 'error',
-      error: error.message,
+      error: `AI Hatası: ${error.message}`,
       updatedAt: new Date().toISOString()
-    });
-    throw new functions.https.HttpsError('internal', 'AI üretimi sırasında hata oluştu.');
+    }).catch(updateErr => console.error("Failed to update reading status to error:", updateErr));
+    
+    throw new functions.https.HttpsError('internal', `AI üretimi sırasında hata oluştu: ${error.message}`);
   }
 });
 
@@ -408,8 +444,10 @@ export const upgradeFortunePriority = functions.https.onCall(async (data, contex
 
     // Update Reading
     const now = new Date();
-    const searchDelay = (new Date(reading.expectedReaderFoundAt).getTime() - new Date(reading.createdAt).getTime()) * 0.5;
-    const newFoundAt = new Date(now.getTime() + searchDelay);
+    const expectedFoundAt = reading.expectedReaderFoundAt ? new Date(reading.expectedReaderFoundAt).getTime() : now.getTime() + 60000;
+    const createdAt = reading.createdAt ? new Date(reading.createdAt).getTime() : now.getTime();
+    const searchDelay = (expectedFoundAt - createdAt) * 0.5;
+    const newFoundAt = new Date(now.getTime() + (isNaN(searchDelay) ? 30000 : searchDelay));
     
     transaction.update(readingRef, {
       priorityMode: true,
@@ -441,7 +479,7 @@ export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KE
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "Sen bilge bir kahinsin. Kullanıcılara günlük kısa, etkileyici ve mistik mesajlar veriyorsun." },
         { role: "user", content: "Günün falı için kısa, gizemli ve motive edici bir cümle yaz. Aşk, kariyer veya genel bir tavsiye olsun. Sadece cümleyi döndür. Maksimum 15 kelime." }

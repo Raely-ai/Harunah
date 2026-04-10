@@ -33,6 +33,7 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);
+  const prevStep = () => setStep(s => s - 1);
 
   const handleCardSelect = (card: string) => {
     if (formData.selectedCards.includes(card)) {
@@ -50,7 +51,7 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={onClose}
+            onClick={step > 1 ? prevStep : onClose}
             className="p-2 rounded-full bg-black/5 text-muted"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -71,7 +72,7 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
         <motion.div 
           className="h-full bg-purple-600"
           initial={{ width: "0%" }}
-          animate={{ width: `${(step / 2) * 100}%` }}
+          animate={{ width: `${(step / 3) * 100}%` }}
         />
       </div>
 
@@ -140,6 +141,65 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
                 </div>
               </div>
 
+              <button
+                disabled={!formData.adSoyad || !formData.dogumTarihi}
+                onClick={nextStep}
+                className="w-full py-5 rounded-2xl bg-gradient-to-r from-purple-600 to-purple-500 text-white font-bold shadow-xl shadow-purple-500/20 flex items-center justify-center gap-3"
+              >
+                <span>Kartları Seç</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            </motion.div>
+          )}
+
+          {step === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <div className="text-center space-y-2">
+                <h2 className="text-3xl font-serif font-bold text-heading">Kartlarını Seç</h2>
+                <p className="text-muted">Sana en yakın gelen 3 kartı seçerek enerjini aktar.</p>
+                <div className="flex justify-center gap-2 mt-4">
+                  {[1, 2, 3].map((i) => (
+                    <div 
+                      key={i}
+                      className={`w-12 h-16 rounded-lg border-2 border-dashed flex items-center justify-center transition-all ${
+                        formData.selectedCards.length >= i 
+                          ? "border-purple-500 bg-purple-50 text-purple-600" 
+                          : "border-black/10 text-muted"
+                      }`}
+                    >
+                      {formData.selectedCards.length >= i ? "🎴" : "?"}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-6 gap-2 max-h-[40vh] overflow-y-auto p-2 custom-scrollbar">
+                {TAROT_CARDS.map((card, idx) => {
+                  const isSelected = formData.selectedCards.includes(card);
+                  return (
+                    <motion.button
+                      key={idx}
+                      whileHover={{ scale: 1.05, y: -5 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleCardSelect(card)}
+                      className={`aspect-[2/3] rounded-lg border-2 flex items-center justify-center text-2xl transition-all ${
+                        isSelected 
+                          ? "border-purple-500 bg-purple-50 shadow-lg shadow-purple-500/20" 
+                          : "border-black/5 bg-white hover:border-purple-200"
+                      }`}
+                    >
+                      🎴
+                    </motion.button>
+                  );
+                })}
+              </div>
+
               <div className="flex justify-center">
                 <PaymentSummary 
                   type="tarot"
@@ -152,12 +212,12 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
               </div>
 
               <button
-                disabled={!formData.adSoyad || !formData.dogumTarihi || isProcessing}
+                disabled={formData.selectedCards.length < 3 || isProcessing}
                 onClick={async () => {
                   if (isProcessing) return;
                   setIsProcessing(true);
                   try {
-                    const reading = await onComplete({ ...formData, type: 'tarot' });
+                    const reading = await onComplete({ ...formData, type: 'tarot', cards: formData.selectedCards });
                     setActiveReading(reading);
                     nextStep();
                   } catch (error: any) {
@@ -181,13 +241,13 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
             </motion.div>
           )}
 
-          {step === 2 && (
+          {step === 3 && (
             <RitualScreen type="tarot" reading={activeReading} onClose={onClose} onSocialClick={onSocialClick} />
           )}
         </AnimatePresence>
       </div>
       
-      {step < 3 && (
+      {step < 4 && (
         <button 
           onClick={onClose}
           className="absolute top-6 right-6 p-2 rounded-full bg-black/5 text-muted"

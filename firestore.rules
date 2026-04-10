@@ -26,14 +26,14 @@ service cloud.firestore {
         (
           (request.auth.token.email in ["hpferdicakir@gmail.com", "hpferdicakir4@gmail.com"]) ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'admin')
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
         );
     }
 
     function isSocialOperator() {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'social_operator';
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'social_operator';
     }
 
     function hasElevatedAccess() {
@@ -49,9 +49,9 @@ service cloud.firestore {
     }
 
     function isValidUserCreate(data) {
-      return data.get('uid', '') == request.auth.uid &&
-             data.get('role', 'user') == 'user' &&
-             data.get('isBanned', false) == false;
+      return data.uid == request.auth.uid &&
+             data.role == 'user' &&
+             data.isBanned == false;
     }
 
     function isValidUser(data) {
