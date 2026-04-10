@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, Sparkles, Heart, Briefcase } from 'lucide-react';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../lib/firebase';
+import { functions, auth } from '../lib/firebase';
 import { AppConfig } from '../types';
 
 interface DailyMessageCardProps {
@@ -40,9 +40,18 @@ export default function DailyMessageCard({ config }: DailyMessageCardProps) {
     setLoading(true);
     setError(null);
     try {
-      const generateFn = httpsCallable(functions, 'generateDailyMessage');
-      const result = await generateFn();
-      const { text, category } = result.data as any;
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/daily-message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error("API error");
+      
+      const { text, category } = await response.json();
       
       const newMessage: DailyMessage = {
         text,
