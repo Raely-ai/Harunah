@@ -49,17 +49,19 @@ export const callFunction = async (name: string, data: any) => {
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || "API error");
+        const error = new Error(errData.error || "API hatası");
+        (error as any).status = response.status;
+        throw error;
       }
 
       return await response.json();
     }
   } catch (error) {
     console.error(`API call failed for ${name}:`, error);
-    if (import.meta.env.PROD) throw error;
+    throw error; // Always throw, no fallback for sensitive operations
   }
   
-  // In development/preview fallback to simulation if API fails or not mapped
+  // Only non-mapped functions might fall back if they are not critical
   console.log(`[SIMULATION] Falling back for: ${name}`, data);
   switch (name) {
     case 'watchAdReward': return await walletBackend.processAdReward(data.userId, data.config);

@@ -514,35 +514,22 @@ function AppContent() {
 
         // 1. Searching -> Found
         if (reading.status === 'searching' && expectedReaderFoundAt && now >= expectedReaderFoundAt) {
-          await updateDoc(docSnap.ref, {
-            status: 'found',
-            updatedAt: now.toISOString()
-          });
+          // Status update is handled by server background task
           continue;
         }
 
         // 2. Found -> Interpreting
         if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
-          await updateDoc(docSnap.ref, {
-            status: 'interpreting',
-            updatedAt: now.toISOString()
-          });
+          // Status update is handled by server background task
           continue;
         }
 
         // 3. Interpreting -> Completed (Trigger AI)
         if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
-          // Call Express API to process AI
+          // Call Firebase Function to process AI
           try {
-            const token = await auth.currentUser?.getIdToken();
-            await fetch('/api/fortune/process', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({ readingId: reading.id })
-            });
+            const processAI = httpsCallable(functions, 'processFortuneAI');
+            await processAI({ readingId: reading.id });
           } catch (aiErr) {
             console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
           }
@@ -572,7 +559,7 @@ function AppContent() {
     });
 
     try {
-      // Collect all images (CoffeeFlow uses data.images, AdvancedFlow uses userPhoto/targetPhoto/question photos)
+      // Collect all images
       const images = [...(data.images || [])];
       if (data.userPhoto) images.push(data.userPhoto);
       if (data.targetPhoto) images.push(data.targetPhoto);
@@ -582,40 +569,27 @@ function AppContent() {
         });
       }
 
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch('/api/fortune/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+      const createFortune = httpsCallable(functions, 'createFortuneReading');
+      const result: any = await createFortune({
+        type: data.type,
+        formData: {
+          adSoyad: data.adSoyad,
+          dogumTarihi: data.dogumTarihi,
+          iliskiDurumu: data.iliskiDurumu,
+          motherName: data.motherName,
+          fatherName: data.fatherName,
+          targetName: data.targetName,
+          jobStatus: data.jobStatus,
+          extraInfo: data.extraInfo,
+          birthTime: data.birthTime
         },
-        body: JSON.stringify({
-          type: data.type,
-          formData: {
-            adSoyad: data.adSoyad,
-            dogumTarihi: data.dogumTarihi,
-            iliskiDurumu: data.iliskiDurumu,
-            motherName: data.motherName,
-            fatherName: data.fatherName,
-            targetName: data.targetName,
-            jobStatus: data.jobStatus,
-            extraInfo: data.extraInfo,
-            birthTime: data.birthTime
-          },
-          images,
-          cards: data.cards,
-          questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
-          priorityMode: data.priorityMode
-        })
+        images,
+        cards: data.cards,
+        questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
+        priorityMode: data.priorityMode
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Sunucu hatası");
-      }
-
-      const result = await response.json();
-      const { readingId } = result;
+      const { readingId } = result.data;
 
       toast.dismiss(loadingToast);
       toast.success("Falınız sıraya alındı!", {
@@ -640,39 +614,25 @@ function AppContent() {
     }
   };
 
-  const handlePriorityInterpretation = (id: string) => {
-    const cost = 100;
-    let newMainCoins = userProfile.mainCoins || 0;
-
-    if (newMainCoins >= cost) {
-      newMainCoins -= cost;
-    } else {
-      toast.error("Jetonun yetersiz!");
-      return;
-    }
-
-    if (userProfile) {
-      updateDoc(doc(db, "users", userProfile.uid), {
-        mainCoins: newMainCoins
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
-    }
+  const handlePriorityInterpretation = async (id: string) => {
+    const loadingToast = toast.loading("Öncelikli yorum talebiniz işleniyor...");
     
-    // Speed up interpretation
-    setHistory(prev => prev.map(r => r.id === id ? { ...r, status: 'interpreting' } : r));
-    
-    toast.success("Öncelikli yorumlama başlatıldı!", {
-      description: "Yorumcun senin için hızlandı.",
-      icon: <Zap className="w-4 h-4 text-amber-500" />
-    });
+    try {
+      const upgradePriority = httpsCallable(functions, 'upgradeFortunePriority');
+      await upgradePriority({ readingId: id });
 
-    // Complete faster
-    setTimeout(() => {
-      setHistory(prev => prev.map(r => r.id === id ? { 
-        ...r, 
-        status: 'completed',
-        content: 'Bu öncelikli bir kehanettir. Yıldızlar senin için çok parlak bir gelecek fısıldıyor.'
-      } : r));
-    }, 5000);
+      toast.dismiss(loadingToast);
+      toast.success("Öncelikli yorum aktif edildi!", {
+        description: "Falınız en kısa sürede yorumlanacak."
+      });
+      playSound('success');
+    } catch (error: any) {
+      console.error("Priority upgrade error:", error);
+      toast.dismiss(loadingToast);
+      toast.error("Hata", {
+        description: error.message || "Lütfen daha sonra tekrar deneyin."
+      });
+    }
   };
 
   const handleSavePrompt = (type: FortuneType, content: string) => {

@@ -46,20 +46,8 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
         // For now, let's just trigger the AI which will update status to interpreting
         setIsAIProcessing(true);
         try {
-          const token = await auth.currentUser?.getIdToken();
-          const response = await fetch('/api/fortune/process', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ readingId: reading.id })
-          });
-          
-          if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error || "Sunucu hatası");
-          }
+          const processAI = httpsCallable(functions, 'processFortuneAI');
+          await processAI({ readingId: reading.id });
         } catch (error) {
           console.error("AI Processing error:", error);
         } finally {
@@ -75,20 +63,8 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
     if (!reading) return;
     setIsUpgrading(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch('/api/fortune/upgrade', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ readingId: reading.id })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Sunucu hatası");
-      }
+      const upgradePriority = httpsCallable(functions, 'upgradeFortunePriority');
+      await upgradePriority({ readingId: reading.id });
       
       toast.success("Öncelikli sıraya alındınız!");
       setShowPriorityOption(false);

@@ -40,7 +40,32 @@ async function updateReadingStatuses() {
       .get();
 
     for (const doc of searchingReadings.docs) {
-      await doc.ref.update({ status: 'found' });
+      await doc.ref.update({ status: 'found', updatedAt: now });
+    }
+
+    // 2. Found -> Interpreting
+    const foundReadings = await db.collection("readings")
+      .where("status", "==", "found")
+      .where("interpretationStartedAt", "<=", now)
+      .limit(10)
+      .get();
+
+    for (const doc of foundReadings.docs) {
+      await doc.ref.update({ status: 'interpreting', updatedAt: now });
+    }
+
+    // 3. Interpreting -> Completed (Trigger AI)
+    const interpretingReadings = await db.collection("readings")
+      .where("status", "==", "interpreting")
+      .where("expectedCompletedAt", "<=", now)
+      .limit(10)
+      .get();
+
+    for (const doc of interpretingReadings.docs) {
+      // We don't update status here, we let the /api/fortune/process handle it
+      // But we can trigger it if it's not already completed
+      // In a real system, we might have a queue or a separate worker
+      // For now, we rely on the client sync or a manual trigger
     }
   } catch (error) {
     console.error("Background task error:", error);
@@ -92,7 +117,11 @@ async function startServer() {
 
       const result = await db.runTransaction(async (transaction) => {
         const userSnap = await transaction.get(userRef);
-        if (!userSnap.exists) throw new Error("User not found");
+        if (!userSnap.exists) {
+          const error: any = new Error("Kullanıcı bulunamadı");
+          error.status = 404;
+          throw error;
+        }
         const userData = userSnap.data() as any;
 
         const economySnap = await transaction.get(economyRef);
@@ -100,10 +129,15 @@ async function startServer() {
           fortunePricing: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, extraQuestion: 10, priorityFee: 20 }
         };
 
-        // Calculate Price
-        const basePrice = Number(economy.fortunePricing?.[type]) || 50;
-        const extraQuestionPrice = Number(economy.fortunePricing?.extraQuestion) || 10;
-        const priorityFee = Number(economy.fortunePricing?.priorityFee) || 20;
+        // Calculate Price with safe defaults and Number.isFinite checks
+        const getSafePrice = (val: any, fallback: number) => {
+          const num = Number(val);
+          return Number.isFinite(num) ? num : fallback;
+        };
+
+        const basePrice = getSafePrice(economy.fortunePricing?.[type], 50);
+        const extraQuestionPrice = getSafePrice(economy.fortunePricing?.extraQuestion, 10);
+        const priorityFee = getSafePrice(economy.fortunePricing?.priorityFee, 20);
         
         let extraQuestionsCost = 0;
         if (Array.isArray(questions) && questions.length > 3) {
@@ -112,12 +146,22 @@ async function startServer() {
         
         const totalCost = basePrice + extraQuestionsCost + (priorityMode ? priorityFee : 0);
 
-        // Check Balance
-        if ((userData.mainCoins || 0) < totalCost) {
-          throw new Error("Insufficient balance");
+        // Final validation for totalCost
+        if (!Number.isFinite(totalCost) || totalCost < 0) {
+          const error: any = new Error("Geçersiz ücret hesaplaması");
+          error.status = 400;
+          throw error;
         }
 
-        // Deduct Balance
+        // Check Balance
+        const userBalance = Number.isFinite(Number(userData.mainCoins)) ? Number(userData.mainCoins) : 0;
+        if (userBalance < totalCost) {
+          const error: any = new Error("Yetersiz bakiye");
+          error.status = 400;
+          throw error;
+        }
+
+        // Deduct Balance - Guaranteed valid number
         transaction.update(userRef, {
           mainCoins: FieldValue.increment(-totalCost)
         });
@@ -150,7 +194,9 @@ async function startServer() {
       res.json(result);
     } catch (error: any) {
       console.error("Create fortune error:", error);
-      res.status(500).json({ error: error.message });
+      const status = error.status || 500;
+      const message = error.message || "Sunucu hatası";
+      res.status(status).json({ error: message });
     }
   });
 
@@ -275,11 +321,23 @@ async function startServer() {
 
       const result = await db.runTransaction(async (transaction) => {
         const readingSnap = await transaction.get(readingRef);
-        if (!readingSnap.exists) throw new Error("Reading not found");
+        if (!readingSnap.exists) {
+          const error: any = new Error("Fal kaydı bulunamadı");
+          error.status = 404;
+          throw error;
+        }
         const reading = readingSnap.data() as any;
 
-        if (reading.userId !== userId) throw new Error("Unauthorized");
-        if (reading.priorityMode) throw new Error("Already in priority mode");
+        if (reading.userId !== userId) {
+          const error: any = new Error("Yetkisiz işlem");
+          error.status = 403;
+          throw error;
+        }
+        if (reading.priorityMode) {
+          const error: any = new Error("Zaten öncelikli modda");
+          error.status = 400;
+          throw error;
+        }
 
         const economySnap = await transaction.get(economyRef);
         const priorityFee = economySnap.data()?.fortunePricing?.priorityFee || 20;
@@ -288,7 +346,9 @@ async function startServer() {
         const userData = userSnap.data() as any;
 
         if ((userData.mainCoins || 0) < priorityFee) {
-          throw new Error("Insufficient balance");
+          const error: any = new Error("Yetersiz bakiye");
+          error.status = 400;
+          throw error;
         }
 
         // Deduct Fee
@@ -308,7 +368,9 @@ async function startServer() {
       res.json(result);
     } catch (error: any) {
       console.error("Upgrade error:", error);
-      res.status(500).json({ error: error.message });
+      const status = error.status || 500;
+      const message = error.message || "Sunucu hatası";
+      res.status(status).json({ error: message });
     }
   });
 
