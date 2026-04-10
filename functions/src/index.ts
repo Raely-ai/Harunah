@@ -1161,8 +1161,15 @@ export const consumeSocialFeature = regionalFunctions.https.onCall(async (data, 
         dailyUsage.superLikes++;
         transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
         return { success: true };
+      } else if (type === 'refresh' && dailyUsage.refreshes < limits.refreshes) {
+        dailyUsage.refreshes++;
+        transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        return { success: true };
+      } else if (type === 'compatibility' && dailyUsage.compatibility < limits.compatibility) {
+        dailyUsage.compatibility++;
+        transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        return { success: true };
       }
-      // ... other types
     }
     
     // Fallback to paid

@@ -5,8 +5,6 @@ import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import firebaseConfig from "../../firebase-applet-config.json";
 
-console.log("Firebase config loaded:", firebaseConfig);
-
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const functions = getFunctions(app, "europe-west2");
@@ -17,29 +15,16 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true // Stabilize network connection in restricted environments
 }, firebaseConfig.firestoreDatabaseId);
 
-console.log("Firestore initialized with databaseId:", firebaseConfig.firestoreDatabaseId);
-
-// Test connection on boot
-async function testConnection() {
+// Minimal connection test for stability
+async function verifyConnection() {
   try {
-    console.log("Testing Firestore connection (test/connection)...");
-    await getDoc(doc(db, 'test', 'connection'));
-    console.log("Firestore connection successful via test/connection");
+    await getDoc(doc(db, 'config', 'global'));
+    console.log("Firebase connection verified.");
   } catch (error) {
-    console.warn("test/connection failed, trying config/general...", error);
-    try {
-      await getDoc(doc(db, 'config', 'general'));
-      console.log("Firestore connection successful via config/general");
-    } catch (innerError) {
-      if(innerError instanceof Error && innerError.message.includes('the client is offline')) {
-        console.error("Please check your Firebase configuration. The client is offline.");
-      } else {
-        console.error("Firestore connection test error (all attempts failed):", innerError);
-      }
-    }
+    console.warn("Firebase connection verification failed:", error);
   }
 }
-testConnection();
+verifyConnection();
 
 export const storage = getStorage(app);
 

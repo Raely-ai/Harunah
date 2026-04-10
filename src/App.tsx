@@ -254,7 +254,6 @@ function AppContent() {
           // Check if document exists AND has core fields. 
           // If it was created partially by updateUserStatus, we still need to initialize it.
           if (!snap.exists() || !snap.data()?.createdAt) {
-            console.log("Initializing profile for user:", user.uid, snap.exists() ? "(partial exists)" : "(new)");
             const initialProfile: UserProfile = {
               uid: user.uid,
               email: user.email || "",
@@ -331,7 +330,6 @@ function AppContent() {
           
           // Auto-fix: If they have all required fields but profileCompleted is false, fix it
           if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
-            console.log("Auto-fixing profileCompleted for user:", user.uid);
             setDoc(doc(db, "users", user.uid), { 
             social: {
               profileCompleted: true,
