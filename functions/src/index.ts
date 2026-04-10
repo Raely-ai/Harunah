@@ -32,7 +32,7 @@ function getOpenAI() {
 
 // 1. Create Fortune Reading (Backend Controlled)
 export const createFortuneReading = functions.https.onCall(async (data, context) => {
-  console.log("createFortuneReading called with data:", JSON.stringify(data));
+  console.log("createFortuneReading called for type:", data?.type);
   try {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     

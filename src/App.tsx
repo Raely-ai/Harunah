@@ -577,16 +577,6 @@ function AppContent() {
     });
 
     try {
-      // Collect all images
-      const images = [...(data.images || [])];
-      if (data.userPhoto) images.push(data.userPhoto);
-      if (data.targetPhoto) images.push(data.targetPhoto);
-      if (data.questions) {
-        data.questions.forEach((q: any) => {
-          if (q.photo) images.push(q.photo);
-        });
-      }
-
       const createFortune = httpsCallable(functions, 'createFortuneReading');
       const result: any = await createFortune({
         type: data.type,
@@ -601,8 +591,6 @@ function AppContent() {
           extraInfo: data.extraInfo,
           birthTime: data.birthTime
         },
-        images,
-        cards: data.cards,
         questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
         priorityMode: data.priorityMode
       });

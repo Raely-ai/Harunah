@@ -302,7 +302,7 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
     });
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
+            model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: templatePrompt }
@@ -397,7 +397,7 @@ exports.generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }
     const openai = getOpenAI();
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
+            model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: "Sen bilge bir kahinsin. Kullanıcılara günlük kısa, etkileyici ve mistik mesajlar veriyorsun." },
                 { role: "user", content: "Günün falı için kısa, gizemli ve motive edici bir cümle yaz. Aşk, kariyer veya genel bir tavsiye olsun. Sadece cümleyi döndür. Maksimum 15 kelime." }
@@ -497,7 +497,7 @@ exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
                 templatePrompt = templatePrompt.replace(regex, value);
             });
             const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo-preview",
+                model: "gpt-4o-mini",
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: templatePrompt }
