@@ -518,15 +518,21 @@ function AppContent() {
           continue;
         }
 
-        // 2. Found -> Interpreting
+        // 2. Found -> Interpreting (Trigger AI if ready)
         if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
-          // Status update is handled by server background task
+          // Trigger AI processing
+          try {
+            const processAI = httpsCallable(functions, 'processFortuneAI');
+            await processAI({ readingId: reading.id });
+          } catch (aiErr) {
+            console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
+          }
           continue;
         }
 
-        // 3. Interpreting -> Completed (Trigger AI)
+        // 3. Interpreting -> Completed (Trigger AI if ready)
         if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
-          // Call Firebase Function to process AI
+          // Trigger AI processing
           try {
             const processAI = httpsCallable(functions, 'processFortuneAI');
             await processAI({ readingId: reading.id });

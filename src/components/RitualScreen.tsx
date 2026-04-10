@@ -37,22 +37,25 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
   useEffect(() => {
     if (!reading || isAIProcessing) return;
 
+    // Only trigger if status is one that needs AI processing
+    // 'searching' (simulated search) or 'interpreting' (actual AI trigger)
+    if (reading.status !== 'searching' && reading.status !== 'interpreting') return;
+
     const runFlow = async () => {
-      if (reading.status === 'searching') {
-        // Wait a bit to simulate searching
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // Update to found (Local update or backend?)
-        // For now, let's just trigger the AI which will update status to interpreting
-        setIsAIProcessing(true);
-        try {
-          const processAI = httpsCallable(functions, 'processFortuneAI');
-          await processAI({ readingId: reading.id });
-        } catch (error) {
-          console.error("AI Processing error:", error);
-        } finally {
-          setIsAIProcessing(false);
+      setIsAIProcessing(true);
+      try {
+        if (reading.status === 'searching') {
+          // Wait a bit to simulate searching experience
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
+        
+        // Trigger the AI processing function
+        const processAI = httpsCallable(functions, 'processFortuneAI');
+        await processAI({ readingId: reading.id });
+      } catch (error) {
+        console.error("AI Processing error:", error);
+      } finally {
+        setIsAIProcessing(false);
       }
     };
 
