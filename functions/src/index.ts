@@ -102,30 +102,30 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
       let balanceType: 'subscription' | 'energy' | 'main' = 'main';
       const today = new Date().toISOString().split('T')[0];
       
-      // Priority 1: Subscription
+      // Priority 1: Subscription (Highest priority)
       const sub = userData.subscription;
       if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
         const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
         const dailyUsed = sub.dailyLimitUsed || 0;
         const lastReset = sub.lastResetAt || "";
         
-        if (lastReset !== today) {
-          balanceType = 'subscription';
-        } else if (dailyUsed < subLimits.totalDaily) {
+        if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
           balanceType = 'subscription';
         }
       }
 
-      // Priority 2: Energy (if applicable)
-      if (balanceType === 'main' && economy.energyPaymentEnabled) {
+      // Priority 2: Energy (If not subscription)
+      if (balanceType === 'main') {
         if ((userData.energy || 0) >= totalCost) {
           balanceType = 'energy';
         }
       }
 
-      // Check Balance
-      if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
-        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+      // Priority 3: Main Coins (Check if neither subscription nor energy covers it)
+      if (balanceType === 'main') {
+        if ((userData.mainCoins || 0) < totalCost) {
+          throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+        }
       }
 
       // 4. Deduct Balance
