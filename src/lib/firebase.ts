@@ -5,9 +5,11 @@ import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import firebaseConfig from "../../firebase-applet-config.json";
 
+console.log("Firebase config loaded:", firebaseConfig);
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const functions = getFunctions(app, "europe-west2");
+export const functions = getFunctions(app);
 
 // Initialize Firestore with specific settings to stabilize connection
 export const db = initializeFirestore(app, {
@@ -15,33 +17,31 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true // Stabilize network connection in restricted environments
 }, firebaseConfig.firestoreDatabaseId);
 
-// Minimal connection test for stability
-async function verifyConnection() {
+console.log("Firestore initialized with databaseId:", firebaseConfig.firestoreDatabaseId);
+
+// Test connection on boot
+async function testConnection() {
   try {
-    await getDoc(doc(db, 'config', 'global'));
-    console.log("Firebase connection verified.");
+    console.log("Testing Firestore connection (test/connection)...");
+    await getDoc(doc(db, 'test', 'connection'));
+    console.log("Firestore connection successful via test/connection");
   } catch (error) {
-    console.warn("Firebase connection verification failed:", error);
+    console.warn("test/connection failed, trying config/general...", error);
+    try {
+      await getDoc(doc(db, 'config', 'general'));
+      console.log("Firestore connection successful via config/general");
+    } catch (innerError) {
+      if(innerError instanceof Error && innerError.message.includes('the client is offline')) {
+        console.error("Please check your Firebase configuration. The client is offline.");
+      } else {
+        console.error("Firestore connection test error (all attempts failed):", innerError);
+      }
+    }
   }
 }
-verifyConnection();
+testConnection();
 
 export const storage = getStorage(app);
-
-/**
- * Uploads a base64 string to Firebase Storage and returns the download URL.
- */
-export async function uploadBase64Image(base64: string, path: string): Promise<string> {
-  const { ref, uploadString, getDownloadURL } = await import("firebase/storage");
-  const storageRef = ref(storage, path);
-  
-  // Handle data:image/jpeg;base64, prefix if present
-  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-  
-  await uploadString(storageRef, base64Data, 'base64');
-  return getDownloadURL(storageRef);
-}
-
 export const googleProvider = new GoogleAuthProvider();
 export const facebookProvider = new FacebookAuthProvider();
 

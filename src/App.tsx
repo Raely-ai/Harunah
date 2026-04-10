@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
-import { auth, db, functions, handleFirestoreError, OperationType, uploadBase64Image } from "./lib/firebase";
+import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
 import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
@@ -72,7 +72,7 @@ function AppContent() {
   
   // Presence Management
   useEffect(() => {
-    if (!user?.uid || !userProfile) return;
+    if (!user?.uid) return;
 
     // Set online
     socialService.updateUserStatus(user.uid, true);
@@ -105,14 +105,12 @@ function AppContent() {
       if (hasNickname && hasPhotos && hasGender) {
         const fixProfileFlag = async () => {
           try {
-            const { doc, setDoc } = await import("firebase/firestore");
-            await setDoc(doc(db, "users", userProfile.uid), { 
-              social: {
-                profileCompleted: true,
-                enabled: true,
-                visible: true
-              }
-            }, { merge: true });
+            const { doc, updateDoc } = await import("firebase/firestore");
+            await updateDoc(doc(db, "users", userProfile.uid), { 
+              "social.profileCompleted": true,
+              "social.enabled": true,
+              "social.visible": true
+            });
             console.log("Auto-fixed social profile flags for user:", userProfile.uid);
           } catch (error) {
             console.error("Auto-fix profile flag error:", error);
@@ -251,9 +249,8 @@ function AppContent() {
       const initializeUser = async () => {
         try {
           const snap = await getDoc(userRef);
-          // Check if document exists AND has core fields. 
-          // If it was created partially by updateUserStatus, we still need to initialize it.
-          if (!snap.exists() || !snap.data()?.createdAt) {
+          if (!snap.exists()) {
+            console.log("Creating initial profile for new user:", user.uid);
             const initialProfile: UserProfile = {
               uid: user.uid,
               email: user.email || "",
@@ -305,7 +302,7 @@ function AppContent() {
               }
             };
             try {
-              await setDoc(userRef, initialProfile, { merge: true });
+              await setDoc(userRef, initialProfile);
             } catch (setErr) {
               console.error("Error creating initial profile:", setErr);
               handleFirestoreError(setErr, OperationType.CREATE, `users/${user.uid}`);
@@ -330,12 +327,11 @@ function AppContent() {
           
           // Auto-fix: If they have all required fields but profileCompleted is false, fix it
           if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
-            setDoc(doc(db, "users", user.uid), { 
-            social: {
-              profileCompleted: true,
-              enabled: true 
-            }
-          }, { merge: true }).catch(err => console.error("Auto-fix error:", err));
+            console.log("Auto-fixing profileCompleted for user:", user.uid);
+            updateDoc(doc(db, "users", user.uid), { 
+              "social.profileCompleted": true,
+              "social.enabled": true 
+            }).catch(err => console.error("Auto-fix error:", err));
             
             if (profile.social) {
               profile.social.profileCompleted = true;
@@ -536,10 +532,17 @@ function AppContent() {
 
         // 3. Interpreting -> Completed (Trigger AI)
         if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
-          // Call Cloud Function to process AI
+          // Call Express API to process AI
           try {
-            const processFortuneAIFn = httpsCallable(functions, 'processFortuneAI');
-            await processFortuneAIFn({ readingId: reading.id });
+            const token = await auth.currentUser?.getIdToken();
+            await fetch('/api/fortune/process', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ readingId: reading.id })
+            });
           } catch (aiErr) {
             console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
           }
@@ -569,32 +572,50 @@ function AppContent() {
     });
 
     try {
-      const createFortuneReadingFn = httpsCallable(functions, 'createFortuneReading');
-      
-      // Strip payload to text-only as requested
-      const payload = {
-        type: data.type,
-        formData: {
-          adSoyad: data.adSoyad,
-          dogumTarihi: data.dogumTarihi,
-          iliskiDurumu: data.iliskiDurumu,
-          motherName: data.motherName,
-          fatherName: data.fatherName,
-          targetName: data.targetName,
-          jobStatus: data.jobStatus,
-          extraInfo: data.extraInfo,
-          birthTime: data.birthTime
+      // Collect all images (CoffeeFlow uses data.images, AdvancedFlow uses userPhoto/targetPhoto/question photos)
+      const images = [...(data.images || [])];
+      if (data.userPhoto) images.push(data.userPhoto);
+      if (data.targetPhoto) images.push(data.targetPhoto);
+      if (data.questions) {
+        data.questions.forEach((q: any) => {
+          if (q.photo) images.push(q.photo);
+        });
+      }
+
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/fortune/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
-        questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
-        priorityMode: data.priorityMode
-      };
+        body: JSON.stringify({
+          type: data.type,
+          formData: {
+            adSoyad: data.adSoyad,
+            dogumTarihi: data.dogumTarihi,
+            iliskiDurumu: data.iliskiDurumu,
+            motherName: data.motherName,
+            fatherName: data.fatherName,
+            targetName: data.targetName,
+            jobStatus: data.jobStatus,
+            extraInfo: data.extraInfo,
+            birthTime: data.birthTime
+          },
+          images,
+          cards: data.cards,
+          questions: data.questions?.map((q: any) => typeof q === 'string' ? q : q.text),
+          priorityMode: data.priorityMode
+        })
+      });
 
-      console.log("Final Fortune Payload (Media Stripped):", payload);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Sunucu hatası");
+      }
 
-      toast.loading("Falınız hazırlanıyor...", { id: loadingToast });
-      const result = await createFortuneReadingFn(payload);
-
-      const { readingId } = result.data as any;
+      const result = await response.json();
+      const { readingId } = result;
 
       toast.dismiss(loadingToast);
       toast.success("Falınız sıraya alındı!", {
@@ -611,37 +632,8 @@ function AppContent() {
     } catch (error: any) {
       console.error("Fortune creation error:", error);
       toast.dismiss(loadingToast);
-      
-      let displayMessage = error.message || "Lütfen daha sonra tekrar deneyin.";
-      let stepInfo = "";
-
-      // Try to parse structured error
-      try {
-        const parsed = JSON.parse(error.message);
-        if (parsed.message) {
-          displayMessage = parsed.message;
-          if (parsed.step) stepInfo = ` [Step: ${parsed.step}]`;
-        }
-      } catch (e) {
-        // Not a JSON error, use raw message or code
-        if (error.code) {
-          displayMessage = `${error.code}: ${error.message}`;
-        }
-      }
-
-      if (error.details) {
-        console.error("Error details:", error.details);
-        // Handle both string and object details
-        const details = typeof error.details === 'string' ? (error.details.startsWith('{') ? JSON.parse(error.details) : null) : error.details;
-        
-        if (details && typeof details === 'object') {
-          if (details.message) displayMessage = details.message;
-          if (details.step) stepInfo = ` [Step: ${details.step}]`;
-        }
-      }
-
       toast.error("İşlem başarısız", {
-        description: `${displayMessage}${stepInfo}`
+        description: error.message || "Lütfen daha sonra tekrar deneyin."
       });
     } finally {
       setIsSubmitting(false);
@@ -660,9 +652,9 @@ function AppContent() {
     }
 
     if (userProfile) {
-      setDoc(doc(db, "users", userProfile.uid), {
+      updateDoc(doc(db, "users", userProfile.uid), {
         mainCoins: newMainCoins
-      }, { merge: true }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
+      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
     }
     
     // Speed up interpretation

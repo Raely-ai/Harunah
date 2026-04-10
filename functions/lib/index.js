@@ -39,14 +39,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.buySocialSubscription = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = exports.updateReadingStatuses = exports.generateDailyMessage = exports.upgradeFortunePriority = exports.processFortuneAI = exports.createFortuneReading = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
-const regionalFunctions = functions.region('europe-west2');
 const openai_1 = __importDefault(require("openai"));
 const params_1 = require("firebase-functions/params");
 const crypto = __importStar(require("crypto"));
 const firestore_1 = require("firebase-admin/firestore");
-const logger = __importStar(require("firebase-functions/logger"));
-const app = admin.initializeApp();
-const db = (0, firestore_1.getFirestore)(app, "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
+admin.initializeApp();
+const db = (0, firestore_1.getFirestore)(admin.app(), "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 const openAiKey = (0, params_1.defineSecret)("OPENAI_API_KEY");
 let _openai = null;
 function getOpenAI() {
@@ -59,59 +57,41 @@ function getOpenAI() {
     }
     return _openai;
 }
-exports.createFortuneReading = regionalFunctions.https.onCall(async (data, context) => {
-    let currentStep = "start";
+exports.createFortuneReading = functions.https.onCall(async (data, context) => {
+    console.log("createFortuneReading called with data:", JSON.stringify(data));
     try {
-        logger.info("Step: start", {
-            auth: context.auth ? { uid: context.auth.uid, email: context.auth.token.email } : "null",
-            payload: data
-        });
-        currentStep = "auth_check";
-        if (!context.auth) {
+        if (!context.auth)
             throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-        }
         const userId = context.auth.uid;
-        currentStep = "validation";
-        const { type, formData, questions, priorityMode } = data || {};
-        if (!type || !formData) {
-            throw new functions.https.HttpsError('invalid-argument', 'Eksik veri (type veya formData).');
-        }
-        const sanitizedFormData = JSON.parse(JSON.stringify(formData || {}));
-        const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, questions: questions || [] });
-        const requestHash = crypto.createHash('sha256').update(requestString).digest('hex');
+        const { type, formData, images, cards, questions, priorityMode } = data || {};
+        if (!type || !formData)
+            throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+        const sanitizedFormData = JSON.parse(JSON.stringify(formData));
+        const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, images, cards, questions });
+        const requestHash = crypto.createHash('md5').update(requestString).digest('hex');
         const userRef = db.collection("users").doc(userId);
         const economyRef = db.collection("adminSettings").doc("economy");
-        currentStep = "duplicate_check";
-        logger.info("Step: duplicate_check", { userId, requestHash });
         const activeReadings = await db.collection("readings")
             .where("userId", "==", userId)
-            .limit(20)
+            .where("status", "in", ["searching", "found", "interpreting", "waiting"])
+            .limit(1)
             .get();
-        const hasActive = activeReadings.docs.some(doc => ["searching", "found", "interpreting", "waiting"].includes(doc.data().status));
-        if (hasActive) {
+        if (!activeReadings.empty) {
             throw new functions.https.HttpsError('already-exists', 'Zaten aktif bir fal talebiniz var.');
         }
         const duplicateCheck = await db.collection("readings")
             .where("requestHash", "==", requestHash)
+            .where("createdAt", ">", new Date(Date.now() - 5 * 60 * 1000).toISOString())
             .limit(1)
             .get();
         if (!duplicateCheck.empty) {
-            const dupData = duplicateCheck.docs[0].data();
-            const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-            if (dupData.createdAt > fiveMinsAgo) {
-                throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
-            }
+            throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
         }
-        currentStep = "transaction_start";
-        logger.info("Step: transaction_start", { userId });
         return await db.runTransaction(async (transaction) => {
-            currentStep = "transaction_get_user";
             const userSnap = await transaction.get(userRef);
-            if (!userSnap.exists) {
+            if (!userSnap.exists)
                 throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
-            }
             const userData = userSnap.data();
-            currentStep = "transaction_get_economy";
             const economySnap = await transaction.get(economyRef);
             const economy = economySnap.exists ? economySnap.data() : {
                 fortunePricing: { coffee: 100, tarot: 150, water: 200, ebced: 250, yildizname: 300, havas: 500, extraQuestion: 50, priorityFee: 100 },
@@ -122,7 +102,6 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                     advanced: { minSearchTime: 2, maxSearchTime: 5, minInterpreterTime: 10, maxInterpreterTime: 15, minReadingTime: 15, maxReadingTime: 30 }
                 }
             };
-            currentStep = "balance_calculation";
             const basePrice = Number(economy.fortunePricing?.[type]) || 100;
             const extraQuestionPrice = Number(economy.fortunePricing?.extraQuestion) || 50;
             const priorityFee = Number(economy.fortunePricing?.priorityFee) || 100;
@@ -134,22 +113,25 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
             let balanceType = 'main';
             const today = new Date().toISOString().split('T')[0];
             const sub = userData.subscription;
-            if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
+            if (sub && sub.status === 'active' && new Date(sub.expiresAt) > new Date()) {
                 const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
                 const dailyUsed = sub.dailyLimitUsed || 0;
                 const lastReset = sub.lastResetAt || "";
-                if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
+                if (lastReset !== today) {
+                    balanceType = 'subscription';
+                }
+                else if (dailyUsed < subLimits.totalDaily) {
                     balanceType = 'subscription';
                 }
             }
-            if (balanceType === 'main' && economy.energyPaymentEnabled && (userData.energy || 0) >= totalCost) {
-                balanceType = 'energy';
+            if (balanceType === 'main' && economy.energyPaymentEnabled) {
+                if ((userData.energy || 0) >= totalCost) {
+                    balanceType = 'energy';
+                }
             }
             if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
                 throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
             }
-            currentStep = "balance_deduction";
-            logger.info("Step: balance_deduction", { userId, balanceType, totalCost });
             const userUpdates = {};
             if (balanceType === 'main') {
                 userUpdates.mainCoins = firestore_1.FieldValue.increment(-totalCost);
@@ -166,14 +148,7 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                 }
                 userUpdates["subscription.lastResetAt"] = today;
             }
-            if (Object.keys(userUpdates).length > 0) {
-                transaction.update(userRef, userUpdates);
-            }
-            else {
-                logger.info("No user updates needed for balance deduction");
-            }
-            currentStep = "create_reading";
-            logger.info("Step: create_reading", { userId });
+            transaction.update(userRef, userUpdates);
             const readingRef = db.collection("readings").doc();
             const now = new Date();
             const effectivePriorityMode = priorityMode || (balanceType === 'subscription');
@@ -186,10 +161,10 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                 minReadingTime: rawTimes.minReadingTime ?? 10,
                 maxReadingTime: rawTimes.maxReadingTime ?? 20
             };
-            const speedFactor = effectivePriorityMode ? 0.5 : 1.0;
             const searchDelay = (Math.random() * (times.maxSearchTime - times.minSearchTime) + times.minSearchTime) * 60 * 1000;
             const interpreterDelay = (Math.random() * (times.maxInterpreterTime - times.minInterpreterTime) + times.minInterpreterTime) * 60 * 1000;
             const readingDelay = (Math.random() * (times.maxReadingTime - times.minReadingTime) + times.minReadingTime) * 60 * 1000;
+            const speedFactor = effectivePriorityMode ? 0.5 : 1.0;
             const expectedReaderFoundAt = new Date(now.getTime() + searchDelay * speedFactor);
             const interpretationStartedAt = new Date(expectedReaderFoundAt.getTime() + interpreterDelay * speedFactor);
             const expectedCompletedAt = new Date(interpretationStartedAt.getTime() + readingDelay * speedFactor);
@@ -200,8 +175,8 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                 status: 'searching',
                 requestHash,
                 formData: sanitizedFormData,
-                images: [],
-                cards: [],
+                images: Array.isArray(images) ? images.filter((i) => i != null) : [],
+                cards: Array.isArray(cards) ? cards.filter((c) => c != null) : [],
                 questions: Array.isArray(questions) ? questions.filter((q) => q != null) : [],
                 priorityMode: !!effectivePriorityMode,
                 balanceType,
@@ -219,10 +194,8 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                 expectedCompletedAt: expectedCompletedAt.toISOString(),
                 title: type === 'coffee' ? 'Kahve Falı' : type === 'tarot' ? 'Tarot Açılımı' : type.charAt(0).toUpperCase() + type.slice(1)
             };
-            logger.info("Setting reading document", { readingId: readingRef.id });
             transaction.set(readingRef, readingData);
             const txRef = db.collection("walletTransactions").doc();
-            logger.info("Setting transaction document", { txId: txRef.id });
             transaction.set(txRef, {
                 id: txRef.id,
                 userId,
@@ -234,31 +207,21 @@ exports.createFortuneReading = regionalFunctions.https.onCall(async (data, conte
                 status: 'spent',
                 description: `${readingData.title} için harcama`
             });
-            currentStep = "end";
-            logger.info("Step: end", { userId, readingId: readingRef.id });
             return { success: true, readingId: readingRef.id };
         });
     }
     catch (err) {
-        logger.error(`Fortune creation failed at step: ${currentStep}`, {
-            error: err.message,
-            stack: err.stack,
-            userId: context.auth?.uid
-        });
-        const errorPayload = {
+        console.error("Fortune creation failed:", err);
+        const errData = {
             message: err.message || String(err),
-            step: currentStep,
-            code: err.code || 'unknown',
-            name: err.name || 'Error',
-            stack: err.stack
+            stack: err.stack || "No stack trace",
+            code: err.code || "No code",
+            details: err.details || "No details"
         };
-        if (err instanceof functions.https.HttpsError) {
-            throw err;
-        }
-        throw new functions.https.HttpsError('internal', JSON.stringify(errorPayload));
+        throw new functions.https.HttpsError('unknown', `Fortune Creation Error: ${JSON.stringify(errData)}`);
     }
 });
-exports.processFortuneAI = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -284,11 +247,7 @@ exports.processFortuneAI = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY
         });
         return { reading, proceed: true };
     }).catch(err => {
-        throw new functions.https.HttpsError('internal', JSON.stringify({
-            message: err.message || String(err),
-            step: "transaction_lock",
-            stack: err.stack
-        }));
+        throw new functions.https.HttpsError('internal', `AI Process Error: ${err.message} | Stack: ${err.stack}`);
     });
     if (result.alreadyCompleted)
         return { success: true, content: result.content };
@@ -341,17 +300,9 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
         systemPrompt = systemPrompt.replace(regex, value);
         templatePrompt = templatePrompt.replace(regex, value);
     });
-    const currentSnap = await readingRef.get();
-    if (currentSnap.data()?.status !== 'processing_ai') {
-        throw new functions.https.HttpsError('failed-precondition', 'Fal durumu geçersiz (processing_ai bekleniyordu).');
-    }
-    let currentStep = "init";
     try {
-        currentStep = "before_openai";
-        console.log(`[${readingId}] Step: ${currentStep}`);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("OpenAI request timed out")), 28000));
-        const openaiPromise = openai.chat.completions.create({
-            model: "gpt-4o",
+        const response = await openai.chat.completions.create({
+            model: "gpt-4-turbo-preview",
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: templatePrompt }
@@ -359,27 +310,14 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
             temperature: 0.8,
             max_tokens: 2000
         });
-        const response = await Promise.race([openaiPromise, timeoutPromise]);
-        currentStep = "after_openai";
-        console.log(`[${readingId}] Step: ${currentStep}`);
-        const contentRaw = response?.choices?.[0]?.message?.content;
-        if (!contentRaw) {
-            throw new Error("OpenAI empty response content");
-        }
-        let content = contentRaw.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
-        if (!content) {
-            throw new Error("OpenAI processed content is empty");
-        }
-        currentStep = "before_save";
-        console.log(`[${readingId}] Step: ${currentStep}`);
+        let content = response.choices[0].message.content || "";
+        content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
         await readingRef.update({
             status: 'completed',
             content,
             resultText: content,
             updatedAt: new Date().toISOString()
         });
-        currentStep = "after_save";
-        console.log(`[${readingId}] Step: ${currentStep}`);
         await db.collection("notifications").add({
             userId: reading.userId,
             type: 'system',
@@ -392,20 +330,16 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
         return { success: true, content };
     }
     catch (error) {
-        console.error(`[${readingId}] Error at step ${currentStep}:`, error);
-        const errorPayload = JSON.stringify({
-            message: error.message || 'Bilinmeyen hata',
-            step: currentStep
-        });
+        console.error("OpenAI Error:", error);
         await readingRef.update({
             status: 'error',
-            error: errorPayload,
+            error: error.message,
             updatedAt: new Date().toISOString()
-        }).catch(err => console.error("Secondary error updating status:", err));
-        throw new functions.https.HttpsError('internal', errorPayload);
+        });
+        throw new functions.https.HttpsError('internal', 'AI üretimi sırasında hata oluştu.');
     }
 });
-exports.upgradeFortunePriority = regionalFunctions.https.onCall(async (data, context) => {
+exports.upgradeFortunePriority = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -459,11 +393,11 @@ exports.upgradeFortunePriority = regionalFunctions.https.onCall(async (data, con
         return { success: true };
     });
 });
-exports.generateDailyMessage = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
     const openai = getOpenAI();
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-4-turbo-preview",
             messages: [
                 { role: "system", content: "Sen bilge bir kahinsin. Kullanıcılara günlük kısa, etkileyici ve mistik mesajlar veriyorsun." },
                 { role: "user", content: "Günün falı için kısa, gizemli ve motive edici bir cümle yaz. Aşk, kariyer veya genel bir tavsiye olsun. Sadece cümleyi döndür. Maksimum 15 kelime." }
@@ -481,7 +415,7 @@ exports.generateDailyMessage = regionalFunctions.runWith({ secrets: ["OPENAI_API
         return { text: "Yıldızlar bugün senin için parlıyor.", category: 'general' };
     }
 });
-exports.updateReadingStatuses = regionalFunctions.runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+exports.updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 1 minutes').onRun(async (context) => {
     const now = new Date().toISOString();
     const openai = getOpenAI();
     const searchingReadings = await db.collection("readings")
@@ -563,7 +497,7 @@ exports.updateReadingStatuses = regionalFunctions.runWith({ secrets: ["OPENAI_AP
                 templatePrompt = templatePrompt.replace(regex, value);
             });
             const response = await openai.chat.completions.create({
-                model: "gpt-4o",
+                model: "gpt-4-turbo-preview",
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: templatePrompt }
@@ -600,7 +534,7 @@ exports.updateReadingStatuses = regionalFunctions.runWith({ secrets: ["OPENAI_AP
     }
     return null;
 });
-exports.watchAdReward = regionalFunctions.https.onCall(async (data, context) => {
+exports.watchAdReward = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -650,7 +584,7 @@ exports.watchAdReward = regionalFunctions.https.onCall(async (data, context) => 
         return { success: true };
     });
 });
-exports.purchaseCoins = regionalFunctions.https.onCall(async (data, context) => {
+exports.purchaseCoins = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -684,7 +618,7 @@ exports.purchaseCoins = regionalFunctions.https.onCall(async (data, context) => 
     });
     return { success: true };
 });
-exports.spendBalance = regionalFunctions.https.onCall(async (data, context) => {
+exports.spendBalance = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -757,7 +691,7 @@ exports.spendBalance = regionalFunctions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
-exports.buyFortuneSubscription = regionalFunctions.https.onCall(async (data, context) => {
+exports.buyFortuneSubscription = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -820,7 +754,7 @@ exports.buyFortuneSubscription = regionalFunctions.https.onCall(async (data, con
         return { success: true };
     });
 });
-exports.buySocialSubscription = regionalFunctions.https.onCall(async (data, context) => {
+exports.buySocialSubscription = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -879,7 +813,7 @@ exports.buySocialSubscription = regionalFunctions.https.onCall(async (data, cont
         return { success: true };
     });
 });
-exports.purchaseSocialItem = regionalFunctions.https.onCall(async (data, context) => {
+exports.purchaseSocialItem = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -923,7 +857,7 @@ exports.purchaseSocialItem = regionalFunctions.https.onCall(async (data, context
         return { success: true };
     });
 });
-exports.purchaseSocialBundle = regionalFunctions.https.onCall(async (data, context) => {
+exports.purchaseSocialBundle = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -976,7 +910,7 @@ exports.purchaseSocialBundle = regionalFunctions.https.onCall(async (data, conte
         return { success: true };
     });
 });
-exports.consumeSocialFeature = regionalFunctions.https.onCall(async (data, context) => {
+exports.consumeSocialFeature = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -1012,7 +946,7 @@ exports.consumeSocialFeature = regionalFunctions.https.onCall(async (data, conte
         return { success: true };
     });
 });
-exports.adminGrantWalletReward = regionalFunctions.https.onCall(async (data, context) => {
+exports.adminGrantWalletReward = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -1047,7 +981,7 @@ exports.adminGrantWalletReward = regionalFunctions.https.onCall(async (data, con
     });
     return { success: true };
 });
-exports.getAdminUserChats = regionalFunctions.https.onCall(async (data, context) => {
+exports.getAdminUserChats = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -1082,7 +1016,7 @@ exports.getAdminUserChats = regionalFunctions.https.onCall(async (data, context)
         throw new functions.https.HttpsError('internal', error.message || 'Sohbetler getirilirken bir hata oluştu.');
     }
 });
-exports.getAdminChatMessages = regionalFunctions.https.onCall(async (data, context) => {
+exports.getAdminChatMessages = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -1120,7 +1054,7 @@ exports.getAdminChatMessages = regionalFunctions.https.onCall(async (data, conte
         throw new functions.https.HttpsError('internal', error.message || 'Mesajlar getirilirken bir hata oluştu.');
     }
 });
-exports.adminModerationAction = regionalFunctions.https.onCall(async (data, context) => {
+exports.adminModerationAction = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const adminSnap = await db.collection("users").doc(context.auth.uid).get();

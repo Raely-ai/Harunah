@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, Clock, Zap, ShieldCheck, Stars, CheckCircle2, Search, User, Loader2, ArrowRight, MessageCircle } from "lucide-react";
 import { FortuneType, FortuneReading } from "../types";
 import { httpsCallable } from "firebase/functions";
-import { functions } from "../lib/firebase";
+import { functions, auth } from "../lib/firebase";
 import { toast } from "sonner";
 
 interface RitualScreenProps {
@@ -46,27 +46,22 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
         // For now, let's just trigger the AI which will update status to interpreting
         setIsAIProcessing(true);
         try {
-          const processFn = httpsCallable(functions, 'processFortuneAI');
-          await processFn({ readingId: reading.id });
-        } catch (error: any) {
-          console.error("AI Processing error:", error);
-          
-          let displayMessage = error.message || "Yorumlama sırasında bir hata oluştu.";
-          let stepInfo = "";
-
-          try {
-            const parsed = JSON.parse(error.message);
-            if (parsed.message) {
-              displayMessage = parsed.message;
-              if (parsed.step) stepInfo = ` [Step: ${parsed.step}]`;
-            }
-          } catch (e) {
-            // ignore
-          }
-
-          toast.error("Yorumlama Hatası", {
-            description: `${displayMessage}${stepInfo}`
+          const token = await auth.currentUser?.getIdToken();
+          const response = await fetch('/api/fortune/process', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ readingId: reading.id })
           });
+          
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error || "Sunucu hatası");
+          }
+        } catch (error) {
+          console.error("AI Processing error:", error);
         } finally {
           setIsAIProcessing(false);
         }
@@ -80,8 +75,21 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
     if (!reading) return;
     setIsUpgrading(true);
     try {
-      const upgradeFn = httpsCallable(functions, 'upgradeFortunePriority');
-      await upgradeFn({ readingId: reading.id });
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/fortune/upgrade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ readingId: reading.id })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Sunucu hatası");
+      }
+      
       toast.success("Öncelikli sıraya alındınız!");
       setShowPriorityOption(false);
     } catch (error: any) {

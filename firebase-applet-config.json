@@ -1,10 +1,10 @@
 {
-  "projectId": "lasya-90dd6",
-  "appId": "1:651909616227:web:29a1a947ea554d872b9e56",
-  "apiKey": "AIzaSyAh0UYqAgd7R6jMe8eSU5cg3E47nUEsXpI",
-  "authDomain": "lasya-90dd6.firebaseapp.com",
+  "projectId": "gen-lang-client-0107919355",
+  "appId": "1:331783812033:web:827c95694132069160b540",
+  "apiKey": "AIzaSyDsGK0eMb_C6-C_2p8wglgl3cScxBXNTf0",
+  "authDomain": "gen-lang-client-0107919355.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c",
-  "storageBucket": "lasya-90dd6.firebasestorage.app",
-  "messagingSenderId": "651909616227",
+  "storageBucket": "gen-lang-client-0107919355.firebasestorage.app",
+  "messagingSenderId": "331783812033",
   "measurementId": ""
 }
