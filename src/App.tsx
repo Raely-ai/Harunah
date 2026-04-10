@@ -72,7 +72,7 @@ function AppContent() {
   
   // Presence Management
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !userProfile) return;
 
     // Set online
     socialService.updateUserStatus(user.uid, true);
@@ -105,12 +105,14 @@ function AppContent() {
       if (hasNickname && hasPhotos && hasGender) {
         const fixProfileFlag = async () => {
           try {
-            const { doc, updateDoc } = await import("firebase/firestore");
-            await updateDoc(doc(db, "users", userProfile.uid), { 
-              "social.profileCompleted": true,
-              "social.enabled": true,
-              "social.visible": true
-            });
+            const { doc, setDoc } = await import("firebase/firestore");
+            await setDoc(doc(db, "users", userProfile.uid), { 
+              social: {
+                profileCompleted: true,
+                enabled: true,
+                visible: true
+              }
+            }, { merge: true });
             console.log("Auto-fixed social profile flags for user:", userProfile.uid);
           } catch (error) {
             console.error("Auto-fix profile flag error:", error);
@@ -249,8 +251,10 @@ function AppContent() {
       const initializeUser = async () => {
         try {
           const snap = await getDoc(userRef);
-          if (!snap.exists()) {
-            console.log("Creating initial profile for new user:", user.uid);
+          // Check if document exists AND has core fields. 
+          // If it was created partially by updateUserStatus, we still need to initialize it.
+          if (!snap.exists() || !snap.data()?.createdAt) {
+            console.log("Initializing profile for user:", user.uid, snap.exists() ? "(partial exists)" : "(new)");
             const initialProfile: UserProfile = {
               uid: user.uid,
               email: user.email || "",
@@ -302,7 +306,7 @@ function AppContent() {
               }
             };
             try {
-              await setDoc(userRef, initialProfile);
+              await setDoc(userRef, initialProfile, { merge: true });
             } catch (setErr) {
               console.error("Error creating initial profile:", setErr);
               handleFirestoreError(setErr, OperationType.CREATE, `users/${user.uid}`);
@@ -328,10 +332,12 @@ function AppContent() {
           // Auto-fix: If they have all required fields but profileCompleted is false, fix it
           if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
             console.log("Auto-fixing profileCompleted for user:", user.uid);
-            updateDoc(doc(db, "users", user.uid), { 
-              "social.profileCompleted": true,
-              "social.enabled": true 
-            }).catch(err => console.error("Auto-fix error:", err));
+            setDoc(doc(db, "users", user.uid), { 
+            social: {
+              profileCompleted: true,
+              enabled: true 
+            }
+          }, { merge: true }).catch(err => console.error("Auto-fix error:", err));
             
             if (profile.social) {
               profile.social.profileCompleted = true;
@@ -656,9 +662,9 @@ function AppContent() {
     }
 
     if (userProfile) {
-      updateDoc(doc(db, "users", userProfile.uid), {
+      setDoc(doc(db, "users", userProfile.uid), {
         mainCoins: newMainCoins
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
+      }, { merge: true }).catch(err => handleFirestoreError(err, OperationType.UPDATE, `users/${userProfile.uid}`));
     }
     
     // Speed up interpretation

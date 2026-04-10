@@ -522,10 +522,12 @@ export const socialService = {
   async updateUserStatus(uid: string, isOnline: boolean) {
     if (!uid || auth.currentUser?.uid !== uid) return;
     try {
-      await updateDoc(doc(db, "users", uid), {
-        "social.isOnline": isOnline,
-        "social.lastSeen": serverTimestamp()
-      });
+      await setDoc(doc(db, "users", uid), {
+        social: {
+          isOnline: isOnline,
+          lastSeen: serverTimestamp()
+        }
+      }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     }
@@ -534,9 +536,11 @@ export const socialService = {
   async updateSocialField(uid: string, field: string, value: any) {
     if (!uid) return;
     const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
-      [`social.${field}`]: value
-    });
+    await setDoc(userRef, {
+      social: {
+        [field]: value
+      }
+    }, { merge: true });
   },
 
   // --- Advanced Messaging Features ---

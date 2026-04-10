@@ -175,7 +175,7 @@ export const walletService = {
     if (type === 'refresh') updates.refreshCount = increment(1);
     if (type === 'compatibility') updates.compatibilityCount = increment(1);
     
-    await updateDoc(userRef, updates);
+    await setDoc(userRef, updates, { merge: true });
     return { success: true };
   },
 
@@ -199,12 +199,12 @@ export const walletService = {
     const boostExpiry = new Date();
     boostExpiry.setDate(now.getDate() + bundle.contents.boostDays);
 
-    await updateDoc(userRef, {
+    await setDoc(userRef, {
       superLikes: increment(bundle.contents.superLikes),
       refreshCount: increment(bundle.contents.refreshes),
       compatibilityCount: increment(bundle.contents.compatibility),
       boostExpiresAt: boostExpiry.toISOString()
-    });
+    }, { merge: true });
 
     return { success: true };
   },
@@ -260,15 +260,15 @@ export const walletService = {
       const limits = config.socialSubscriptions[sub.type as 'weekly' | 'monthly'].dailyLimits;
       if (type === 'superLike' && dailyUsage.superLikes < limits.superLikes) {
         dailyUsage.superLikes++;
-        await updateDoc(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        await setDoc(userRef, { socialSubscription: { dailyUsage: dailyUsage } }, { merge: true });
         return true;
       } else if (type === 'refresh' && dailyUsage.refreshes < limits.refreshes) {
         dailyUsage.refreshes++;
-        await updateDoc(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        await setDoc(userRef, { socialSubscription: { dailyUsage: dailyUsage } }, { merge: true });
         return true;
       } else if (type === 'compatibility' && dailyUsage.compatibility < limits.compatibility) {
         dailyUsage.compatibility++;
-        await updateDoc(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        await setDoc(userRef, { socialSubscription: { dailyUsage: dailyUsage } }, { merge: true });
         return true;
       }
     }
@@ -276,7 +276,7 @@ export const walletService = {
     // Fallback to paid
     const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
     if ((userData[field] || 0) <= 0) return false;
-    await updateDoc(userRef, { [field]: increment(-1) });
+    await setDoc(userRef, { [field]: increment(-1) }, { merge: true });
     return true;
   },
 
