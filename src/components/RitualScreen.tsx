@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, Clock, Zap, ShieldCheck, Stars, CheckCircle2, Search, User, Loader2, ArrowRight, MessageCircle } from "lucide-react";
 import { FortuneType, FortuneReading } from "../types";
 import { httpsCallable } from "firebase/functions";
-import { functions, auth } from "../lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+import { functions, auth, db } from "../lib/firebase";
 import { toast } from "sonner";
 
 interface RitualScreenProps {
@@ -37,29 +38,64 @@ export default function RitualScreen({ type, reading, onClose, onSocialClick }: 
   useEffect(() => {
     if (!reading || isAIProcessing) return;
 
-    // Only trigger if status is one that needs AI processing
-    // 'searching' (simulated search) or 'interpreting' (actual AI trigger)
-    if (reading.status !== 'searching' && reading.status !== 'interpreting') return;
+    // Only trigger if status is one that needs progression
+    if (!['searching', 'found', 'interpreting'].includes(reading.status)) return;
 
     const runFlow = async () => {
+      const now = new Date();
+      const expectedReaderFoundAt = reading.expectedReaderFoundAt ? new Date(reading.expectedReaderFoundAt) : null;
+      const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
+      const expectedCompletedAt = reading.expectedCompletedAt ? new Date(reading.expectedCompletedAt) : null;
+
       setIsAIProcessing(true);
       try {
-        if (reading.status === 'searching') {
-          // Wait a bit to simulate searching experience
-          await new Promise(resolve => setTimeout(resolve, 5000));
+        // 1. Searching -> Found
+        if (reading.status === 'searching' && expectedReaderFoundAt && now >= expectedReaderFoundAt) {
+          await updateDoc(doc(db, "readings", reading.id), {
+            status: 'found',
+            updatedAt: now.toISOString()
+          });
+          setIsAIProcessing(false);
+          return;
+        }
+
+        // 2. Found -> Interpreting
+        if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
+          await updateDoc(doc(db, "readings", reading.id), {
+            status: 'interpreting',
+            updatedAt: now.toISOString()
+          });
+          setIsAIProcessing(false);
+          return;
+        }
+
+        // 3. Interpreting -> Completed
+        if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
+          // Only complete if AI has finished
+          if (reading.isAIGenerated) {
+            await updateDoc(doc(db, "readings", reading.id), {
+              status: 'completed',
+              updatedAt: now.toISOString()
+            });
+          }
         }
         
-        // Trigger the AI processing function
-        const processAI = httpsCallable(functions, 'processFortuneAI');
-        await processAI({ readingId: reading.id });
+        // 4. Fallback for 'searching' feedback
+        if (reading.status === 'searching' && (!expectedReaderFoundAt || now < expectedReaderFoundAt)) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
       } catch (error) {
-        console.error("AI Processing error:", error);
+        console.error("AI Flow error:", error);
       } finally {
         setIsAIProcessing(false);
       }
     };
 
-    runFlow();
+    // Run every 5 seconds while on this screen to check times
+    const interval = setInterval(runFlow, 5000);
+    runFlow(); // Initial run
+    
+    return () => clearInterval(interval);
   }, [reading?.status, reading?.id]);
 
   const handleUpgrade = async () => {

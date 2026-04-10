@@ -378,7 +378,7 @@ function AppContent() {
       setHistory([]);
       return;
     }
-    const q = query(collection(db, "readings"), where("userId", "==", user.uid), orderBy("date", "desc"));
+    const q = query(collection(db, "readings"), where("userId", "==", user.uid), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedHistory: FortuneReading[] = [];
       snapshot.forEach((doc) => {
@@ -514,30 +514,42 @@ function AppContent() {
 
         // 1. Searching -> Found
         if (reading.status === 'searching' && expectedReaderFoundAt && now >= expectedReaderFoundAt) {
-          // Status update is handled by server background task
-          continue;
-        }
-
-        // 2. Found -> Interpreting (Trigger AI if ready)
-        if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
-          // Trigger AI processing
           try {
-            const processAI = httpsCallable(functions, 'processFortuneAI');
-            await processAI({ readingId: reading.id });
-          } catch (aiErr) {
-            console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
+            await updateDoc(doc(db, "readings", reading.id), {
+              status: 'found',
+              updatedAt: now.toISOString()
+            });
+          } catch (err) {
+            console.error("Sync: Failed to update status to found", err);
           }
           continue;
         }
 
-        // 3. Interpreting -> Completed (Trigger AI if ready)
-        if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
-          // Trigger AI processing
+        // 2. Found -> Interpreting
+        if (reading.status === 'found' && interpretationStartedAt && now >= interpretationStartedAt) {
           try {
-            const processAI = httpsCallable(functions, 'processFortuneAI');
-            await processAI({ readingId: reading.id });
-          } catch (aiErr) {
-            console.error(`Sync: AI Generation failed for ${reading.id}`, aiErr);
+            await updateDoc(doc(db, "readings", reading.id), {
+              status: 'interpreting',
+              updatedAt: now.toISOString()
+            });
+          } catch (err) {
+            console.error("Sync: Failed to update status to interpreting", err);
+          }
+          continue;
+        }
+
+        // 3. Interpreting -> Completed
+        if (reading.status === 'interpreting' && expectedCompletedAt && now >= expectedCompletedAt) {
+          try {
+            // Only complete if AI has finished
+            if (reading.isAIGenerated) {
+              await updateDoc(doc(db, "readings", reading.id), {
+                status: 'completed',
+                updatedAt: now.toISOString()
+              });
+            }
+          } catch (err) {
+            console.error("Sync: Failed to update status to completed", err);
           }
         }
       }
@@ -596,6 +608,10 @@ function AppContent() {
       });
 
       const { readingId } = result.data;
+
+      // Trigger AI immediately (Fake processing will handle the delay in UI)
+      const processAI = httpsCallable(functions, 'processFortuneAI');
+      processAI({ readingId }).catch(err => console.error("Immediate AI trigger failed:", err));
 
       toast.dismiss(loadingToast);
       toast.success("Falınız sıraya alındı!", {

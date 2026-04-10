@@ -593,83 +593,62 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   </div>
                   
                   <div className="space-y-4">
-                    <h4 className="text-xs font-black text-white/20 uppercase tracking-widest">Zamanlama Ayarları (Dakika)</h4>
-                    {Object.entries(economyConfig.interpretationTimes).map(([type, times]) => (
-                      <div key={type} className="bg-black/20 p-4 rounded-2xl space-y-3">
-                        <span className="text-[10px] font-bold text-amber-500/60 uppercase tracking-widest">{type}</span>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-[8px] text-white/20 uppercase">Arama (Min/Max)</label>
-                            <div className="flex gap-1">
-                              <input 
-                                type="number" 
-                                value={times.minSearchTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minSearchTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                              <input 
-                                type="number" 
-                                value={times.maxSearchTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxSearchTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8px] text-white/20 uppercase">Yorumcu (Min/Max)</label>
-                            <div className="flex gap-1">
-                              <input 
-                                type="number" 
-                                value={times.minInterpreterTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minInterpreterTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                              <input 
-                                type="number" 
-                                value={times.maxInterpreterTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxInterpreterTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8px] text-white/20 uppercase">Yorum (Min/Max)</label>
-                            <div className="flex gap-1">
-                              <input 
-                                type="number" 
-                                value={times.minReadingTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, minReadingTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                              <input 
-                                type="number" 
-                                value={times.maxReadingTime} 
-                                onChange={(e) => {
-                                  const newTimes = { ...economyConfig.interpretationTimes, [type]: { ...times, maxReadingTime: parseInt(e.target.value) || 0 } };
-                                  setEconomyConfig({ ...economyConfig, interpretationTimes: newTimes });
-                                }}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px]"
-                              />
-                            </div>
-                          </div>
+                    <h4 className="text-xs font-black text-white/20 uppercase tracking-widest">Gecikmeli Gösterim (Fake Processing)</h4>
+                    <div className="bg-black/20 p-4 rounded-2xl space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Yorumcu Bulma (Min - ms)</label>
+                          <input
+                            type="number"
+                            value={economyConfig?.fakeProcessing?.readerFindingMinDelay || 0}
+                            onChange={(e) => setEconomyConfig({
+                              ...economyConfig,
+                              fakeProcessing: { ...(economyConfig.fakeProcessing || { readerFindingMinDelay: 60000, readerFindingMaxDelay: 180000, interpretationMinDelay: 300000, interpretationMaxDelay: 1200000 }), readerFindingMinDelay: parseInt(e.target.value) || 0 }
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-500 text-sm focus:outline-none focus:border-amber-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Yorumcu Bulma (Max - ms)</label>
+                          <input
+                            type="number"
+                            value={economyConfig?.fakeProcessing?.readerFindingMaxDelay || 0}
+                            onChange={(e) => setEconomyConfig({
+                              ...economyConfig,
+                              fakeProcessing: { ...(economyConfig.fakeProcessing || { readerFindingMinDelay: 60000, readerFindingMaxDelay: 180000, interpretationMinDelay: 300000, interpretationMaxDelay: 1200000 }), readerFindingMaxDelay: parseInt(e.target.value) || 0 }
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-amber-500 text-sm focus:outline-none focus:border-amber-500/50"
+                          />
                         </div>
                       </div>
-                    ))}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Yorumlama (Min - ms)</label>
+                          <input
+                            type="number"
+                            value={economyConfig?.fakeProcessing?.interpretationMinDelay || 0}
+                            onChange={(e) => setEconomyConfig({
+                              ...economyConfig,
+                              fakeProcessing: { ...(economyConfig.fakeProcessing || { readerFindingMinDelay: 60000, readerFindingMaxDelay: 180000, interpretationMinDelay: 300000, interpretationMaxDelay: 1200000 }), interpretationMinDelay: parseInt(e.target.value) || 0 }
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-blue-400 text-sm focus:outline-none focus:border-blue-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Yorumlama (Max - ms)</label>
+                          <input
+                            type="number"
+                            value={economyConfig?.fakeProcessing?.interpretationMaxDelay || 0}
+                            onChange={(e) => setEconomyConfig({
+                              ...economyConfig,
+                              fakeProcessing: { ...(economyConfig.fakeProcessing || { readerFindingMinDelay: 60000, readerFindingMaxDelay: 180000, interpretationMinDelay: 300000, interpretationMaxDelay: 1200000 }), interpretationMaxDelay: parseInt(e.target.value) || 0 }
+                            })}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-blue-400 text-sm focus:outline-none focus:border-blue-500/50"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[9px] text-white/20 italic">* 60000 ms = 1 dakika. AI sonucu hemen üretilir ancak bu süreler dolana kadar kullanıcıya gösterilmez.</p>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -687,6 +666,19 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
 
                 <div className="space-y-8">
+                  <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-2">Kullanılabilir Değişkenler</h4>
+                    <p className="text-[10px] text-white/60 leading-relaxed">
+                      <code className="text-indigo-400">{`{adsoyad}`}</code>, 
+                      <code className="text-indigo-400">{`{dogumtarihi}`}</code>, 
+                      <code className="text-indigo-400">{`{iliskidurumu}`}</code>, 
+                      <code className="text-indigo-400">{`{anneadi}`}</code>, 
+                      <code className="text-indigo-400">{`{babaadi}`}</code>, 
+                      <code className="text-indigo-400">{`{tur}`}</code>, 
+                      <code className="text-indigo-400">{`{sorular}`}</code>, 
+                      <code className="text-indigo-400">{`{isim}`}</code>
+                    </p>
+                  </div>
                   {(Object.keys(economyConfig.aiSettings) as FortuneType[]).map((type) => (
                     <div key={type} className="p-6 bg-black/20 rounded-3xl border border-white/5 space-y-4">
                       <div className="flex items-center justify-between">

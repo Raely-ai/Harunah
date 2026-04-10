@@ -65,12 +65,10 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
     motherName: '',
     fatherName: '',
     targetName: '',
-    userPhoto: null as string | null,
-    targetPhoto: null as string | null,
     questions: [
-      { text: '', photo: null as string | null },
-      { text: '', photo: null as string | null },
-      { text: '', photo: null as string | null }
+      { text: '' },
+      { text: '' },
+      { text: '' }
     ]
   });
 
@@ -78,7 +76,7 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
     if (formData.questions.length < 50) {
       setFormData({
         ...formData,
-        questions: [...formData.questions, { text: '', photo: null as string | null }]
+        questions: [...formData.questions, { text: '' }]
       });
     }
   };
@@ -105,12 +103,6 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
   const handleQuestionChange = (index: number, value: string) => {
     const newQuestions = [...formData.questions];
     newQuestions[index] = { ...newQuestions[index], text: value };
-    setFormData({ ...formData, questions: newQuestions });
-  };
-
-  const handleQuestionPhoto = (index: number, photo: string | null) => {
-    const newQuestions = [...formData.questions];
-    newQuestions[index] = { ...newQuestions[index], photo };
     setFormData({ ...formData, questions: newQuestions });
   };
 
@@ -285,63 +277,7 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
             >
               <div className="text-center space-y-2">
                 <h2 className="text-3xl font-serif font-bold text-heading">Sorularını Sor</h2>
-                <p className="text-muted">LASYA'ya sormak istediğin her şeyi detaylıca yaz.</p>
-              </div>
-
-              {/* Identity Photos */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Sizin Fotoğrafınız</label>
-                  <div className="relative aspect-square rounded-2xl border border-black/10 bg-black/5 overflow-hidden group shadow-sm">
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => setFormData({ ...formData, userPhoto: ev.target?.result as string });
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                    {formData.userPhoto ? (
-                      <img src={formData.userPhoto} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <Camera className="w-6 h-6 text-muted/40" />
-                        <span className="text-[8px] font-bold text-muted/40 uppercase">İsteğe Bağlı</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Hedef Kişi</label>
-                  <div className="relative aspect-square rounded-2xl border border-black/10 bg-black/5 overflow-hidden group shadow-sm">
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => setFormData({ ...formData, targetPhoto: ev.target?.result as string });
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                    {formData.targetPhoto ? (
-                      <img src={formData.targetPhoto} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                        <Camera className="w-6 h-6 text-muted/40" />
-                        <span className="text-[8px] font-bold text-muted/40 uppercase">İsteğe Bağlı</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <p className="text-muted">LASYA'ya sormak istediğin her şeyi detaylıca yaz. En az 3 soru sormanız gerekmektedir.</p>
               </div>
 
               <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50 border border-indigo-100 shadow-sm">
@@ -370,10 +306,6 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
               </div>
 
               <div className="space-y-6">
-                <p className="text-[10px] font-bold text-muted uppercase tracking-widest text-center px-4">
-                  Sorularla ilgili fotoğraf yükleyebilirsiniz, özellikle başkası hakkında soracaksanız fotoğraf eklemeniz kehaneti güçlendirir.
-                </p>
-                
                 {formData.questions.map((q, i) => (
                   <motion.div
                     key={i}
@@ -383,7 +315,7 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
                   >
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Soru {i + 1}</label>
-                      {formData.questions.length > 1 && (
+                      {formData.questions.length > 3 && (
                         <button 
                           type="button"
                           onClick={(e) => {
@@ -403,40 +335,6 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
                       rows={3}
                       className="w-full bg-black/5 border border-black/5 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
                     />
-                    
-                    <div className="flex items-center gap-3">
-                      <div className="relative flex-1">
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (ev) => handleQuestionPhoto(i, ev.target?.result as string);
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                        <button className={`w-full py-3 rounded-xl border border-dashed flex items-center justify-center gap-2 transition-all ${
-                          q.photo ? 'border-emerald-500/50 bg-emerald-50 text-emerald-600' : 'border-black/10 bg-black/5 text-muted'
-                        }`}>
-                          {q.photo ? <CheckCircle2 className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
-                          <span className="text-[10px] font-bold uppercase tracking-widest">
-                            {q.photo ? 'Fotoğraf Eklendi' : 'Fotoğraf Ekle'}
-                          </span>
-                        </button>
-                      </div>
-                      {q.photo && (
-                        <button 
-                          onClick={() => handleQuestionPhoto(i, null)}
-                          className="p-3 rounded-xl bg-red-50 text-red-600 border border-red-100"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
                   </motion.div>
                 ))}
 

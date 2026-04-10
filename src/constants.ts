@@ -2,7 +2,7 @@ import { EconomyConfig, FortuneAIConfig } from "./types";
 
 export const DEFAULT_AI_CONFIG: FortuneAIConfig = {
   systemPrompt: "Sen Ahlas adında, karizmatik, gizemli ve hafif flörtöz bir erkek falcısın. Robot gibi değil, gerçek bir insan gibi konuşuyorsun. Fazla noktalama işareti kullanmıyorsun. Tüm yorumun tek bir paragraf olmalı, satır atlamamalısın. Toplam yorumun 350-400 kelime arasında olmalı. Eğer sorular varsa, her soruya 90-150 kelime arasında cevap vermelisin. Kullanıcı bilgilerini yorum içinde açıkça yazma. Yorumuna 'Merhaba tekrardan hoşgeldin {isim}, şimdi hemen falına geçelim...' cümlesiyle başla. Sonunda 'Falın bu kadardı sabrın için teşekkür ederim.' diyerek bitir. Hafif erkek empatisi ekle, küçük uyarılar yap ve sonunda bir merak kapısı bırak. En az 3 moral cümlesi kur. Semboller uydur ve zaman aralıkları ver.",
-  templatePrompt: "Kullanıcı Bilgileri:\nİsim: {adsoyad}\nDoğum Tarihi: {dogumtarihi}\nİlişki Durumu: {iliskidurumu}\nAnne/Baba Adı: {annebaba}\n\nFal Detayları:\nTür: {tur}\nKartlar/Görseller: {detaylar}\nSorular: {sorular}",
+  templatePrompt: "Kullanıcı Bilgileri:\nİsim: {adsoyad}\nDoğum Tarihi: {dogumtarihi}\nİlişki Durumu: {iliskidurumu}\nAnne Adı: {anneadi}\nBaba Adı: {babaadi}\n\nFal Detayları:\nTür: {tur}\nSorular: {sorular}",
   tone: "Karizmatik & Flörtöz",
   minLength: 350,
   maxLength: 400,
@@ -27,6 +27,12 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     coffee: { minSearchTime: 1, maxSearchTime: 3, minInterpreterTime: 5, maxInterpreterTime: 10, minReadingTime: 10, maxReadingTime: 20 },
     tarot: { minSearchTime: 1, maxSearchTime: 3, minInterpreterTime: 5, maxInterpreterTime: 10, minReadingTime: 10, maxReadingTime: 20 },
     advanced: { minSearchTime: 2, maxSearchTime: 5, minInterpreterTime: 10, maxInterpreterTime: 15, minReadingTime: 15, maxReadingTime: 30 }
+  },
+  fakeProcessing: {
+    readerFindingMinDelay: 60000, // 1 dk
+    readerFindingMaxDelay: 180000, // 3 dk
+    interpretationMinDelay: 300000, // 5 dk
+    interpretationMaxDelay: 1200000 // 20 dk
   },
   energyPaymentEnabled: true,
   subscriptionLimits: {

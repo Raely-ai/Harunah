@@ -78,11 +78,11 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
           <div className="flex items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
             <div className="flex items-center gap-2">
               <Calendar className="w-3 h-3" />
-              <span>{reading.date}</span>
+              <span>{reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="w-3 h-3" />
-              <span>14:30</span>
+              <span>{reading.createdAt ? new Date(reading.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
             </div>
           </div>
         </div>

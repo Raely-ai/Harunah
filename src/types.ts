@@ -28,9 +28,12 @@ export interface FortuneReading {
   expectedReaderFoundAt?: string;
   expectedCompletedAt?: string;
   expectedReadyAt?: string;
+  isAIGenerated?: boolean;
+  isAIGenerating?: boolean;
   priority?: boolean;
   priorityMode?: boolean;
   updatedAt?: string;
+  createdAt?: string;
   
   // AI Metadata
   promptSource?: 'admin' | 'default';
@@ -46,15 +49,12 @@ export interface FortuneReading {
   };
 
   // Form Data
-  formData?: {
+  formData: {
     adSoyad: string;
     dogumTarihi: string;
     iliskiDurumu: string;
     motherName?: string;
     fatherName?: string;
-    targetName?: string;
-    jobStatus?: string;
-    extraInfo?: string;
   };
   priceBreakdown?: {
     base: number;
@@ -371,6 +371,12 @@ export interface EconomyConfig {
     coffee: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
     tarot: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
     advanced: { minSearchTime: number; maxSearchTime: number; minInterpreterTime: number; maxInterpreterTime: number; minReadingTime: number; maxReadingTime: number };
+  };
+  fakeProcessing?: {
+    readerFindingMinDelay: number;
+    readerFindingMaxDelay: number;
+    interpretationMinDelay: number;
+    interpretationMaxDelay: number;
   };
   energyPaymentEnabled: boolean;
   subscriptionLimits: {

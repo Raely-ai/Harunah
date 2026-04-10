@@ -35,15 +35,24 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     
     const userId = context.auth.uid;
-    const { type, formData, images, cards, questions, priorityMode } = data || {};
+    const { type, formData, questions, priorityMode } = data || {};
 
     if (!type || !formData) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
 
-    // Sanitize formData to remove undefined values which Firestore doesn't like
-    const sanitizedFormData = JSON.parse(JSON.stringify(formData));
+    // Sanitize formData to only include allowed fields based on type
+    const sanitizedFormData: any = {
+      adSoyad: formData.adSoyad || "",
+      dogumTarihi: formData.dogumTarihi || "",
+      iliskiDurumu: formData.iliskiDurumu || ""
+    };
+
+    if (['water', 'ebced', 'yildizname', 'havas'].includes(type)) {
+      sanitizedFormData.motherName = formData.motherName || "";
+      sanitizedFormData.fatherName = formData.fatherName || "";
+    }
 
     // Create a simple hash of the request to prevent duplicates
-    const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, images, cards, questions });
+    const requestString = JSON.stringify({ userId, type, formData: sanitizedFormData, questions });
     const requestHash = crypto.createHash('md5').update(requestString).digest('hex');
 
     const userRef = db.collection("users").doc(userId);
@@ -151,27 +160,23 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
       // Subscribers get priority mode by default
       const effectivePriorityMode = priorityMode || (balanceType === 'subscription');
       
-      // Timing Logic
-      const rawTimes = economy.interpretationTimes?.[type === 'coffee' || type === 'tarot' ? type : 'advanced'] || {};
-      const times = {
-        minSearchTime: rawTimes.minSearchTime ?? 1,
-        maxSearchTime: rawTimes.maxSearchTime ?? 3,
-        minInterpreterTime: rawTimes.minInterpreterTime ?? 5,
-        maxInterpreterTime: rawTimes.maxInterpreterTime ?? 10,
-        minReadingTime: rawTimes.minReadingTime ?? 10,
-        maxReadingTime: rawTimes.maxReadingTime ?? 20
+      // Timing Logic (Fake Processing)
+      const fakeConfig = economy.fakeProcessing || {
+        readerFindingMinDelay: 60000,
+        readerFindingMaxDelay: 180000,
+        interpretationMinDelay: 300000,
+        interpretationMaxDelay: 1200000
       };
 
-      const searchDelay = (Math.random() * (times.maxSearchTime - times.minSearchTime) + times.minSearchTime) * 60 * 1000;
-      const interpreterDelay = (Math.random() * (times.maxInterpreterTime - times.minInterpreterTime) + times.minInterpreterTime) * 60 * 1000;
-      const readingDelay = (Math.random() * (times.maxReadingTime - times.minReadingTime) + times.minReadingTime) * 60 * 1000;
+      const searchDelay = (Math.random() * (fakeConfig.readerFindingMaxDelay - fakeConfig.readerFindingMinDelay) + fakeConfig.readerFindingMinDelay);
+      const interpretationDelay = (Math.random() * (fakeConfig.interpretationMaxDelay - fakeConfig.interpretationMinDelay) + fakeConfig.interpretationMinDelay);
 
-      // Priority speed up
+      // Priority speed up (50% faster)
       const speedFactor = effectivePriorityMode ? 0.5 : 1.0;
 
       const expectedReaderFoundAt = new Date(now.getTime() + searchDelay * speedFactor);
-      const interpretationStartedAt = new Date(expectedReaderFoundAt.getTime() + interpreterDelay * speedFactor);
-      const expectedCompletedAt = new Date(interpretationStartedAt.getTime() + readingDelay * speedFactor);
+      const interpretationStartedAt = new Date(expectedReaderFoundAt.getTime() + (interpretationDelay * 0.2) * speedFactor); // Found -> Interpreting is quick
+      const expectedCompletedAt = new Date(expectedReaderFoundAt.getTime() + interpretationDelay * speedFactor);
 
       const readingData = {
         id: readingRef.id,
@@ -180,9 +185,7 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
         status: 'searching',
         requestHash,
         formData: sanitizedFormData,
-        images: Array.isArray(images) ? images.filter((i: any) => i != null) : [],
-        cards: Array.isArray(cards) ? cards.filter((c: any) => c != null) : [],
-        questions: Array.isArray(questions) ? questions.filter((q: any) => q != null) : [],
+        questions: Array.isArray(questions) ? questions.map((q: any) => typeof q === 'string' ? q : q.text).filter(Boolean) : [],
         priorityMode: !!effectivePriorityMode,
         balanceType,
         creditsUsed: balanceType === 'subscription' ? 0 : totalCost,
@@ -262,9 +265,9 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
     if (reading.status === 'processing_ai') return { alreadyProcessing: true };
 
-    // Lock the reading
+    // Lock the reading (but keep searching status for now)
     transaction.update(readingRef, { 
-      status: 'processing_ai', 
+      isAIGenerating: true,
       updatedAt: new Date().toISOString() 
     });
 
@@ -304,10 +307,9 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     adsoyad: reading.formData.adSoyad || "Canım",
     dogumtarihi: reading.formData.dogumTarihi || "Bilinmiyor",
     iliskidurumu: reading.formData.iliskiDurumu || "Bilinmiyor",
-    annebaba: `${reading.formData.motherName || ""}/${reading.formData.fatherName || ""}`,
-    sorular: reading.questions?.map((q: any) => typeof q === 'string' ? q : q.text).join(", ") || "Genel yorum",
-    kartlar: reading.cards?.join(", ") || "Seçim yok",
-    gorseller: reading.images?.length > 0 ? `${reading.images.length} adet görsel yüklendi.` : "Görsel yok",
+    anneadi: reading.formData.motherName || "Bilinmiyor",
+    babaadi: reading.formData.fatherName || "Bilinmiyor",
+    sorular: Array.isArray(reading.questions) ? reading.questions.join(", ") : "Genel yorum",
     tur: reading.type,
     isim: reading.formData.adSoyad?.split(" ")[0] || "Canım"
   };
@@ -349,21 +351,11 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
     content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
 
     await readingRef.update({
-      status: 'completed',
       content,
       resultText: content,
+      isAIGenerated: true,
+      isAIGenerating: false,
       updatedAt: new Date().toISOString()
-    });
-
-    // Notify Success
-    await db.collection("notifications").add({
-      userId: reading.userId,
-      type: 'system',
-      title: 'Falınız Hazır!',
-      message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
-      read: false,
-      createdAt: FieldValue.serverTimestamp(),
-      data: { readingId }
     });
 
     return { success: true, content };
@@ -470,9 +462,8 @@ export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KE
 });
 
 // 4. Background Status Updater (Scheduled every minute)
-export const updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes').onRun(async (context) => {
   const now = new Date().toISOString();
-  const openai = getOpenAI();
   
   // 1. Searching -> Found
   const searchingReadings = await db.collection("readings")
@@ -520,79 +511,20 @@ export const updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_K
     });
   }
 
-  // 3. Interpreting -> Completed (Trigger AI)
+  // 3. Interpreting -> Completed
   const interpretingReadings = await db.collection("readings")
     .where("status", "==", "interpreting")
     .where("expectedCompletedAt", "<=", now)
-    .limit(5)
+    .limit(50)
     .get();
 
   for (const doc of interpretingReadings.docs) {
     const reading = doc.data();
     
-    try {
-      // Atomic lock for background process
-      const lockResult = await db.runTransaction(async (transaction) => {
-        const snap = await transaction.get(doc.ref);
-        const data = snap.data();
-        if (data?.status !== 'interpreting') return { proceed: false };
-        
-        transaction.update(doc.ref, { status: 'processing_ai', updatedAt: now });
-        return { proceed: true };
-      });
-
-      if (!lockResult.proceed) continue;
-
-      // Fetch Prompt Template
-      const economySnap = await db.collection("adminSettings").doc("economy").get();
-      const economy = economySnap.data() as any;
-      const aiConfig = economy?.aiSettings?.[reading.type] || {
-        systemPrompt: "Sen LASYA isminde mistik bir kahinsin.",
-        templatePrompt: "Kullanıcı {adsoyad}, {dogumtarihi} doğumlu, {iliskidurumu}. Soruları: {sorular}. Lütfen yorumla."
-      };
-
-      // Replace Placeholders
-      let systemPrompt = aiConfig.systemPrompt;
-      let templatePrompt = aiConfig.templatePrompt;
-
-      const placeholders: Record<string, string> = {
-        adsoyad: reading.formData.adSoyad || "Canım",
-        dogumtarihi: reading.formData.dogumTarihi || "Bilinmiyor",
-        iliskidurumu: reading.formData.iliskiDurumu || "Bilinmiyor",
-        annebaba: `${reading.formData.motherName || ""}/${reading.formData.fatherName || ""}`,
-        sorular: reading.questions?.map((q: any) => typeof q === 'string' ? q : q.text).join(", ") || "Genel yorum",
-        kartlar: reading.cards?.join(", ") || "Seçim yok",
-        gorseller: reading.images?.length > 0 ? "Görseller eklendi." : "Görsel yok.",
-        tur: reading.type,
-        isim: reading.formData.adSoyad?.split(" ")[0] || "Canım"
-      };
-
-      Object.entries(placeholders).forEach(([key, value]) => {
-        const regex = new RegExp(`{${key}}`, 'g');
-        systemPrompt = systemPrompt.replace(regex, value);
-        templatePrompt = templatePrompt.replace(regex, value);
-      });
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: templatePrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000
-      });
-
-      let content = response.choices[0].message.content || "";
-      content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
-
-      await doc.ref.update({
-        status: 'completed',
-        content,
-        resultText: content,
-        updatedAt: new Date().toISOString()
-      });
-
+    // Only complete if AI has actually finished generating
+    if (reading.isAIGenerated) {
+      await doc.ref.update({ status: 'completed', updatedAt: now });
+      
       // Notify
       await db.collection("notifications").add({
         userId: reading.userId,
@@ -600,15 +532,8 @@ export const updateReadingStatuses = functions.runWith({ secrets: ["OPENAI_API_K
         title: 'Falınız Hazır!',
         message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
         read: false,
-        createdAt: FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
         data: { readingId: doc.id }
-      });
-    } catch (error: any) {
-      console.error("Background AI Error:", error);
-      await doc.ref.update({
-        status: 'error',
-        error: error.message,
-        updatedAt: new Date().toISOString()
       });
     }
   }

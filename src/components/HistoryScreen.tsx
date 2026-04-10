@@ -48,9 +48,10 @@ const TYPE_ICONS: Record<string, any> = {
 };
 
 const STATUS_CONFIG = {
-  searching: { label: 'Yorumcu Aranıyor', color: 'text-purple-600', bg: 'bg-purple-500/10', icon: Search },
+  searching: { label: 'Yorumcu Aranıyor', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Search },
   found: { label: 'Yorumcu Bulundu', color: 'text-indigo-600', bg: 'bg-indigo-500/10', icon: User },
-  interpreting: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: AlertCircle },
+  interpreting: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: Sparkles },
+  processing_ai: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: Sparkles },
   completed: { label: 'Tamamlandı', color: 'text-emerald-600', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
   waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
   error: { label: 'Hata', color: 'text-red-600', bg: 'bg-red-500/10', icon: AlertCircle },
@@ -195,7 +196,9 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                         <div>
                           <h3 className="font-serif font-bold text-heading">{reading.title}</h3>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{reading.date}</span>
+                            <span className="text-[10px] text-muted uppercase tracking-widest font-bold">
+                              {reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
+                            </span>
                             <span className="w-1 h-1 rounded-full bg-black/5" />
                             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
                               <StatusIcon className="w-2.5 h-2.5" />
@@ -245,11 +248,19 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                           </button>
                         </div>
                       </div>
+                    ) : reading.status === 'error' ? (
+                      <div className="space-y-4">
+                        <div className="p-4 rounded-xl bg-red-50 border border-dashed border-red-200 text-center">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">
+                            {reading.error || 'Bir hata oluştu, lütfen tekrar deneyin.'}
+                          </p>
+                        </div>
+                      </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="p-4 rounded-xl bg-black/5 border border-dashed border-black/10 text-center">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
-                            {reading.status === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
+                            {['interpreting', 'processing_ai'].includes(reading.status) ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : reading.status === 'found' ? 'Yorumcu bulundu, hazırlanıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-2">
