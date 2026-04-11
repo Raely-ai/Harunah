@@ -29,7 +29,7 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
     images: [] as string[]
   });
 
-  const price = economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee;
+  const price = economyConfig?.fortunePricing?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee;
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);

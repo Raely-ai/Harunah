@@ -161,8 +161,8 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
     }
   };
 
-  const basePrice = economyConfig?.fortunePricing?.[type as keyof typeof economyConfig.fortunePricing] ?? config?.prices?.[type as keyof typeof config.prices] ?? (DEFAULT_ECONOMY_CONFIG.fortunePricing as any)[type] ?? 500;
-  const extraQuestionPrice = economyConfig?.fortunePricing?.extraQuestion ?? config?.prices?.extraQuestion ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.extraQuestion;
+  const basePrice = economyConfig?.fortunePricing?.[type as keyof typeof economyConfig.fortunePricing] ?? (DEFAULT_ECONOMY_CONFIG.fortunePricing as any)[type] ?? 500;
+  const extraQuestionPrice = economyConfig?.fortunePricing?.extraQuestion ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.extraQuestion;
   const creditCost = basePrice + (formData.questions.length > 3 ? (formData.questions.length - 3) * extraQuestionPrice : 0);
   const isSubscribed = userProfile.subscription?.status === 'active';
 

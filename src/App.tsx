@@ -144,12 +144,12 @@ function AppContent() {
       } else {
         // Provide a default config if not found in Firestore yet
         const defaultConfig: AppConfig = {
-          prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, horoscope: 30, dream: 30, extraQuestion: 10, priorityFee: 20 },
+          prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
           icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
           dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
           adRewardEnergy: 5,
           maxDailyAds: 5,
-          subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5, totalDaily: 10 },
+          subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
           packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
         };
         setAppConfig(defaultConfig);
@@ -158,12 +158,12 @@ function AppContent() {
       console.error("Config fetch error:", err);
       // Fallback on error too
       setAppConfig({
-        prices: { coffee: 50, tarot: 40, water: 30, ebced: 30, yildizname: 30, havas: 30, horoscope: 30, dream: 30, extraQuestion: 10, priorityFee: 20 },
+        prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
         icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
         dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
         adRewardEnergy: 5,
         maxDailyAds: 5,
-        subscriptionLimits: { coffee: 5, tarot: 5, advanced: 5, totalDaily: 10 },
+        subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
         packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
       });
     });
@@ -411,16 +411,16 @@ function AppContent() {
   const handleSelectFortune = (type: FortuneType) => {
     if (!userProfile || !appConfig) return;
 
-    const prices = economyConfig?.fortunePricing || appConfig.prices;
+    const prices = economyConfig?.fortunePricing || DEFAULT_ECONOMY_CONFIG.fortunePricing;
     const price = (prices as any)[type] || 0;
     const isSubscribed = userProfile.subscription?.status === 'active';
     const isAdEligible = ['coffee', 'tarot'].includes(type);
 
     if (isSubscribed) {
-      const subLimits = appConfig.subscriptionLimits;
+      const subLimits = economyConfig?.subscriptionLimits || DEFAULT_ECONOMY_CONFIG.subscriptionLimits;
       const subUsed = userProfile.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 };
-      const limit = ['coffee', 'tarot'].includes(type) ? subLimits[type as 'coffee' | 'tarot'] : subLimits.advanced;
-      const used = ['coffee', 'tarot'].includes(type) ? subUsed[type as 'coffee' | 'tarot'] : subUsed.advanced;
+      const limit = subLimits.totalDaily;
+      const used = (subUsed.coffee || 0) + (subUsed.tarot || 0) + (subUsed.advanced || 0);
 
       if (used >= limit) {
         toast.error(`Günlük abonelik limitinize ulaştınız (${limit}).`, {

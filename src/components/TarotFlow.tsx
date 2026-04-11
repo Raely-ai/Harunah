@@ -95,7 +95,7 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
     selectedCards: [] as string[]
   });
 
-  const price = economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot;
+  const price = economyConfig?.fortunePricing?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot;
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);

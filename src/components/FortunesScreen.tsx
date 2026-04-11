@@ -127,7 +127,7 @@ export default function FortunesScreen({
       iconColor: 'text-amber-600',
       glowColor: 'shadow-amber-500/20',
       configIcon: config?.icons?.coffee,
-      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee,
+      price: economyConfig?.fortunePricing?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee,
       energyEligible: true
     },
     { 
@@ -139,7 +139,7 @@ export default function FortunesScreen({
       iconColor: 'text-purple-600',
       glowColor: 'shadow-purple-500/20',
       configIcon: config?.icons?.tarot,
-      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot,
+      price: economyConfig?.fortunePricing?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot,
       energyEligible: true
     },
     { 
@@ -151,7 +151,7 @@ export default function FortunesScreen({
       iconColor: 'text-cyan-600',
       glowColor: 'shadow-cyan-500/20',
       configIcon: config?.icons?.water,
-      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.water,
+      price: economyConfig?.fortunePricing?.water ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.water,
       energyEligible: false
     },
     { 
@@ -163,7 +163,7 @@ export default function FortunesScreen({
       iconColor: 'text-rose-600',
       glowColor: 'shadow-rose-500/20',
       configIcon: config?.icons?.ebced,
-      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.ebced,
+      price: economyConfig?.fortunePricing?.ebced ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.ebced,
       energyEligible: false
     },
     { 
@@ -175,7 +175,7 @@ export default function FortunesScreen({
       iconColor: 'text-indigo-600',
       glowColor: 'shadow-indigo-500/20',
       configIcon: config?.icons?.yildizname,
-      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.yildizname,
+      price: economyConfig?.fortunePricing?.yildizname ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.yildizname,
       energyEligible: false
     },
     { 
@@ -187,7 +187,7 @@ export default function FortunesScreen({
       iconColor: 'text-emerald-600',
       glowColor: 'shadow-emerald-500/20',
       configIcon: config?.icons?.havas,
-      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.havas,
+      price: economyConfig?.fortunePricing?.havas ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.havas,
       energyEligible: false
     },
   ];

@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.redeemPromoCode = exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.refreshDiscover = exports.updateSocialSettings = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.buySocialSubscription = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = exports.updateReadingStatuses = exports.generateDailyMessage = exports.upgradeFortunePriority = exports.processFortuneAI = exports.createFortuneReading = void 0;
+exports.adminAdjustWallet = exports.adminSetWallet = exports.redeemPromoCode = exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.refreshDiscover = exports.updateSocialSettings = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.buySocialSubscription = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = exports.updateReadingStatuses = exports.generateDailyMessage = exports.upgradeFortunePriority = exports.processFortuneAI = exports.createFortuneReading = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -123,13 +123,14 @@ exports.createFortuneReading = functions.https.onCall(async (data, context) => {
             let balanceType = 'main';
             const today = new Date().toISOString().split('T')[0];
             const sub = userData.subscription;
+            const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
             if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
-                const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
                 const dailyUsed = sub.dailyLimitUsed || 0;
                 const lastReset = sub.lastResetAt || "";
-                if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
-                    balanceType = 'subscription';
+                if (lastReset === today && dailyUsed >= subLimits.totalDaily) {
+                    throw new functions.https.HttpsError('resource-exhausted', 'Günlük fal limitinize ulaştınız. Yarın tekrar bekleriz!');
                 }
+                balanceType = 'subscription';
             }
             if (balanceType === 'main') {
                 if ((userData.energy || 0) >= totalCost) {
@@ -693,7 +694,7 @@ exports.buyFortuneSubscription = functions.https.onCall(async (data, context) =>
     else if (type === 'weekly')
         expiresAt.setDate(now.getDate() + 7);
     else if (type === 'monthly')
-        expiresAt.setMonth(now.getMonth() + 1);
+        expiresAt.setDate(now.getDate() + 30);
     return await db.runTransaction(async (transaction) => {
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists)
@@ -1329,6 +1330,91 @@ exports.redeemPromoCode = functions.https.onCall(async (data, context) => {
         if (error instanceof functions.https.HttpsError)
             throw error;
         throw new functions.https.HttpsError('internal', error.message || 'Kod kullanılırken bir hata oluştu.');
+    }
+});
+exports.adminSetWallet = functions.https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+    const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') ||
+        (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+    if (!isAdmin)
+        throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+    const { targetUserId, updates } = data;
+    if (!targetUserId || !updates)
+        throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+    const userRef = db.collection("users").doc(targetUserId);
+    const allowedFields = [
+        'mainCoins', 'energy', 'superLikes', 'refreshCount',
+        'compatibilityCount', 'dailyAdWatchCount', 'dailySwipeLimit', 'extraSwipeLimit'
+    ];
+    const sanitizedUpdates = {};
+    Object.keys(updates).forEach(key => {
+        if (allowedFields.includes(key)) {
+            sanitizedUpdates[key] = updates[key];
+        }
+    });
+    if (Object.keys(sanitizedUpdates).length === 0)
+        return { success: true };
+    try {
+        await userRef.update(sanitizedUpdates);
+        const txRef = db.collection("walletTransactions").doc();
+        await txRef.set({
+            id: txRef.id,
+            userId: targetUserId,
+            type: 'admin_set',
+            source: 'admin_action',
+            amount: 0,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            description: `Admin tarafından cüzdan değerleri güncellendi: ${JSON.stringify(sanitizedUpdates)}`
+        });
+        return { success: true };
+    }
+    catch (error) {
+        console.error("adminSetWallet error:", error);
+        throw new functions.https.HttpsError('internal', error.message || 'Cüzdan güncellenirken hata oluştu.');
+    }
+});
+exports.adminAdjustWallet = functions.https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+    const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') ||
+        (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+    if (!isAdmin)
+        throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+    const { targetUserId, field, amount } = data;
+    if (!targetUserId || !field || amount === undefined)
+        throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+    const allowedFields = [
+        'mainCoins', 'energy', 'superLikes', 'refreshCount',
+        'compatibilityCount', 'dailyAdWatchCount', 'dailySwipeLimit', 'extraSwipeLimit'
+    ];
+    if (!allowedFields.includes(field))
+        throw new functions.https.HttpsError('invalid-argument', 'Geçersiz alan.');
+    const userRef = db.collection("users").doc(targetUserId);
+    try {
+        await userRef.update({
+            [field]: firestore_1.FieldValue.increment(amount)
+        });
+        const txRef = db.collection("walletTransactions").doc();
+        await txRef.set({
+            id: txRef.id,
+            userId: targetUserId,
+            type: amount > 0 ? 'earn' : 'spend',
+            source: 'admin_action',
+            amount: amount,
+            balanceType: (field === 'energy' || field === 'mainCoins') ? (field === 'energy' ? 'energy' : 'main') : 'other',
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            description: `Admin tarafından ${field} miktarı ${amount} kadar değiştirildi.`
+        });
+        return { success: true };
+    }
+    catch (error) {
+        console.error("adminAdjustWallet error:", error);
+        throw new functions.https.HttpsError('internal', error.message || 'Cüzdan ayarlanırken hata oluştu.');
     }
 });
 //# sourceMappingURL=index.js.map

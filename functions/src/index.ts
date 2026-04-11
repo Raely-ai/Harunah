@@ -1557,3 +1557,102 @@ export const redeemPromoCode = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', error.message || 'Kod kullanılırken bir hata oluştu.');
   }
 });
+
+// 13. Admin Set Wallet (Direct Set)
+export const adminSetWallet = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { targetUserId, updates } = data;
+  if (!targetUserId || !updates) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  const userRef = db.collection("users").doc(targetUserId);
+  
+  // Sanitize updates to only allow wallet fields
+  const allowedFields = [
+    'mainCoins', 'energy', 'superLikes', 'refreshCount', 
+    'compatibilityCount', 'dailyAdWatchCount', 'dailySwipeLimit', 'extraSwipeLimit'
+  ];
+  const sanitizedUpdates: any = {};
+  Object.keys(updates).forEach(key => {
+    if (allowedFields.includes(key)) {
+      sanitizedUpdates[key] = updates[key];
+    }
+  });
+
+  if (Object.keys(sanitizedUpdates).length === 0) return { success: true };
+
+  try {
+    await userRef.update(sanitizedUpdates);
+
+    // Log Transaction
+    const txRef = db.collection("walletTransactions").doc();
+    await txRef.set({
+      id: txRef.id,
+      userId: targetUserId,
+      type: 'admin_set',
+      source: 'admin_action',
+      amount: 0,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+      description: `Admin tarafından cüzdan değerleri güncellendi: ${JSON.stringify(sanitizedUpdates)}`
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminSetWallet error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Cüzdan güncellenirken hata oluştu.');
+  }
+});
+
+// 14. Admin Adjust Wallet (Relative Change)
+export const adminAdjustWallet = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { targetUserId, field, amount } = data;
+  if (!targetUserId || !field || amount === undefined) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  const allowedFields = [
+    'mainCoins', 'energy', 'superLikes', 'refreshCount', 
+    'compatibilityCount', 'dailyAdWatchCount', 'dailySwipeLimit', 'extraSwipeLimit'
+  ];
+  if (!allowedFields.includes(field)) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz alan.');
+
+  const userRef = db.collection("users").doc(targetUserId);
+  
+  try {
+    await userRef.update({
+      [field]: FieldValue.increment(amount)
+    });
+
+    // Log Transaction
+    const txRef = db.collection("walletTransactions").doc();
+    await txRef.set({
+      id: txRef.id,
+      userId: targetUserId,
+      type: amount > 0 ? 'earn' : 'spend',
+      source: 'admin_action',
+      amount: amount,
+      balanceType: (field === 'energy' || field === 'mainCoins') ? (field === 'energy' ? 'energy' : 'main') : 'other',
+      createdAt: new Date().toISOString(),
+      status: 'active',
+      description: `Admin tarafından ${field} miktarı ${amount} kadar değiştirildi.`
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminAdjustWallet error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Cüzdan ayarlanırken hata oluştu.');
+  }
+});
