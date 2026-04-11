@@ -27,6 +27,7 @@ import {
   Ticket
 } from "lucide-react";
 import { UserProfile, WalletTransaction, EconomyConfig } from "../types";
+import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { walletService } from "../lib/walletService";
 import { toast } from "sonner";
 
@@ -168,28 +169,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
 
   if (loading) return null;
 
-  const config: EconomyConfig = (economyConfig || {
-    fortunePricing: { 
-      coffee: 10, tarot: 15, water: 20, ebced: 25, yildizname: 30, 
-      havas: 35, horoscope: 10, dream: 15, extraQuestion: 10, priorityFee: 5 
-    },
-    rewards: { adRewardEnergy: 10, maxDailyAds: 5, dailyLoginRewardEnergy: 5 },
-    coinPackages: [],
-    socialPricing: { superLike: [], refresh: [], compatibility: [] },
-    fortuneSubscriptions: {
-      daily: { priceTRY: 19.99, dailyLimit: 3, description: "Günlük Mistik" },
-      weekly: { priceTRY: 99.99, dailyLimit: 5, description: "Haftalık Mistik" },
-      monthly: { priceTRY: 299.99, dailyLimit: 10, description: "Aylık Mistik" }
-    },
-    socialSubscriptions: {
-      weekly: { priceTRY: 149.99, description: "Haftalık Premium", dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 2 } },
-      monthly: { priceTRY: 449.99, description: "Aylık Premium", dailyLimits: { superLikes: 10, refreshes: 5, compatibility: 5 } }
-    },
-    interpretationTimes: {} as any,
-    energyPaymentEnabled: true,
-    subscriptionLimits: { coffee: 3, tarot: 3, advanced: 1 },
-    aiSettings: { model: "gemini-pro", temperature: 0.7 }
-  }) as EconomyConfig;
+  const config: EconomyConfig = (economyConfig || DEFAULT_ECONOMY_CONFIG) as EconomyConfig;
 
   const isFortunePremium = currentUser.subscription?.status === 'active';
   const isSocialPremium = currentUser.socialSubscription?.status === 'active';
@@ -314,18 +294,16 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                             <p className="text-[10px] font-black text-muted uppercase tracking-widest">Günlük Fal Hakkı</p>
                             <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">
                               {(() => {
-                                const used = (currentUser.subscription?.dailyReadingsUsed?.coffee || 0) + 
-                                             (currentUser.subscription?.dailyReadingsUsed?.tarot || 0) + 
-                                             (currentUser.subscription?.dailyReadingsUsed?.advanced || 0);
-                                const limit = currentUser.subscription?.dailyLimit || 10;
-                                return `${used}/${limit}`;
+                                const used = currentUser.subscription?.dailyLimitUsed || 0;
+                                const limit = config?.subscriptionLimits?.totalDaily || 10;
+                                return `${Math.floor(used)}/${Math.floor(limit)}`;
                               })()}
                             </p>
                           </div>
                           <div className="h-2.5 bg-black/5 rounded-full overflow-hidden">
                             <motion.div 
                               initial={{ width: 0 }}
-                              animate={{ width: `${(( (currentUser.subscription?.dailyReadingsUsed?.coffee || 0) + (currentUser.subscription?.dailyReadingsUsed?.tarot || 0) + (currentUser.subscription?.dailyReadingsUsed?.advanced || 0) ) / (currentUser.subscription?.dailyLimit || 10)) * 100}%` }}
+                              animate={{ width: `${((currentUser.subscription?.dailyLimitUsed || 0) / (config?.subscriptionLimits?.totalDaily || 10)) * 100}%` }}
                               className="h-full bg-gradient-to-r from-amber-400 to-amber-600"
                             />
                           </div>
@@ -334,7 +312,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                     ) : (
                       <div className="grid grid-cols-1 gap-3">
                         {[
-                          `Günde ${config?.fortuneSubscriptions?.monthly?.dailyLimit || 10} fal hakkı`,
+                          "Günde 10 fal hakkı",
                           "Öncelikli yorum sırası",
                           "Daha detaylı analiz",
                           "Beklemeden yorum"
@@ -507,29 +485,52 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                   Sosyal Market (Jeton)
                 </h2>
                 <div className="grid grid-cols-1 gap-4">
-                  {[
-                    { type: 'superLike' as const, icon: Heart, color: 'rose', label: 'Süper Like', desc: 'Daha fazla görün', count: currentUser.superLikes || 0, pricing: config?.socialPricing?.superLike || [] },
-                    { type: 'refresh' as const, icon: RefreshCw, color: 'indigo', label: 'Yenileme', desc: 'Keşfette öne çık', count: currentUser.refreshCount || 0, pricing: config?.socialPricing?.refresh || [] },
-                    { type: 'compatibility' as const, icon: Sparkles, color: 'amber', label: 'Uyum Analizi', desc: 'Uyumunuzu gör', count: currentUser.compatibilityCount || 0, pricing: config?.socialPricing?.compatibility || [] }
-                  ].map((item) => (
-                    <div key={item.type} className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm flex items-center justify-between group">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-14 h-14 rounded-3xl bg-${item.color}-50 text-${item.color}-500 flex items-center justify-center group-hover:scale-110 transition-transform`}><item.icon className="w-7 h-7" /></div>
-                        <div>
-                          <h3 className="text-sm font-bold text-heading">{item.label}</h3>
-                          <p className="text-[10px] text-muted uppercase tracking-widest">{item.desc}</p>
-                          <p className={`text-[10px] font-black text-${item.color}-500 mt-1`}>Mevcut: {item.count}</p>
+                  {(() => {
+                    const getSocialRightCount = (type: 'superLikes' | 'refreshes' | 'compatibility', topLevelCount: number) => {
+                      let count = topLevelCount;
+                      if (currentUser.socialSubscription?.status === 'active') {
+                        const today = new Date().toISOString().split('T')[0];
+                        const subType = currentUser.socialSubscription.type;
+                        const subConfig = config.socialSubscriptions[subType as keyof typeof config.socialSubscriptions];
+                        if (subConfig) {
+                          const dailyLimit = subConfig.dailyLimits[type === 'superLikes' ? 'superLikes' : type === 'refreshes' ? 'refreshes' : 'compatibility'] || 0;
+                          const dailyUsed = currentUser.socialSubscription.dailyUsage?.[type === 'superLikes' ? 'superLikes' : type === 'refreshes' ? 'refreshes' : 'compatibility'] || 0;
+                          const lastReset = currentUser.socialSubscription.dailyUsage?.lastResetDate;
+                          
+                          if (lastReset === today) {
+                            count += Math.max(0, dailyLimit - (dailyUsed as number));
+                          } else {
+                            count += dailyLimit;
+                          }
+                        }
+                      }
+                      return count;
+                    };
+
+                    return [
+                      { type: 'superLike' as const, icon: Heart, color: 'rose', label: 'Süper Like', desc: 'Daha fazla görün', count: getSocialRightCount('superLikes', currentUser.superLikes || 0), pricing: config?.socialPricing?.superLike || [] },
+                      { type: 'refresh' as const, icon: RefreshCw, color: 'indigo', label: 'Yenileme', desc: 'Keşfette öne çık', count: getSocialRightCount('refreshes', currentUser.refreshCount || 0), pricing: config?.socialPricing?.refresh || [] },
+                      { type: 'compatibility' as const, icon: Sparkles, color: 'amber', label: 'Uyum Analizi', desc: 'Uyumunuzu gör', count: getSocialRightCount('compatibility', currentUser.compatibilityCount || 0), pricing: config?.socialPricing?.compatibility || [] }
+                    ].map((item) => (
+                      <div key={item.type} className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm flex items-center justify-between group">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-14 h-14 rounded-3xl bg-${item.color}-50 text-${item.color}-500 flex items-center justify-center group-hover:scale-110 transition-transform`}><item.icon className="w-7 h-7" /></div>
+                          <div>
+                            <h3 className="text-sm font-bold text-heading">{item.label}</h3>
+                            <p className="text-[10px] text-muted uppercase tracking-widest">{item.desc}</p>
+                            <p className={`text-[10px] font-black text-${item.color}-500 mt-1`}>Mevcut: {item.count}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          {(item.pricing || []).map(pkg => (
+                            <button key={pkg.id} onClick={() => handlePurchaseSocialRight(item.type)} className={`px-4 py-2 rounded-xl bg-${item.color}-50 text-${item.color}-600 text-[10px] font-black border border-${item.color}-100`}>
+                              {pkg.count} Adet: {pkg.priceCoins} J
+                            </button>
+                          ))}
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        {(item.pricing || []).map(pkg => (
-                          <button key={pkg.id} onClick={() => handlePurchaseSocialRight(item.type)} className={`px-4 py-2 rounded-xl bg-${item.color}-50 text-${item.color}-600 text-[10px] font-black border border-${item.color}-100`}>
-                            {pkg.count} Adet: {pkg.priceCoins} J
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    ));
+                  })()}
                 </div>
               </div>
             </>
@@ -587,7 +588,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       <div className="flex justify-between items-center">
                         <div className="space-y-1">
                           <h4 className="text-lg font-serif font-bold text-heading capitalize">{type === 'daily' ? 'Günlük' : type === 'weekly' ? 'Haftalık' : 'Aylık'} Mistik</h4>
-                          <p className="text-[10px] text-muted uppercase tracking-widest">Günde {sub?.dailyLimit || 0} Fal Hakkı</p>
+                          <p className="text-[10px] text-muted uppercase tracking-widest">Günde 10 Fal Hakkı</p>
                           <p className="text-xs text-body mt-2">{sub?.description || ''}</p>
                         </div>
                         <div className="text-right"><p className="text-2xl font-serif font-bold text-amber-600">₺{sub?.priceTRY || 0}</p></div>
@@ -614,7 +615,13 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                   {Object.entries(config?.socialSubscriptions || {}).map(([key, sub]: [string, any]) => (
                     <button key={key} onClick={() => handlePurchaseSocialSubscription(key as any)} className="w-full relative overflow-hidden bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group hover:border-indigo-300 transition-all">
                       <div className="flex justify-between items-center mb-4">
-                        <div className="space-y-1"><h4 className="text-lg font-serif font-bold text-heading capitalize">{key === 'weekly' ? 'Haftalık' : 'Aylık'} Premium</h4><p className="text-xs text-body">{sub?.description || ''}</p></div>
+                        <div className="space-y-1">
+                          <h4 className="text-lg font-serif font-bold text-heading capitalize">{key === 'weekly' ? 'Haftalık' : 'Aylık'} Premium</h4>
+                          <p className="text-xs text-body">
+                            {sub?.description || ''}
+                            {sub?.boostDuration && <span className="ml-1 opacity-60">• {sub.boostDuration}</span>}
+                          </p>
+                        </div>
                         <div className="text-right"><p className="text-2xl font-serif font-bold text-indigo-600">₺{sub?.priceTRY || 0}</p></div>
                       </div>
                       <div className="grid grid-cols-3 gap-3">

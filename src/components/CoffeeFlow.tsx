@@ -4,6 +4,7 @@ import { Camera, User, Calendar, Heart, ArrowRight, Loader2, Sparkles, CheckCirc
 import RitualScreen from "./RitualScreen";
 import PaymentSummary from "./PaymentSummary";
 import { UserProfile, AppConfig, EconomyConfig } from "../types";
+import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { toast } from "sonner";
 
 interface CoffeeFlowProps {
@@ -28,7 +29,7 @@ export default function CoffeeFlow({ userProfile, config, economyConfig, onUpdat
     images: [] as string[]
   });
 
-  const price = config.prices.coffee;
+  const price = economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee;
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);

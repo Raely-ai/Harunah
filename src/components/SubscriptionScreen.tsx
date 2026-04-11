@@ -28,7 +28,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
       price: `₺${economyConfig?.fortuneSubscriptions.daily.priceTRY ?? 19.99}`,
       period: 'Gün',
       description: economyConfig?.fortuneSubscriptions.daily.description || 'Hızlı bir kehanet günü için ideal.',
-      features: [`${economyConfig?.fortuneSubscriptions.daily.dailyLimit ?? 15} Fal Hakkı`, 'Reklamsız Deneyim', 'Öncelikli Yorumcu']
+      features: [`10 Fal Hakkı`, 'Reklamsız Deneyim', 'Öncelikli Yorumcu']
     },
     {
       id: 'weekly',
@@ -36,7 +36,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
       price: `₺${economyConfig?.fortuneSubscriptions.weekly.priceTRY ?? 89.99}`,
       period: 'Hafta',
       description: economyConfig?.fortuneSubscriptions.weekly.description || 'En popüler seçim. Bir hafta boyunca mistik rehberlik.',
-      features: [`${(economyConfig?.fortuneSubscriptions.weekly.dailyLimit ?? 15) * 7} Toplam Fal Hakkı`, 'Tüm Fal Türleri Açık', 'Özel Ritüeller', '7/24 Destek'],
+      features: [`Günde 10 Fal Hakkı`, 'Tüm Fal Türleri Açık', 'Özel Ritüeller', '7/24 Destek'],
       popular: true
     },
     {
@@ -45,7 +45,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
       price: `₺${economyConfig?.fortuneSubscriptions.monthly.priceTRY ?? 249.99}`,
       period: 'Ay',
       description: economyConfig?.fortuneSubscriptions.monthly.description || 'Gerçek bir Oracle deneyimi için en iyi değer.',
-      features: [`${economyConfig?.fortuneSubscriptions.monthly.dailyLimit ?? 'Sınırsız'} Günlük Fal Hakkı`, 'Tüm Premium Özellikler', 'Kişisel Astrolog', 'Özel İndirimler']
+      features: [`Günde 10 Fal Hakkı`, 'Tüm Premium Özellikler', 'Kişisel Astrolog', 'Özel İndirimler']
     }
   ];
 
@@ -97,7 +97,7 @@ export const SubscriptionScreen: React.FC<SubscriptionScreenProps> = ({ onClose,
             { icon: Zap, title: 'Hızlı Yanıt', desc: 'Sıra beklemeden yorum' },
             { icon: Star, title: 'Özel Fallar', desc: 'Premium kategoriler' },
             { icon: ShieldCheck, title: 'Reklamsız', desc: 'Kesintisiz deneyim' },
-            { icon: Sparkles, title: 'Günlük 15 Fal', desc: 'Maksimum limit' }
+            { icon: Sparkles, title: 'Günlük 10 Fal', desc: 'Maksimum limit' }
           ].map((b, i) => (
             <div key={i} className="p-4 rounded-3xl bg-white/5 border border-white/5 space-y-3">
               <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">

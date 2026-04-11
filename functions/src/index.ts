@@ -115,14 +115,16 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
       
       // Priority 1: Subscription (Highest priority)
       const sub = userData.subscription;
+      const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
+
       if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
-        const subLimits = economy.subscriptionLimits || { totalDaily: 10 };
         const dailyUsed = sub.dailyLimitUsed || 0;
         const lastReset = sub.lastResetAt || "";
         
-        if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
-          balanceType = 'subscription';
+        if (lastReset === today && dailyUsed >= subLimits.totalDaily) {
+          throw new functions.https.HttpsError('resource-exhausted', 'Günlük fal limitinize ulaştınız. Yarın tekrar bekleriz!');
         }
+        balanceType = 'subscription';
       }
 
       // Priority 2: Energy (If not subscription)
@@ -797,7 +799,7 @@ export const buyFortuneSubscription = functions.https.onCall(async (data, contex
   
   if (type === 'daily') expiresAt.setDate(now.getDate() + 1);
   else if (type === 'weekly') expiresAt.setDate(now.getDate() + 7);
-  else if (type === 'monthly') expiresAt.setMonth(now.getMonth() + 1);
+  else if (type === 'monthly') expiresAt.setDate(now.getDate() + 30);
 
   return await db.runTransaction(async (transaction) => {
     const userSnap = await transaction.get(userRef);

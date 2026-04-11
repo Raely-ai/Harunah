@@ -79,17 +79,19 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     weekly: { 
       priceTRY: 49.99, 
       dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 1 },
-      description: "Haftalık Sosyal Paket"
+      description: "Haftalık Sosyal Paket",
+      boostDuration: "7 Gün Boost"
     },
     monthly: { 
       priceTRY: 149.99, 
       dailyLimits: { superLikes: 10, refreshes: 5, compatibility: 3 },
-      description: "Aylık Sosyal Paket"
+      description: "Aylık Sosyal Paket",
+      boostDuration: "30 Gün Boost"
     }
   },
   fortuneSubscriptions: {
-    daily: { priceTRY: 9.99, dailyLimit: 1, description: "Günlük Fal Paketi" },
-    weekly: { priceTRY: 59.99, dailyLimit: 3, description: "Haftalık Fal Paketi" },
-    monthly: { priceTRY: 199.99, dailyLimit: 5, description: "Aylık Fal Paketi" }
+    daily: { priceTRY: 9.99, dailyLimit: 10, description: "Günlük Fal Paketi" },
+    weekly: { priceTRY: 59.99, dailyLimit: 10, description: "Haftalık Fal Paketi" },
+    monthly: { priceTRY: 199.99, dailyLimit: 10, description: "Aylık Fal Paketi" }
   }
 };

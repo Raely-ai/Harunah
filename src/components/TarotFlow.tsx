@@ -4,6 +4,7 @@ import { CreditCard, User, Calendar, ArrowRight, Sparkles, CheckCircle2, Chevron
 import RitualScreen from "./RitualScreen";
 import PaymentSummary from "./PaymentSummary";
 import { UserProfile, AppConfig, EconomyConfig } from "../types";
+import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { toast } from "sonner";
 
 interface TarotFlowProps {
@@ -94,7 +95,7 @@ export default function TarotFlow({ userProfile, config, economyConfig, onUpdate
     selectedCards: [] as string[]
   });
 
-  const price = config.prices.tarot;
+  const price = economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot;
   const isSubscribed = userProfile.subscription?.status === 'active';
 
   const nextStep = () => setStep(s => s + 1);

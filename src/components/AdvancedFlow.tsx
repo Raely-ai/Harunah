@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import RitualScreen from "./RitualScreen";
 import PaymentSummary from "./PaymentSummary";
 import { FortuneType, UserProfile, AppConfig, EconomyConfig } from "../types";
+import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 
 interface AdvancedFlowProps {
   type: FortuneType;
@@ -160,8 +161,8 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
     }
   };
 
-  const basePrice = config.prices[type as keyof typeof config.prices] || 500;
-  const extraQuestionPrice = config.prices.extraQuestion;
+  const basePrice = economyConfig?.fortunePricing?.[type as keyof typeof economyConfig.fortunePricing] ?? config?.prices?.[type as keyof typeof config.prices] ?? (DEFAULT_ECONOMY_CONFIG.fortunePricing as any)[type] ?? 500;
+  const extraQuestionPrice = economyConfig?.fortunePricing?.extraQuestion ?? config?.prices?.extraQuestion ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.extraQuestion;
   const creditCost = basePrice + (formData.questions.length > 3 ? (formData.questions.length - 3) * extraQuestionPrice : 0);
   const isSubscribed = userProfile.subscription?.status === 'active';
 

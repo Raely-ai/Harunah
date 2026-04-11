@@ -301,10 +301,9 @@ export default function SocialMessagesScreen({
   useEffect(() => {
     if (!currentUser || chats.length === 0) return;
 
-    const chatIds = chats.map(c => c.id);
     const q = query(
       collection(db, "messages"),
-      where("chatId", "in", chatIds),
+      where("participants", "array-contains", currentUser.uid),
       where("status", "==", "sent")
     );
 

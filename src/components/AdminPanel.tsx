@@ -170,7 +170,17 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       if (config) await adminService.updateGlobalConfig(config);
       if (walletConfig) await adminService.updateWalletConfig(walletConfig);
       if (socialCommerce) await setDoc(doc(db, 'config', 'socialCommerce'), socialCommerce);
-      if (economyConfig) await adminService.updateEconomyConfig(economyConfig);
+      if (economyConfig) {
+        const finalEconomy = {
+          ...economyConfig,
+          fortuneSubscriptions: {
+            daily: { ...economyConfig.fortuneSubscriptions.daily, dailyLimit: 10 },
+            weekly: { ...economyConfig.fortuneSubscriptions.weekly, dailyLimit: 10 },
+            monthly: { ...economyConfig.fortuneSubscriptions.monthly, dailyLimit: 10 }
+          }
+        };
+        await adminService.updateEconomyConfig(finalEconomy);
+      }
       toast.success("Tüm ayarlar kaydedildi.");
     } catch (error) {
       toast.error("Ayarlar kaydedilirken hata oluştu.");
@@ -1089,17 +1099,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="flex-1 space-y-1">
-                          <label className="text-[8px] font-bold text-white/20 uppercase">Günlük Hak</label>
-                          <input
-                            type="number"
-                            value={sub.dailyLimit}
-                            onChange={(e) => {
-                              const newSubs = { ...economyConfig.fortuneSubscriptions };
-                              (newSubs as any)[key].dailyLimit = parseInt(e.target.value) || 0;
-                              setEconomyConfig({ ...economyConfig, fortuneSubscriptions: newSubs });
-                            }}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold"
-                          />
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Günlük Hak (Sabit)</label>
+                          <div className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold text-amber-500">
+                            10
+                          </div>
                         </div>
                         <div className="flex-[2] space-y-1">
                           <label className="text-[8px] font-bold text-white/20 uppercase">Açıklama</label>

@@ -22,6 +22,7 @@ import {
   Loader2
 } from "lucide-react";
 import { FortuneType, AppConfig, UserProfile, FortuneReading, EconomyConfig } from "../types";
+import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { toast } from "sonner";
 
 interface FortunesScreenProps {
@@ -126,7 +127,7 @@ export default function FortunesScreen({
       iconColor: 'text-amber-600',
       glowColor: 'shadow-amber-500/20',
       configIcon: config?.icons?.coffee,
-      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? 50,
+      price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee,
       energyEligible: true
     },
     { 
@@ -138,7 +139,7 @@ export default function FortunesScreen({
       iconColor: 'text-purple-600',
       glowColor: 'shadow-purple-500/20',
       configIcon: config?.icons?.tarot,
-      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? 40,
+      price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot,
       energyEligible: true
     },
     { 
@@ -150,7 +151,7 @@ export default function FortunesScreen({
       iconColor: 'text-cyan-600',
       glowColor: 'shadow-cyan-500/20',
       configIcon: config?.icons?.water,
-      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? 30,
+      price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.water,
       energyEligible: false
     },
     { 
@@ -162,7 +163,7 @@ export default function FortunesScreen({
       iconColor: 'text-rose-600',
       glowColor: 'shadow-rose-500/20',
       configIcon: config?.icons?.ebced,
-      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? 30,
+      price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.ebced,
       energyEligible: false
     },
     { 
@@ -174,7 +175,7 @@ export default function FortunesScreen({
       iconColor: 'text-indigo-600',
       glowColor: 'shadow-indigo-500/20',
       configIcon: config?.icons?.yildizname,
-      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? 30,
+      price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.yildizname,
       energyEligible: false
     },
     { 
@@ -186,7 +187,7 @@ export default function FortunesScreen({
       iconColor: 'text-emerald-600',
       glowColor: 'shadow-emerald-500/20',
       configIcon: config?.icons?.havas,
-      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? 30,
+      price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.havas,
       energyEligible: false
     },
   ];
@@ -203,7 +204,7 @@ export default function FortunesScreen({
   };
 
   const isSubscribed = userProfile?.subscription?.status === 'active';
-  const subLimit = config?.subscriptionLimits?.totalDaily ?? 10;
+  const subLimit = economyConfig?.subscriptionLimits?.totalDaily ?? config?.subscriptionLimits?.totalDaily ?? DEFAULT_ECONOMY_CONFIG.subscriptionLimits.totalDaily;
   const subUsed = userProfile?.subscription?.dailyLimitUsed ?? 0;
 
   return (

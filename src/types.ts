@@ -455,11 +455,13 @@ export interface EconomyConfig {
       priceTRY: number; 
       dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
       description: string;
+      boostDuration?: string;
     };
     monthly: { 
       priceTRY: number; 
       dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
       description: string;
+      boostDuration?: string;
     };
   };
   fortuneSubscriptions: {

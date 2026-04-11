@@ -24,7 +24,8 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (
-          (request.auth.token.email in ["hpferdicakir@gmail.com", "hpferdicakir4@gmail.com"]) ||
+          request.auth.token.email == "hpferdicakir@gmail.com" || 
+          request.auth.token.email == "hpferdicakir4@gmail.com" ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
         );
@@ -32,8 +33,11 @@ service cloud.firestore {
 
     function isSocialOperator() {
       return isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'social_operator';
+        (
+          request.auth.token.email == "hpferdicakir@gmail.com" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'social_operator')
+        );
     }
 
     function hasElevatedAccess() {
@@ -174,6 +178,7 @@ service cloud.firestore {
     match /messages/{messageId} {
       allow read: if isAuthenticated() && (
         hasElevatedAccess() ||
+        (resource.data.get('participants', []) != null && request.auth.uid in resource.data.get('participants', [])) ||
         (exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) &&
          request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants)
       );
@@ -181,7 +186,9 @@ service cloud.firestore {
         (
           request.resource.data.senderId == request.auth.uid &&
           exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants &&
+          request.resource.data.participants is list &&
+          request.auth.uid in request.resource.data.participants
         ) || 
         request.resource.data.senderId == "system" ||
         hasElevatedAccess()

@@ -103,6 +103,7 @@ export const socialService = {
     });
     batch.set(msgRef, {
       chatId,
+      participants: [userAId, userBId],
       senderId: "system",
       text: "Sohbet başlayabilir.",
       createdAt: serverTimestamp(),
@@ -462,6 +463,7 @@ export const socialService = {
       const msgRef = doc(collection(db, "messages"));
       await setDoc(msgRef, {
         chatId,
+        participants: [request.fromUserId, request.toUserId],
         senderId: "system",
         text: "Sohbet başlayabilir.",
         createdAt: serverTimestamp(),
@@ -551,6 +553,7 @@ export const socialService = {
     const messageData = {
       id: msgRef.id,
       chatId,
+      participants: [senderId, otherUserId],
       senderId,
       text: content.text || "",
       mediaUrl: content.mediaUrl || null,
