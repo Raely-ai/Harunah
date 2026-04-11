@@ -5,6 +5,8 @@ import { UserProfile } from '../types';
 import { db, handleFirestoreError } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 
+import { walletService } from '../lib/walletService';
+
 interface SocialSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -15,27 +17,34 @@ interface SocialSettingsModalProps {
 const SocialSettingsModal: React.FC<SocialSettingsModalProps> = ({ isOpen, onClose, user, onUpdate }) => {
   const handleUpdateSetting = async (key: string, value: any) => {
     try {
-      const updatedSocial = { ...(user.social || { enabled: false, profileCompleted: false, nickname: '', gender: 'erkek', lookingFor: '', bio: '', photos: [], interests: [], visible: true, banned: false, settings: { whoCanMessage: 'everyone', whoCanAddFriend: 'everyone', notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true } } }) };
+      const currentSettings = user.social?.settings || { whoCanMessage: 'everyone', whoCanAddFriend: 'everyone', notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true } };
+      let newSettings = { ...currentSettings };
       
       if (key.includes('.')) {
         const [parent, child] = key.split('.');
-        (updatedSocial as any).settings[parent] = {
-          ...(updatedSocial as any).settings[parent],
+        (newSettings as any)[parent] = {
+          ...(newSettings as any)[parent],
           [child]: value
         };
       } else {
-        (updatedSocial as any).settings[key] = value;
+        (newSettings as any)[key] = value;
       }
 
-      const updatedUser = { ...user, social: updatedSocial };
-      await updateDoc(doc(db, 'users', user.uid), {
-        social: updatedSocial,
-        updatedAt: new Date().toISOString()
-      });
+      const result = await walletService.updateSocialSettings(newSettings);
       
-      onUpdate(updatedUser);
-    } catch (error) {
-      handleFirestoreError(error, 'update' as any, `users/${user.uid}`);
+      if (result.success) {
+        const updatedUser = { 
+          ...user, 
+          social: { 
+            ...user.social!, 
+            settings: newSettings 
+          } 
+        };
+        onUpdate(updatedUser);
+      }
+    } catch (error: any) {
+      console.error("Settings update error:", error);
+      import("sonner").then(({ toast }) => toast.error(error.message || "Ayarlar güncellenemedi."));
     }
   };
 

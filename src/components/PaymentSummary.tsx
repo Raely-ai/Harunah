@@ -9,6 +9,7 @@ interface PaymentSummaryProps {
   extraQuestionsCount: number;
   priorityMode: boolean;
   minimal?: boolean;
+  dark?: boolean;
 }
 
 export default function PaymentSummary({ 
@@ -17,7 +18,8 @@ export default function PaymentSummary({
   economyConfig, 
   extraQuestionsCount,
   priorityMode,
-  minimal = false
+  minimal = false,
+  dark = false
 }: PaymentSummaryProps) {
   if (!economyConfig) {
     if (minimal) {
@@ -70,17 +72,17 @@ export default function PaymentSummary({
 
   if (minimal) {
     return (
-      <div className="flex items-center justify-center gap-4 py-1 px-2">
+      <div className={`flex items-center justify-center gap-4 py-1 px-2 ${dark ? 'text-white/80' : ''}`}>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Ücret:</span>
+          <span className={`text-[9px] font-bold uppercase tracking-wider ${dark ? 'text-white/40' : 'text-muted'}`}>Ücret:</span>
           <span className="text-[11px] font-black text-amber-600">
             {balanceType === 'subscription' ? 'ÜCRETSİZ' : `${totalCost} Jeton`}
           </span>
         </div>
-        <div className="w-px h-2.5 bg-black/5" />
+        <div className={`w-px h-2.5 ${dark ? 'bg-white/10' : 'bg-black/5'}`} />
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-muted uppercase tracking-wider">Bakiye:</span>
-          <span className={`text-[11px] font-black ${canAfford ? 'text-emerald-600' : 'text-rose-600'}`}>
+          <span className={`text-[9px] font-bold uppercase tracking-wider ${dark ? 'text-white/40' : 'text-muted'}`}>Bakiye:</span>
+          <span className={`text-[11px] font-black ${canAfford ? 'text-emerald-400' : 'text-rose-400'}`}>
             {balanceType === 'subscription' ? 'Abonelik' : 
              balanceType === 'energy' ? `${userProfile.energy || 0} E` : 
              `${userProfile.mainCoins || 0} J`}
@@ -91,11 +93,11 @@ export default function PaymentSummary({
   }
 
   return (
-    <div className="mt-4 p-4 rounded-2xl bg-white border border-black/5 shadow-sm space-y-3">
+    <div className={`mt-4 p-4 rounded-2xl border shadow-sm space-y-3 ${dark ? 'bg-white/5 border-white/5' : 'bg-white border-black/5'}`}>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Ödeme Özeti</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-white/40' : 'text-muted'}`}>Ödeme Özeti</span>
         {balanceType === 'subscription' && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-black uppercase border border-indigo-100">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 text-[9px] font-black uppercase border border-indigo-500/20">
             <Crown className="w-2.5 h-2.5" />
             Abonelik Avantajı
           </div>
@@ -104,29 +106,29 @@ export default function PaymentSummary({
 
       <div className="space-y-1.5">
         <div className="flex justify-between text-xs">
-          <span className="text-muted">Taban Ücret</span>
-          <span className="text-heading font-medium">{basePrice} Jeton</span>
+          <span className={dark ? 'text-white/60' : 'text-muted'}>Taban Ücret</span>
+          <span className={`font-medium ${dark ? 'text-white' : 'text-heading'}`}>{basePrice} Jeton</span>
         </div>
         {extraPrice > 0 && (
           <div className="flex justify-between text-xs">
-            <span className="text-muted">Ek Sorular ({extraQuestionsCount})</span>
-            <span className="text-heading font-medium">+{extraPrice} Jeton</span>
+            <span className={dark ? 'text-white/60' : 'text-muted'}>Ek Sorular ({extraQuestionsCount})</span>
+            <span className={`font-medium ${dark ? 'text-white' : 'text-heading'}`}>+{extraPrice} Jeton</span>
           </div>
         )}
         {priorityFee > 0 && (
           <div className="flex justify-between text-xs">
-            <span className="text-muted">Öncelikli Sıra</span>
-            <span className="text-heading font-medium">+{priorityFee} Jeton</span>
+            <span className={dark ? 'text-white/60' : 'text-muted'}>Öncelikli Sıra</span>
+            <span className={`font-medium ${dark ? 'text-white' : 'text-heading'}`}>+{priorityFee} Jeton</span>
           </div>
         )}
-        <div className="pt-2 border-t border-black/5 flex justify-between items-center">
-          <span className="text-xs font-bold text-heading">Toplam</span>
+        <div className={`pt-2 border-t flex justify-between items-center ${dark ? 'border-white/5' : 'border-black/5'}`}>
+          <span className={`text-xs font-bold ${dark ? 'text-white' : 'text-heading'}`}>Toplam</span>
           <div className="flex items-center gap-2">
             <span className="text-base font-black text-amber-600">
               {balanceType === 'subscription' ? 'ÜCRETSİZ' : totalCost}
             </span>
             {balanceType !== 'subscription' && (
-              <div className={`p-1 rounded-lg ${balanceType === 'energy' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+              <div className={`p-1 rounded-lg ${balanceType === 'energy' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
                 {balanceType === 'energy' ? <Zap className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
               </div>
             )}
@@ -134,37 +136,37 @@ export default function PaymentSummary({
         </div>
       </div>
 
-      <div className={`p-2.5 rounded-xl flex items-start gap-2.5 ${canAfford ? 'bg-black/5' : 'bg-red-50 border border-red-100'}`}>
+      <div className={`p-2.5 rounded-xl flex items-start gap-2.5 ${canAfford ? (dark ? 'bg-white/5' : 'bg-black/5') : (dark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-100')}`}>
         {balanceType === 'subscription' ? (
           <>
-            <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600">
+            <div className={`p-1.5 rounded-lg ${dark ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-600'}`}>
               <Crown className="w-3.5 h-3.5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold text-indigo-900">Günlük Hakkınız Kullanılacak</p>
-              <p className="text-[9px] text-indigo-600/60">Kalan Hak: {(economyConfig.subscriptionLimits?.totalDaily || 10) - (lastReset === today ? dailyUsed : 0)}/10</p>
+              <p className={`text-[10px] font-bold ${dark ? 'text-indigo-200' : 'text-indigo-900'}`}>Günlük Hakkınız Kullanılacak</p>
+              <p className={`text-[9px] ${dark ? 'text-indigo-400/60' : 'text-indigo-600/60'}`}>Kalan Hak: {(economyConfig.subscriptionLimits?.totalDaily || 10) - (lastReset === today ? dailyUsed : 0)}/10</p>
             </div>
           </>
         ) : balanceType === 'energy' ? (
           <>
-            <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600">
+            <div className={`p-1.5 rounded-lg ${dark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'}`}>
               <Zap className="w-3.5 h-3.5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold text-emerald-900">Enerji Bakiyesi Kullanılacak</p>
-              <p className="text-[9px] text-emerald-600/60">Mevcut Enerji: {userProfile.energy || 0}</p>
+              <p className={`text-[10px] font-bold ${dark ? 'text-emerald-200' : 'text-emerald-900'}`}>Enerji Bakiyesi Kullanılacak</p>
+              <p className={`text-[9px] ${dark ? 'text-emerald-400/60' : 'text-emerald-600/60'}`}>Mevcut Enerji: {userProfile.energy || 0}</p>
             </div>
           </>
         ) : (
           <>
-            <div className={`p-1.5 rounded-lg ${canAfford ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600'}`}>
+            <div className={`p-1.5 rounded-lg ${canAfford ? (dark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600') : (dark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-600')}`}>
               {canAfford ? <CreditCard className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
             </div>
             <div>
-              <p className={`text-[10px] font-bold ${canAfford ? 'text-amber-900' : 'text-red-900'}`}>
+              <p className={`text-[10px] font-bold ${canAfford ? (dark ? 'text-amber-200' : 'text-amber-900') : (dark ? 'text-red-200' : 'text-red-900')}`}>
                 {canAfford ? 'Ana Jeton Bakiyesi Kullanılacak' : 'Yetersiz Bakiye'}
               </p>
-              <p className={`text-[9px] ${canAfford ? 'text-amber-600/60' : 'text-red-600/60'}`}>
+              <p className={`text-[9px] ${canAfford ? (dark ? 'text-amber-400/60' : 'text-amber-600/60') : (dark ? 'text-red-400/60' : 'text-red-600/60')}`}>
                 Mevcut Jeton: {userProfile.mainCoins || 0}
               </p>
             </div>

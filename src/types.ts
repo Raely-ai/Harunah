@@ -2,7 +2,7 @@ export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' 
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
-export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'horoscopes' | 'social-intro' | 'social-onboarding' | 'social-profile' | 'social-management';
+export type AppTab = 'home' | 'fortunes' | 'messages' | 'history' | 'wallet' | 'profile' | 'social-intro' | 'social-onboarding' | 'social-profile' | 'social-management';
 
 export type ReadingStatus = 'pending' | 'waiting' | 'interpreting' | 'completed' | 'error' | 'searching' | 'found';
 
@@ -41,6 +41,7 @@ export interface FortuneReading {
   promptVersion?: string;
   error?: string;
   resultText?: string;
+  hiddenResult?: string;
   notificationFlags?: {
     searchingSent?: boolean;
     foundSent?: boolean;
@@ -62,6 +63,45 @@ export interface FortuneReading {
     priority: number;
     total: number;
   };
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  isActive: boolean;
+  startsAt: string;
+  expiresAt: string;
+  maxTotalUses: number;
+  maxUsesPerUser: number;
+  currentUses: number;
+  onlyNewUsers: boolean;
+  description: string;
+  source: string;
+  sourceName: string;
+  rewards: {
+    energy?: number;
+    mainCoins?: number;
+    fortuneSubscription?: 'daily' | 'weekly' | 'monthly';
+    socialSubscription?: 'weekly' | 'monthly';
+    socialFeatures?: {
+      superLike?: number;
+      refresh?: number;
+      analysis?: number;
+      boostDays?: number;
+    };
+  };
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface PromoCodeRedemption {
+  id: string;
+  promoCodeId: string;
+  code: string;
+  userId: string;
+  userEmail: string;
+  redeemedAt: string;
+  rewards: any;
 }
 
 export interface UserProfile {

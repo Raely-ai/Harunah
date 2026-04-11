@@ -264,6 +264,42 @@
         "metadata": { "type": "object", "description": "Additional context about the report" }
       },
       "required": ["reporterId", "reportedUserId", "source", "reason", "createdAt", "status"]
+    },
+    "PromoCode": {
+      "title": "Promo Code",
+      "description": "Campaign codes for rewards and subscriptions.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "startsAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "maxTotalUses": { "type": "integer" },
+        "maxUsesPerUser": { "type": "integer" },
+        "currentUses": { "type": "integer" },
+        "onlyNewUsers": { "type": "boolean" },
+        "description": { "type": "string" },
+        "source": { "type": "string" },
+        "sourceName": { "type": "string" },
+        "rewards": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["code", "isActive", "rewards", "createdAt"]
+    },
+    "PromoCodeRedemption": {
+      "title": "Promo Code Redemption",
+      "description": "Log of users who redeemed a promo code.",
+      "type": "object",
+      "properties": {
+        "promoCodeId": { "type": "string" },
+        "code": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "redeemedAt": { "type": "string", "format": "date-time" },
+        "rewards": { "type": "object" }
+      },
+      "required": ["promoCodeId", "code", "userId", "redeemedAt"]
     }
   },
   "firestore": {
@@ -318,6 +354,14 @@
     "/walletTransactions/{transactionId}": {
       "schema": "WalletTransaction",
       "description": "Credit and energy transaction history"
+    },
+    "/promoCodes/{promoCodeId}": {
+      "schema": "PromoCode",
+      "description": "Campaign and promotion codes"
+    },
+    "/promoCodeRedemptions/{redemptionId}": {
+      "schema": "PromoCodeRedemption",
+      "description": "Redemption logs for promo codes"
     }
   }
 }

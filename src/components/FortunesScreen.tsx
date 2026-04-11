@@ -124,6 +124,7 @@ export default function FortunesScreen({
       icon: Coffee, 
       color: 'from-amber-50 to-amber-100/50', 
       iconColor: 'text-amber-600',
+      glowColor: 'shadow-amber-500/20',
       configIcon: config?.icons?.coffee,
       price: economyConfig?.fortunePricing?.coffee ?? config?.prices?.coffee ?? 50,
       energyEligible: true
@@ -135,6 +136,7 @@ export default function FortunesScreen({
       icon: CreditCard, 
       color: 'from-purple-50 to-purple-100/50', 
       iconColor: 'text-purple-600',
+      glowColor: 'shadow-purple-500/20',
       configIcon: config?.icons?.tarot,
       price: economyConfig?.fortunePricing?.tarot ?? config?.prices?.tarot ?? 40,
       energyEligible: true
@@ -146,6 +148,7 @@ export default function FortunesScreen({
       icon: Droplets, 
       color: 'from-cyan-50 to-cyan-100/50', 
       iconColor: 'text-cyan-600',
+      glowColor: 'shadow-cyan-500/20',
       configIcon: config?.icons?.water,
       price: economyConfig?.fortunePricing?.water ?? config?.prices?.water ?? 30,
       energyEligible: false
@@ -157,6 +160,7 @@ export default function FortunesScreen({
       icon: Heart, 
       color: 'from-rose-50 to-rose-100/50', 
       iconColor: 'text-rose-600',
+      glowColor: 'shadow-rose-500/20',
       configIcon: config?.icons?.ebced,
       price: economyConfig?.fortunePricing?.ebced ?? config?.prices?.ebced ?? 30,
       energyEligible: false
@@ -168,6 +172,7 @@ export default function FortunesScreen({
       icon: Star, 
       color: 'from-indigo-50 to-indigo-100/50', 
       iconColor: 'text-indigo-600',
+      glowColor: 'shadow-indigo-500/20',
       configIcon: config?.icons?.yildizname,
       price: economyConfig?.fortunePricing?.yildizname ?? config?.prices?.yildizname ?? 30,
       energyEligible: false
@@ -179,6 +184,7 @@ export default function FortunesScreen({
       icon: Zap, 
       color: 'from-emerald-50 to-emerald-100/50', 
       iconColor: 'text-emerald-600',
+      glowColor: 'shadow-emerald-500/20',
       configIcon: config?.icons?.havas,
       price: economyConfig?.fortunePricing?.havas ?? config?.prices?.havas ?? 30,
       energyEligible: false
@@ -319,21 +325,24 @@ export default function FortunesScreen({
               <div className="grid grid-cols-1 gap-6 px-6 relative z-10">
                 {CATEGORIES.map((cat, idx) => {
                   return (
-                    <button
+                    <motion.button
                       key={cat.id}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={() => onSelectFortune(cat.id)}
-                      className="relative flex items-center p-6 rounded-[2.5rem] overflow-hidden bg-white border border-black/5 group active:scale-[0.98] transition-all duration-300 hover:border-amber-500/20 shadow-lg"
+                      className={`relative flex items-center p-6 rounded-[2.5rem] overflow-hidden bg-white border border-black/5 group transition-all duration-300 hover:border-amber-500/20 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-xl ${cat.glowColor}`}
                     >
                       <div className={`absolute inset-0 bg-gradient-to-r ${cat.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
                       
                       <div className="relative z-10 flex items-center gap-6 w-full">
-                        <div className="p-4 rounded-3xl bg-white border border-black/5 shadow-sm group-hover:scale-110 transition-transform duration-500">
+                        <div className="p-5 rounded-3xl bg-white border border-black/5 shadow-sm group-hover:scale-110 transition-transform duration-500 relative overflow-hidden">
+                          <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-50" />
                           {renderIcon(cat)}
                         </div>
                         
                         <div className="flex-1 text-left space-y-1">
                           <h3 className="text-xl font-serif font-bold text-heading group-hover:text-amber-700 transition-colors">{cat.title}</h3>
-                          <p className="text-xs text-body font-medium leading-relaxed">
+                          <p className="text-xs text-body font-medium leading-relaxed opacity-80">
                             {cat.description}
                           </p>
                           
@@ -351,11 +360,11 @@ export default function FortunesScreen({
                           </div>
                         </div>
 
-                        <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all duration-500">
+                        <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all duration-500 shadow-sm">
                           <ChevronRight className="w-5 h-5" />
                         </div>
                       </div>
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>
@@ -426,94 +435,105 @@ export default function FortunesScreen({
                     const now = new Date();
                     let currentStatus = reading.status;
                     
-                    if (reading.status !== 'completed' && reading.status !== 'error' && reading.expectedReadyAt) {
-                      const expectedReadyAt = new Date(reading.expectedReadyAt);
-                      if (now >= expectedReadyAt) currentStatus = 'completed';
-                      else if (reading.interpretationStartedAt && now >= new Date(reading.interpretationStartedAt)) currentStatus = 'interpreting';
-                    }
-
                     const status = STATUS_CONFIG[currentStatus as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
                     const StatusIcon = status.icon;
 
                     return (
-                      <div
+                      <motion.div
                         key={reading.id}
-                        className="p-5 rounded-[2rem] border border-black/5 bg-white shadow-lg transition-all duration-500"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-6 rounded-[2.5rem] border border-black/5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-500 hover:shadow-xl group"
                       >
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden shadow-inner ${
                               reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
                             }`}>
-                              <Icon className="w-6 h-6" />
+                              <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-40" />
+                              <Icon className="w-7 h-7 relative z-10 group-hover:scale-110 transition-transform duration-500" />
                             </div>
                             <div>
-                              <h3 className="font-serif font-bold text-heading">{reading.title}</h3>
+                              <h3 className="font-serif font-bold text-heading text-lg group-hover:text-amber-700 transition-colors">{reading.title}</h3>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{(reading.date || reading.createdAt || "").split('T')[0] || "Bilinmiyor"}</span>
-                                <span className="w-1 h-1 rounded-full bg-black/5" />
-                                <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color} border border-black/5`}>
-                                  <StatusIcon className="w-2.5 h-2.5" />
-                                  <span className="text-[8px] font-black uppercase tracking-widest">{status.label}</span>
+                                <span className="w-1 h-1 rounded-full bg-black/10" />
+                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bg} ${status.color} border border-black/5 shadow-sm`}>
+                                  <StatusIcon className="w-3 h-3" />
+                                  <span className="text-[9px] font-black uppercase tracking-widest">{status.label}</span>
                                 </div>
                               </div>
                             </div>
                           </div>
                           
                           <div className="flex items-center gap-1">
-                            <button
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
                               onClick={() => onToggleFavorite(reading.id)}
-                              className={`p-2 rounded-lg transition-colors ${
-                                reading.isFavorite ? 'text-amber-600 bg-amber-50' : 'text-muted hover:text-amber-600 hover:bg-black/5'
+                              className={`p-2.5 rounded-xl transition-all ${
+                                reading.isFavorite ? 'text-amber-600 bg-amber-50 shadow-sm border border-amber-100' : 'text-muted hover:text-amber-600 hover:bg-black/5'
                               }`}
                             >
                               <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
-                            </button>
-                            <button
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
                               onClick={() => onDeleteHistory(reading.id)}
-                              className="p-2 rounded-lg text-muted hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-2.5 rounded-xl text-muted hover:text-red-600 hover:bg-red-50 transition-all"
                             >
                               <Trash2 className="w-4 h-4" />
-                            </button>
+                            </motion.button>
                           </div>
                         </div>
 
-                        {currentStatus === 'completed' ? (
+                        {currentStatus === 'completed' && reading.content ? (
                           <div className="space-y-4">
-                            <p className="text-sm text-body line-clamp-2 leading-relaxed italic">
-                              "{reading.content || 'Kehanetin hazırlanıyor...'}"
-                            </p>
+                            <div className="p-4 rounded-2xl bg-black/[0.02] border border-black/5 relative overflow-hidden">
+                              <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
+                                <Icon className="w-16 h-16" />
+                              </div>
+                              <p className="text-sm text-body line-clamp-2 leading-relaxed italic relative z-10">
+                                "{reading.content || 'Kehanetin hazırlanıyor...'}"
+                              </p>
+                            </div>
                             <div className="flex items-center justify-between pt-4 border-t border-black/5">
                               <button
                                 onClick={() => handleShare(reading)}
                                 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted hover:text-amber-600 transition-colors"
                               >
-                                <Share2 className="w-3 h-3" />
+                                <Share2 className="w-3.5 h-3.5" />
                                 Paylaş
                               </button>
                               <button
                                 onClick={() => setSelectedReading(reading)}
-                                className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
+                                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
                               >
                                 Detayları Gör
-                                <ChevronRight className="w-3 h-3" />
+                                <ChevronRight className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-4">
-                            <div className="p-4 rounded-xl bg-black/5 border border-dashed border-black/10 text-center">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
+                            <div className="p-5 rounded-2xl bg-black/[0.02] border border-dashed border-black/10 text-center relative overflow-hidden">
+                              <motion.div 
+                                animate={{ opacity: [0.3, 0.6, 0.3] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                              />
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted relative z-10">
                                 {currentStatus === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
                               </p>
                             </div>
                             <div className="flex items-center justify-center gap-2">
-                              <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-muted">İşlem Devam Ediyor</span>
+                              <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-muted/60">İşlem Devam Ediyor</span>
                             </div>
                           </div>
                         )}
-                      </div>
+                      </motion.div>
                     );
                   })
                 ) : (
@@ -533,7 +553,7 @@ export default function FortunesScreen({
 
       {/* Reading Detail Modal */}
       <AnimatePresence>
-        {selectedReading && (
+        {selectedReading && selectedReading.status === 'completed' && selectedReading.content && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

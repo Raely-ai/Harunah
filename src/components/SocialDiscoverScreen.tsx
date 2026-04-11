@@ -203,16 +203,18 @@ export default function SocialDiscoverScreen({
 
   const handleCompatibilityCheck = async (user: UserProfile) => {
     if (isProcessing) return;
-    if ((currentUser.compatibilityCount || 0) <= 0) {
-      onNavigate('wallet');
-      return;
-    }
+    
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, "users", currentUser.uid), { "compatibilityCount": (currentUser.compatibilityCount || 0) - 1 });
-      toast.success("Uyum hesaplanıyor...");
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `users/${currentUser.uid}`);
+      const success = await walletService.consumeSocialFeature(currentUser.uid, 'compatibility');
+      if (success) {
+        toast.success("Uyum hesaplanıyor...");
+      } else {
+        toast.info("Uyum analizi hakkın bitti. Cüzdandan alabilirsin.");
+        onNavigate('wallet');
+      }
+    } catch (e: any) {
+      toast.error(e.message || "İşlem başarısız.");
     } finally {
       setIsProcessing(false);
     }
@@ -251,29 +253,19 @@ export default function SocialDiscoverScreen({
   const handleRefresh = async () => {
     if (isProcessing) return;
     
-    // Check if free refresh is available (24h)
-    const lastRefresh = currentUser.social?.lastDiscoverRefreshAt ? new Date(currentUser.social.lastDiscoverRefreshAt).getTime() : 0;
-    const isFreeAvailable = Date.now() - lastRefresh > 24 * 60 * 60 * 1000;
-
-    if (!isFreeAvailable) {
-      // Try to use refreshCount
-      const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'refresh');
-      if (!consumed) {
-        toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
-        onNavigate('wallet');
-        return;
-      }
-    }
-
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        "social.lastDiscoverRefreshAt": new Date().toISOString()
-      });
-      toast.success("Keşfet yenilendi! ✨");
-      if (onRefresh) onRefresh();
-    } catch (error) {
+      const result = await walletService.refreshDiscover();
+      if (result.success) {
+        toast.success("Keşfet yenilendi! ✨");
+        if (onRefresh) onRefresh();
+      } else {
+        toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
+        onNavigate('wallet');
+      }
+    } catch (error: any) {
       console.error("Refresh error:", error);
+      toast.error(error.message || "Yenileme sırasında bir hata oluştu.");
     } finally {
       setIsProcessing(false);
     }

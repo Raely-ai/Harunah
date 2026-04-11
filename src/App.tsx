@@ -8,8 +8,6 @@ import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where
 import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
 
-import Header from "./components/Header";
-import FortuneCard from "./components/FortuneCard";
 import SplashScreen from "./components/SplashScreen";
 import WelcomeScreen from "./components/WelcomeScreen";
 import LoginScreen from "./components/LoginScreen";
@@ -24,7 +22,6 @@ import AdminPanel from "./components/AdminPanel";
 import ProfileView from "./components/ProfileView";
 import SettingsView from "./components/SettingsView";
 import DeleteAccountModal from "./components/DeleteAccountModal";
-import HoroscopeScreen from "./components/HoroscopeScreen";
 import SocialIntroScreen from "./components/SocialIntroScreen";
 import SocialOnboardingFlow from "./components/SocialOnboardingFlow";
 import SocialManagementScreen from "./components/SocialManagementScreen";
@@ -325,20 +322,6 @@ function AppContent() {
           const data = snapshot.data();
           let profile = normalizeUserProfile(data, snapshot.id);
           
-          // Auto-fix: If they have all required fields but profileCompleted is false, fix it
-          if (!profile.social?.profileCompleted && isSocialProfileReady(profile)) {
-            console.log("Auto-fixing profileCompleted for user:", user.uid);
-            updateDoc(doc(db, "users", user.uid), { 
-              "social.profileCompleted": true,
-              "social.enabled": true 
-            }).catch(err => console.error("Auto-fix error:", err));
-            
-            if (profile.social) {
-              profile.social.profileCompleted = true;
-              profile.social.enabled = true;
-            }
-          }
-          
           if (profile.isBanned) {
             setUserProfile(profile);
             setIsProfileLoading(false);
@@ -597,6 +580,10 @@ function AppContent() {
 
       const { readingId } = result.data;
 
+      // Fetch the full reading document to get timing info
+      const readingSnap = await getDoc(doc(db, "readings", readingId));
+      const readingData = { id: readingId, ...readingSnap.data() };
+
       // Trigger AI immediately (Fake processing will handle the delay in UI)
       const processAI = httpsCallable(functions, 'processFortuneAI');
       processAI({ readingId }).catch(err => console.error("Immediate AI trigger failed:", err));
@@ -612,7 +599,7 @@ function AppContent() {
       // Navigate to history to show the new reading status
       setActiveTab('fortunes');
       
-      return { id: readingId, status: 'searching', type: data.type };
+      return readingData;
     } catch (error: any) {
       console.error("Fortune creation error:", error);
       toast.dismiss(loadingToast);
@@ -864,7 +851,6 @@ function AppContent() {
                 onSelectFortune={handleSelectFortune}
                 onNavigate={handleNavigate}
                 config={appConfig}
-                horoscopes={horoscopes}
               />
             </motion.div>
           )}
@@ -924,22 +910,6 @@ function AppContent() {
                 onDelete={handleDeleteHistory}
                 onToggleFavorite={handleToggleFavorite}
                 onRefresh={syncReadings}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'horoscopes' && (
-            <motion.div
-              key="horoscopes"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[60] bg-[#F6F4F8]"
-            >
-              <HoroscopeScreen 
-                onBack={() => handleNavigate('home')}
-                userSign={activeProfile?.horoscope}
               />
             </motion.div>
           )}

@@ -46,6 +46,73 @@ const TITLES: Record<string, string> = {
   havas: 'İlmi Havas'
 };
 
+const THEMES: Record<string, {
+  primary: string;
+  secondary: string;
+  accent: string;
+  gradient: string;
+  bg: string;
+  border: string;
+  glow: string;
+  icon: any;
+  subtitle: string;
+  inputBg: string;
+  pattern: string;
+}> = {
+  water: {
+    primary: 'cyan-600',
+    secondary: 'blue-500',
+    accent: 'cyan-400',
+    gradient: 'from-cyan-600 via-blue-500 to-cyan-600',
+    bg: 'bg-cyan-50/30',
+    border: 'border-cyan-100',
+    glow: 'shadow-cyan-500/20',
+    icon: Droplets,
+    subtitle: 'Suyun derinliklerindeki akisleri keşfet...',
+    inputBg: 'bg-cyan-500/[0.02]',
+    pattern: "bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+  },
+  ebced: {
+    primary: 'rose-500',
+    secondary: 'pink-500',
+    accent: 'rose-400',
+    gradient: 'from-rose-500 via-pink-500 to-rose-500',
+    bg: 'bg-rose-50/30',
+    border: 'border-rose-100',
+    glow: 'shadow-rose-500/20',
+    icon: Heart,
+    subtitle: 'Gönül bağlarının kadim sırlarını çöz...',
+    inputBg: 'bg-rose-500/[0.02]',
+    pattern: "bg-[url('https://www.transparenttextures.com/patterns/pinstripe.png')]"
+  },
+  yildizname: {
+    primary: 'amber-600',
+    secondary: 'yellow-600',
+    accent: 'amber-400',
+    gradient: 'from-amber-600 via-yellow-600 to-amber-600',
+    bg: 'bg-amber-50/30',
+    border: 'border-amber-100',
+    glow: 'shadow-amber-500/20',
+    icon: Star,
+    subtitle: 'Kaderinin gökyüzündeki izlerini oku...',
+    inputBg: 'bg-amber-500/[0.02]',
+    pattern: "bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"
+  },
+  havas: {
+    primary: 'emerald-700',
+    secondary: 'emerald-600',
+    accent: 'emerald-500',
+    gradient: 'from-emerald-800 via-emerald-600 to-emerald-800',
+    bg: 'bg-emerald-50/30',
+    border: 'border-emerald-100',
+    glow: 'shadow-emerald-500/20',
+    icon: ShieldCheck,
+    subtitle: 'Kadim ilimlerin koruyucu enerjisine sığın...',
+    inputBg: 'bg-emerald-500/[0.02]',
+    pattern: "bg-[url('https://www.transparenttextures.com/patterns/paper-fibers.png')]"
+  }
+};
+
 const DURATIONS: Record<string, string> = {
   water: '40 Dakika',
   ebced: '50 Dakika',
@@ -106,6 +173,9 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
     setFormData({ ...formData, questions: newQuestions });
   };
 
+  const theme = THEMES[type] || THEMES.water;
+  const ThemeIcon = theme.icon;
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#FDFCFE] flex flex-col">
       {/* Header */}
@@ -120,245 +190,275 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
             <ChevronLeft className="w-6 h-6" />
           </motion.button>
           <div>
-            <h1 className="text-xl font-serif font-bold text-heading">{type === 'water' ? 'Su Falı' : type.charAt(0).toUpperCase() + type.slice(1)}</h1>
+            <h1 className="text-xl font-serif font-bold text-heading">{TITLES[type]}</h1>
             <p className="text-xs text-muted">Derin ilimlerle geleceği keşfet</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-full">
-          <CreditCard className="w-3 h-3 text-amber-600" />
-          <span className="text-xs font-bold text-amber-600">{userProfile.mainCoins || 0}</span>
+        <div className={`flex items-center gap-2 ${theme.bg} border ${theme.border} px-3 py-1.5 rounded-full`}>
+          <CreditCard className={`w-3 h-3 text-${theme.primary}`} />
+          <span className={`text-xs font-bold text-${theme.primary}`}>{userProfile.mainCoins || 0}</span>
         </div>
       </header>
 
       {/* Progress Bar */}
       <div className="relative h-1 bg-black/5">
         <motion.div 
-          className="h-full bg-indigo-600"
+          className={`h-full bg-${theme.primary}`}
           initial={{ width: "0%" }}
           animate={{ width: `${(step / 3) * 100}%` }}
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 pt-12 pb-24">
+      <div className="flex-1 overflow-y-auto px-6 pt-12 pb-24 relative">
+        {/* Subtle Background Texture */}
+        <div className={`absolute inset-0 opacity-[0.03] pointer-events-none ${theme.pattern}`} />
+        
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div
               key="step1"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-8 relative"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-10 max-w-lg mx-auto"
             >
-              {/* Ambient Animations */}
-              <div className="absolute inset-0 pointer-events-none overflow-hidden -z-10">
-                {[...Array(6)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ 
-                      y: [0, -100, 0],
-                      x: [0, Math.random() * 50 - 25, 0],
-                      opacity: [0.05, 0.15, 0.05],
-                      scale: [1, 1.2, 1]
-                    }}
-                    transition={{ 
-                      duration: 5 + Math.random() * 5,
-                      repeat: Infinity,
-                      delay: i * 0.8
-                    }}
-                    className="absolute w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl"
-                    style={{ 
-                      top: `${Math.random() * 100}%`,
-                      left: `${Math.random() * 100}%`
-                    }}
-                  />
-                ))}
+              {/* Ceremonial Header */}
+              <div className="text-center space-y-4">
+                <div className="flex justify-center mb-2">
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    className={`w-12 h-12 rounded-full border ${theme.border} flex items-center justify-center relative`}
+                  >
+                    <ThemeIcon className={`w-5 h-5 text-${theme.primary}/60`} />
+                    <div className={`absolute inset-0 border-t-2 border-${theme.primary}/20 rounded-full`} />
+                  </motion.div>
+                </div>
+                <h2 className="text-4xl font-serif font-bold text-heading tracking-tight">{TITLES[type]}</h2>
+                <div className="flex items-center justify-center gap-3">
+                  <div className={`h-[1px] w-8 bg-gradient-to-r from-transparent to-${theme.primary}/20`} />
+                  <p className="text-muted text-sm italic font-medium">{theme.subtitle}</p>
+                  <div className={`h-[1px] w-8 bg-gradient-to-l from-transparent to-${theme.primary}/20`} />
+                </div>
               </div>
 
-              <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-heading">{TITLES[type]}</h2>
-                <p className="text-muted">Derin bir kehanet için temel bilgilerini gir.</p>
-              </div>
-
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Ad Soyad</label>
-                    <input 
-                      type="text"
-                      placeholder="Adınız ve soyadınız..."
-                      value={formData.adSoyad}
-                      onChange={(e) => setFormData({ ...formData, adSoyad: e.target.value })}
-                      className="w-full bg-black/5 border border-black/10 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                    />
+              <div className="relative p-10 rounded-[3rem] bg-white border border-black/5 shadow-[0_20px_50px_rgba(0,0,0,0.04)] space-y-10">
+                {/* Section 1: Identity */}
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-1 h-4 bg-${theme.primary} rounded-full`} />
+                    <h3 className={`text-[10px] font-black uppercase tracking-[0.3em] text-${theme.primary}/60`}>Kimlik Enerjisi</h3>
                   </div>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Ad Soyad</label>
+                      <div className="relative group/input">
+                        <input 
+                          type="text"
+                          placeholder="Adınız ve soyadınız..."
+                          value={formData.adSoyad}
+                          onChange={(e) => setFormData({ ...formData, adSoyad: e.target.value })}
+                          className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] px-8 py-6 text-heading font-medium placeholder:text-muted/30 focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
+                        />
+                      </div>
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Doğum Tarihi</label>
-                      <input 
-                        type="date"
-                        value={formData.dogumTarihi}
-                        onChange={(e) => setFormData({ ...formData, dogumTarihi: e.target.value })}
-                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Doğum Tarihi</label>
+                        <div className="relative group/input">
+                          <Calendar className={`absolute left-8 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40 group-focus-within/input:text-${theme.primary} transition-colors`} />
+                          <input 
+                            type="date"
+                            value={formData.dogumTarihi}
+                            onChange={(e) => setFormData({ ...formData, dogumTarihi: e.target.value })}
+                            className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] pl-16 pr-8 py-6 text-heading font-medium focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">İlişki Durumu</label>
+                        <div className="relative">
+                          <select 
+                            value={formData.iliskiDurumu}
+                            onChange={(e) => setFormData({ ...formData, iliskiDurumu: e.target.value })}
+                            className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] px-8 py-6 text-heading font-medium focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500 appearance-none`}
+                          >
+                            <option value="single">Bekar</option>
+                            <option value="taken">İlişkisi Var</option>
+                            <option value="complicated">Karışık</option>
+                            <option value="divorced">Boşanmış</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">İlişki Durumu</label>
-                      <select 
-                        value={formData.iliskiDurumu}
-                        onChange={(e) => setFormData({ ...formData, iliskiDurumu: e.target.value })}
-                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm appearance-none"
-                      >
-                        <option value="single">Bekar</option>
-                        <option value="taken">İlişkisi Var</option>
-                        <option value="complicated">Karışık</option>
-                        <option value="divorced">Boşanmış</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Anne Adı (Opsiyonel)</label>
-                      <input 
-                        type="text"
-                        placeholder="Anne adı..."
-                        value={formData.motherName}
-                        onChange={(e) => setFormData({ ...formData, motherName: e.target.value })}
-                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Anne Adı</label>
+                        <input 
+                          type="text"
+                          placeholder="Anne adı..."
+                          value={formData.motherName}
+                          onChange={(e) => setFormData({ ...formData, motherName: e.target.value })}
+                          className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] px-8 py-6 text-heading font-medium placeholder:text-muted/30 focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Baba Adı</label>
+                        <input 
+                          type="text"
+                          placeholder="Baba adı..."
+                          value={formData.fatherName}
+                          onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                          className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] px-8 py-6 text-heading font-medium placeholder:text-muted/30 focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Baba Adı (Opsiyonel)</label>
-                      <input 
-                        type="text"
-                        placeholder="Baba adı..."
-                        value={formData.fatherName}
-                        onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
-                        className="w-full bg-black/5 border border-black/10 rounded-2xl px-4 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Hedef Kişi (Opsiyonel)</label>
-                    <div className="relative">
-                      <Users className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40" />
-                      <input 
-                        type="text"
-                        placeholder="Kimin hakkında sormak istersin?"
-                        value={formData.targetName}
-                        onChange={(e) => setFormData({ ...formData, targetName: e.target.value })}
-                        className="w-full bg-black/5 border border-black/10 rounded-2xl pl-14 pr-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors backdrop-blur-sm"
-                      />
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Hedef Kişi (Opsiyonel)</label>
+                      <div className="relative group/input">
+                        <Users className={`absolute left-8 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40 group-focus-within/input:text-${theme.primary} transition-colors`} />
+                        <input 
+                          type="text"
+                          placeholder="Kimin hakkında sormak istersin?"
+                          value={formData.targetName}
+                          onChange={(e) => setFormData({ ...formData, targetName: e.target.value })}
+                          className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] pl-16 pr-8 py-6 text-heading font-medium placeholder:text-muted/30 focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <button
+              <motion.button
                 disabled={!formData.adSoyad || !formData.dogumTarihi}
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={nextStep}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-xl shadow-indigo-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className={`w-full py-6 rounded-[2rem] bg-gradient-to-r ${theme.gradient} text-white font-bold shadow-2xl ${theme.glow} flex items-center justify-center gap-4 group transition-all disabled:opacity-30 disabled:grayscale`}
               >
-                <span>Sorulara Geç</span>
-                <ArrowRight className="w-5 h-5" />
-              </button>
+                <span className="uppercase tracking-[0.3em] text-xs ml-4">Sorulara Geç</span>
+                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                  <ArrowRight className="w-4 h-4" />
+                </div>
+              </motion.button>
             </motion.div>
           )}
 
           {step === 2 && (
             <motion.div
               key="step2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-8"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-10 max-w-lg mx-auto"
             >
-              <div className="text-center space-y-2">
-                <h2 className="text-3xl font-serif font-bold text-heading">Sorularını Sor</h2>
-                <p className="text-muted">LASYA'ya sormak istediğin her şeyi detaylıca yaz. En az 3 soru sormanız gerekmektedir.</p>
+              <div className="text-center space-y-3">
+                <h2 className="text-3xl font-serif font-bold text-heading tracking-tight">Sorularını Sor</h2>
+                <div className="flex items-center justify-center gap-3">
+                  <div className={`h-[1px] w-8 bg-gradient-to-r from-transparent to-${theme.primary}/20`} />
+                  <p className="text-muted text-sm italic font-medium">LASYA'ya sormak istediğin her şeyi detaylıca yaz.</p>
+                  <div className={`h-[1px] w-8 bg-gradient-to-l from-transparent to-${theme.primary}/20`} />
+                </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50 border border-indigo-100 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <Wallet className="w-5 h-5 text-indigo-600" />
+              <div className={`flex items-center justify-between p-6 rounded-[2rem] ${theme.bg} border ${theme.border} shadow-sm`}>
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-2xl bg-white shadow-sm`}>
+                    <Wallet className={`w-5 h-5 text-${theme.primary}`} />
+                  </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted">Toplam Maliyet</p>
                     <p className="text-sm font-bold text-heading">{creditCost} Kredi</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 bg-white/50 p-1.5 rounded-xl border border-black/5">
                   <button 
                     onClick={() => removeQuestion()}
-                    className="p-2 rounded-lg bg-black/5 text-muted hover:bg-red-50 hover:text-red-600 transition-colors"
+                    className="p-2 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-muted"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <div className="w-8 text-center font-bold text-indigo-600">{formData.questions.length}</div>
+                  <div className={`w-8 text-center font-bold text-${theme.primary}`}>{formData.questions.length}</div>
                   <button 
                     onClick={addQuestion}
-                    className="p-2 rounded-lg bg-black/5 text-muted hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                    className={`p-2 rounded-lg hover:bg-${theme.primary}/10 hover:text-${theme.primary} transition-colors text-muted`}
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {formData.questions.map((q, i) => (
                   <motion.div
                     key={i}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="space-y-3 p-4 rounded-3xl border border-black/5 bg-white shadow-sm"
+                    className={`relative p-8 rounded-[2.5rem] bg-white border border-black/5 shadow-xl group transition-all hover:${theme.glow}`}
                   >
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted ml-2">Soru {i + 1}</label>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-2xl ${theme.bg} border ${theme.border} flex items-center justify-center text-[12px] font-black text-${theme.primary}`}>
+                          {i + 1}
+                        </div>
+                        <h4 className={`text-[10px] font-black uppercase tracking-[0.3em] text-${theme.primary}/60`}>Soru Enerjisi</h4>
+                      </div>
                       {formData.questions.length > 3 && (
-                        <button 
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeQuestion(i);
-                          }}
-                          className="p-1 text-red-600 hover:text-red-700 transition-colors"
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => removeQuestion(i)}
+                          className="p-2.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors"
                         >
                           <X className="w-4 h-4" />
-                        </button>
+                        </motion.button>
                       )}
                     </div>
                     <textarea 
                       placeholder="Sorunu buraya yaz..."
                       value={q.text}
                       onChange={(e) => handleQuestionChange(i, e.target.value)}
-                      rows={3}
-                      className="w-full bg-black/5 border border-black/5 rounded-2xl px-6 py-4 text-heading focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
+                      rows={4}
+                      className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] px-8 py-6 text-heading font-medium placeholder:text-muted/30 focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500 resize-none`}
                     />
                   </motion.div>
                 ))}
 
                 {formData.questions.length < 50 && (
-                  <button
+                  <motion.button
+                    whileHover={{ scale: 1.01, y: -2 }}
+                    whileTap={{ scale: 0.99 }}
                     onClick={addQuestion}
-                    className="w-full py-4 rounded-2xl border border-dashed border-black/10 bg-white text-muted font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:border-indigo-500/30 hover:text-indigo-600 transition-all shadow-sm"
+                    className={`w-full py-8 rounded-[2.5rem] border-2 border-dashed border-${theme.primary}/20 bg-${theme.primary}/[0.02] text-${theme.primary} font-bold text-[10px] uppercase tracking-[0.3em] flex flex-col items-center justify-center gap-3 hover:border-${theme.primary}/50 hover:bg-${theme.primary}/[0.05] transition-all shadow-sm group`}
                   >
-                    <Plus className="w-4 h-4" />
-                    <span>Soru Ekle</span>
-                  </button>
+                    <div className="p-3 rounded-full bg-white shadow-sm group-hover:scale-110 transition-transform">
+                      <Plus className="w-5 h-5" />
+                    </div>
+                    <span>Yeni Soru Ekle</span>
+                  </motion.button>
                 )}
               </div>
 
-              <PaymentSummary 
-                type={type}
-                userProfile={userProfile}
-                economyConfig={economyConfig}
-                extraQuestionsCount={Math.max(0, formData.questions.length - 3)}
-                priorityMode={false}
-              />
+              <div className="flex justify-center">
+                <PaymentSummary 
+                  type={type}
+                  userProfile={userProfile}
+                  economyConfig={economyConfig}
+                  extraQuestionsCount={Math.max(0, formData.questions.length - 3)}
+                  priorityMode={false}
+                  minimal={true}
+                />
+              </div>
 
-              <button
+              <motion.button
                 disabled={formData.questions.some(q => !q.text.trim()) || isProcessing}
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={async () => {
                   if (isProcessing) return;
                   setIsProcessing(true);
@@ -373,17 +473,22 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
                     setIsProcessing(false);
                   }
                 }}
-                className="w-full py-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-xl shadow-indigo-500/20 disabled:opacity-20 disabled:grayscale flex items-center justify-center gap-3"
+                className={`w-full py-6 rounded-[2rem] bg-gradient-to-r ${theme.gradient} text-white font-bold shadow-2xl ${theme.glow} flex items-center justify-center gap-4 group transition-all disabled:opacity-30 disabled:grayscale`}
               >
                 {isProcessing ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="uppercase tracking-[0.2em] text-xs">Enerji Okunuyor...</span>
+                  </div>
                 ) : (
                   <>
-                    <span>Yoruma Al</span>
-                    <Sparkles className="w-5 h-5" />
+                    <span className="uppercase tracking-[0.3em] text-xs ml-4">Yoruma Al</span>
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
                   </>
                 )}
-              </button>
+              </motion.button>
             </motion.div>
           )}
 

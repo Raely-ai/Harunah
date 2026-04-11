@@ -279,9 +279,8 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
     if (reading.status === 'processing_ai') return { alreadyProcessing: true };
 
-    // Lock the reading and set status to interpreting
+    // Lock the reading for AI generation
     transaction.update(readingRef, { 
-      status: 'interpreting',
       isAIGenerating: true,
       updatedAt: new Date().toISOString() 
     });
@@ -334,6 +333,8 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
 
   const identityRules = `
 Sen Ahlas adında, karizmatik, gizemli ve hafif flörtöz bir erkek falcısın. 
+Şu an bir ${placeholders.tur === 'coffee' ? 'KAHVE FALI' : placeholders.tur.toUpperCase()} bakıyorsun. 
+Yorumlarını mutlaka bu fal türünün ( ${placeholders.tur} ) geleneklerine ve sembollerine göre yap.
 Robot gibi değil, gerçek bir insan gibi konuşuyorsun. 
 TÜM YORUMUN TEK BİR PARAGRAF OLMALI, SATIR ATLAMA KESİNLİKLE YASAK.
 Genel yorumun 350-400 kelime arasında olmalı.
@@ -351,6 +352,18 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
     templatePrompt = templatePrompt.replace(regex, value);
   });
 
+  // AI DEBUG LOGS
+  console.log("AI DEBUG - reading.type:", reading.type);
+  console.log("AI DEBUG - aiConfig:", aiConfig);
+  console.log("AI DEBUG - systemPrompt (final):", systemPrompt);
+  console.log("AI DEBUG - templatePrompt (final):", templatePrompt);
+  
+  if (economy?.aiSettings?.[reading.type]) {
+    console.log("AI DEBUG - ADMIN PROMPT KULLANILIYOR");
+  } else {
+    console.log("AI DEBUG - FALLBACK PROMPT KULLANILIYOR");
+  }
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -359,16 +372,14 @@ Mistik Seviye: ${aiConfig.mysticLevel || 9}/10
         { 
           role: "user", 
           content: `
-Kullanıcı Bilgileri:
-Ad Soyad: ${placeholders.adsoyad}
-Doğum Tarihi: ${placeholders.dogumtarihi}
-İlişki Durumu: ${placeholders.iliskidurumu}
-Fal Türü: ${placeholders.tur}
+${templatePrompt}
+
+Ek Bilgiler:
 Anne Adı: ${placeholders.anneadi}
 Baba Adı: ${placeholders.babaadi}
-Sorular: ${placeholders.sorular}
+Fal Türü: ${placeholders.tur}
 
-Lütfen bu bilgilere göre mistik bir yorum yap.
+Lütfen bu bilgilere ve yukarıdaki taslağa göre mistik bir yorum yap.
 `
         }
       ],
@@ -379,16 +390,16 @@ Lütfen bu bilgilere göre mistik bir yorum yap.
     let content = response.choices[0].message.content || "";
     content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
 
+    // Save Result - Mark as generated but store in hiddenResult
+    // The background task will move it to 'content' when expectedCompletedAt is reached
     await readingRef.update({
-      status: 'completed',
-      content,
-      resultText: content,
+      hiddenResult: content,
       isAIGenerated: true,
       isAIGenerating: false,
       updatedAt: new Date().toISOString()
     });
 
-    return { success: true, content };
+    return { success: true };
   } catch (error: any) {
     console.error("OpenAI Error Details:", {
       message: error.message,
@@ -549,22 +560,27 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
     });
   }
 
-  // 3. Interpreting -> Completed
-  const interpretingReadings = await db.collection("readings")
-    .where("status", "==", "interpreting")
-    .where("expectedCompletedAt", "<=", now)
-    .limit(50)
-    .get();
+    // 3. Interpreting -> Completed
+    const interpretingReadings = await db.collection("readings")
+      .where("status", "==", "interpreting")
+      .where("expectedCompletedAt", "<=", now)
+      .limit(50)
+      .get();
 
-  for (const doc of interpretingReadings.docs) {
-    const reading = doc.data();
-    
-    // Only complete if AI has actually finished generating
-    if (reading.isAIGenerated) {
-      await doc.ref.update({ status: 'completed', updatedAt: now });
+    for (const doc of interpretingReadings.docs) {
+      const reading = doc.data();
       
-      // Notify
-      await db.collection("notifications").add({
+      // Only complete if AI has actually finished generating and we have a hidden result
+      if (reading.isAIGenerated && reading.hiddenResult) {
+        await doc.ref.update({ 
+          status: 'completed', 
+          content: reading.hiddenResult,
+          resultText: reading.hiddenResult,
+          updatedAt: now 
+        });
+        
+        // Notify
+        await db.collection("notifications").add({
         userId: reading.userId,
         type: 'system',
         title: 'Falınız Hazır!',
@@ -1023,6 +1039,8 @@ export const consumeSocialFeature = functions.https.onCall(async (data, context)
   const { type, config } = data;
   
   const userRef = db.collection("users").doc(userId);
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
   
   return await db.runTransaction(async (transaction) => {
     const userSnap = await transaction.get(userRef);
@@ -1030,10 +1048,9 @@ export const consumeSocialFeature = functions.https.onCall(async (data, context)
     const userData = userSnap.data() as any;
     
     const sub = userData.socialSubscription;
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
+    let consumedFrom = 'paid';
     
-    // Check Subscription
+    // 1. Check Subscription
     if (sub && sub.status === 'active' && new Date(sub.expiresAt) > now) {
       const dailyUsage = sub.dailyUsage || { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: today };
       if (dailyUsage.lastResetDate !== today) {
@@ -1044,20 +1061,153 @@ export const consumeSocialFeature = functions.https.onCall(async (data, context)
       }
       
       const limits = config.socialSubscriptions[sub.type].dailyLimits;
+      
       if (type === 'superLike' && dailyUsage.superLikes < limits.superLikes) {
         dailyUsage.superLikes++;
         transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
-        return { success: true };
+        consumedFrom = 'subscription';
+      } else if (type === 'refresh' && dailyUsage.refreshes < limits.refreshes) {
+        dailyUsage.refreshes++;
+        transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        consumedFrom = 'subscription';
+      } else if (type === 'compatibility' && dailyUsage.compatibility < limits.compatibility) {
+        dailyUsage.compatibility++;
+        transaction.update(userRef, { "socialSubscription.dailyUsage": dailyUsage });
+        consumedFrom = 'subscription';
+      } else if (type === 'swipe') {
+        // Subscriptions usually have unlimited swipes, but we can still track or enforce if needed
+        // For now, we'll just allow it if they have an active sub
+        consumedFrom = 'subscription';
       }
-      // ... other types
     }
     
-    // Fallback to paid
-    const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
-    if ((userData[field] || 0) <= 0) throw new Error("Yetersiz hak.");
-    
-    transaction.update(userRef, { [field]: FieldValue.increment(-1) });
-    return { success: true };
+    // 2. Fallback to paid if not subscription
+    if (consumedFrom === 'paid') {
+      if (type === 'swipe') {
+        const dailyUsed = userData.dailySwipeUsed || 0;
+        const lastDate = userData.dailySwipeDate || "";
+        const maxSwipes = config.freeDailySwipes || 50;
+        
+        if (lastDate !== today) {
+          transaction.update(userRef, { dailySwipeUsed: 1, dailySwipeDate: today });
+        } else {
+          if (dailyUsed >= maxSwipes) throw new Error("Günlük kaydırma sınırına ulaştınız.");
+          transaction.update(userRef, { dailySwipeUsed: FieldValue.increment(1) });
+        }
+      } else {
+        const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
+        if ((userData[field] || 0) <= 0) throw new Error("Yetersiz hak.");
+        
+        transaction.update(userRef, { [field]: FieldValue.increment(-1) });
+      }
+    }
+
+    // 3. Log Usage (Usage Log)
+    const logRef = db.collection("usageLogs").doc();
+    transaction.set(logRef, {
+      id: logRef.id,
+      userId,
+      type: 'social_feature',
+      feature: type,
+      consumedFrom,
+      createdAt: now.toISOString()
+    });
+
+    return { success: true, consumedFrom };
+  });
+});
+
+// 13. Update Social Settings (Secure)
+export const updateSocialSettings = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { settings } = data;
+
+  if (!settings) throw new functions.https.HttpsError('invalid-argument', 'Ayarlar gerekli.');
+
+  const userRef = db.collection("users").doc(userId);
+  
+  // Only allow specific fields to be updated via this function
+  const allowedFields = [
+    'visibility', 'discoveryEnabled', 'notificationsEnabled', 
+    'genderPreference', 'minAge', 'maxAge',
+    'whoCanMessage', 'whoCanAddFriend', 'notifications'
+  ];
+  const updates: any = {};
+  
+  Object.keys(settings).forEach(key => {
+    if (allowedFields.includes(key)) {
+      updates[`social.settings.${key}`] = settings[key];
+    }
+  });
+
+  if (Object.keys(updates).length === 0) return { success: true };
+
+  await userRef.update(updates);
+  return { success: true };
+});
+
+// 14. Refresh Discover (Consumes and Updates Timestamp)
+export const refreshDiscover = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { config } = data;
+
+  const userRef = db.collection("users").doc(userId);
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+
+  return await db.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+    const userData = userSnap.data() as any;
+
+    const sub = userData.socialSubscription;
+    let consumedFrom = 'paid';
+
+    // 1. Check Subscription
+    if (sub && sub.status === 'active' && new Date(sub.expiresAt) > now) {
+      const dailyUsage = sub.dailyUsage || { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: today };
+      if (dailyUsage.lastResetDate !== today) {
+        dailyUsage.superLikes = 0;
+        dailyUsage.refreshes = 0;
+        dailyUsage.compatibility = 0;
+        dailyUsage.lastResetDate = today;
+      }
+
+      const limits = config.socialSubscriptions[sub.type].dailyLimits;
+
+      if (dailyUsage.refreshes < limits.refreshes) {
+        dailyUsage.refreshes++;
+        transaction.update(userRef, { 
+          "socialSubscription.dailyUsage": dailyUsage,
+          "social.lastDiscoverRefreshAt": now.toISOString()
+        });
+        consumedFrom = 'subscription';
+      }
+    }
+
+    // 2. Fallback to paid
+    if (consumedFrom === 'paid') {
+      if ((userData.refreshCount || 0) <= 0) throw new Error("Yetersiz yenileme hakkı.");
+      transaction.update(userRef, { 
+        refreshCount: FieldValue.increment(-1),
+        "social.lastDiscoverRefreshAt": now.toISOString()
+      });
+    }
+
+    // 3. Log Usage
+    const logRef = db.collection("usageLogs").doc();
+    transaction.set(logRef, {
+      id: logRef.id,
+      userId,
+      type: 'social_feature',
+      feature: 'refresh',
+      consumedFrom,
+      createdAt: now.toISOString()
+    });
+
+    return { success: true, consumedFrom, lastRefreshAt: now.toISOString() };
   });
 });
 
@@ -1231,5 +1381,177 @@ export const adminModerationAction = functions.https.onCall(async (data, context
   } catch (error: any) {
     console.error("adminModerationAction error:", error);
     throw new functions.https.HttpsError('internal', error.message || 'İşlem gerçekleştirilirken bir hata oluştu.');
+  }
+});
+
+// 12. Redeem Promo Code
+export const redeemPromoCode = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const userId = context.auth.uid;
+  const { code } = data;
+  
+  if (!code || typeof code !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'Geçersiz kod.');
+  }
+
+  const normalizedCode = code.trim().toUpperCase();
+  const now = new Date().toISOString();
+  
+  try {
+    // 1. Find Promo Code (Outside transaction for query)
+    const promoSnap = await db.collection("promoCodes")
+      .where("code", "==", normalizedCode)
+      .limit(1)
+      .get();
+    
+    if (promoSnap.empty) {
+      throw new functions.https.HttpsError('not-found', 'Geçersiz veya hatalı kod.');
+    }
+
+    const promoDoc = promoSnap.docs[0];
+    const promo = promoDoc.data() as any;
+
+    return await db.runTransaction(async (transaction) => {
+      // 2. Basic Validations
+      if (!promo.isActive) {
+        throw new functions.https.HttpsError('failed-precondition', 'Bu kod artık aktif değil.');
+      }
+
+      if (promo.startsAt && now < promo.startsAt) {
+        throw new functions.https.HttpsError('failed-precondition', 'Bu kampanya henüz başlamadı.');
+      }
+
+      if (promo.expiresAt && now > promo.expiresAt) {
+        throw new functions.https.HttpsError('failed-precondition', 'Bu kodun süresi dolmuş.');
+      }
+
+      if (promo.currentUses >= promo.maxTotalUses) {
+        throw new functions.https.HttpsError('failed-precondition', 'Bu kodun kullanım sınırı dolmuş.');
+      }
+
+      // 3. User Specific Validations
+      const userRef = db.collection("users").doc(userId);
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      const userData = userSnap.data() as any;
+
+      if (promo.onlyNewUsers) {
+        const createdAt = userData.createdAt ? new Date(userData.createdAt).getTime() : 0;
+        const isNew = (Date.now() - createdAt) < (24 * 60 * 60 * 1000);
+        if (!isNew) {
+          throw new functions.https.HttpsError('failed-precondition', 'Bu kod sadece yeni kullanıcılar içindir.');
+        }
+      }
+
+      // 4. Check if user already used this code
+      const redemptionId = `${userId}_${promoDoc.id}`;
+      const redemptionRef = db.collection("promoCodeRedemptions").doc(redemptionId);
+      const redemptionSnap = await transaction.get(redemptionRef);
+      
+      if (redemptionSnap.exists) {
+        throw new functions.https.HttpsError('already-exists', 'Bu kodu zaten kullandınız.');
+      }
+
+      // 5. Apply Rewards
+      const rewards = promo.rewards;
+      const userUpdates: any = {};
+      const grantedRewards: any = {};
+
+      if (rewards.energy) {
+        userUpdates.energy = FieldValue.increment(rewards.energy);
+        grantedRewards.energy = rewards.energy;
+      }
+
+      if (rewards.mainCoins) {
+        userUpdates.mainCoins = FieldValue.increment(rewards.mainCoins);
+        grantedRewards.mainCoins = rewards.mainCoins;
+      }
+
+      if (rewards.fortuneSubscription) {
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + (rewards.fortuneSubscription === 'monthly' ? 30 : rewards.fortuneSubscription === 'weekly' ? 7 : 1));
+        userUpdates.subscription = {
+          status: 'active',
+          type: rewards.fortuneSubscription,
+          expiresAt: expiresAt.toISOString(),
+          dailyLimit: 10,
+          dailyLimitUsed: 0,
+          lastResetAt: now.split('T')[0]
+        };
+        grantedRewards.fortuneSubscription = rewards.fortuneSubscription;
+      }
+
+      if (rewards.socialSubscription) {
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + (rewards.socialSubscription === 'monthly' ? 30 : 7));
+        userUpdates.socialSubscription = {
+          status: 'active',
+          type: rewards.socialSubscription,
+          expiresAt: expiresAt.toISOString(),
+          dailyUsage: { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: now.split('T')[0] }
+        };
+        grantedRewards.socialSubscription = rewards.socialSubscription;
+      }
+
+      if (rewards.socialFeatures) {
+        if (rewards.socialFeatures.superLike) {
+          userUpdates.superLikes = FieldValue.increment(rewards.socialFeatures.superLike);
+          grantedRewards.superLike = rewards.socialFeatures.superLike;
+        }
+        if (rewards.socialFeatures.refresh) {
+          userUpdates.refreshCount = FieldValue.increment(rewards.socialFeatures.refresh);
+          grantedRewards.refresh = rewards.socialFeatures.refresh;
+        }
+        if (rewards.socialFeatures.analysis) {
+          userUpdates.compatibilityCount = FieldValue.increment(rewards.socialFeatures.analysis);
+          grantedRewards.analysis = rewards.socialFeatures.analysis;
+        }
+        if (rewards.socialFeatures.boostDays) {
+          const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
+          const baseDate = currentBoost > new Date() ? currentBoost : new Date();
+          baseDate.setDate(baseDate.getDate() + rewards.socialFeatures.boostDays);
+          userUpdates.boostExpiresAt = baseDate.toISOString();
+          grantedRewards.boostDays = rewards.socialFeatures.boostDays;
+        }
+      }
+
+      // 6. Execute Updates
+      transaction.update(userRef, userUpdates);
+      transaction.update(promoDoc.ref, { currentUses: FieldValue.increment(1) });
+      
+      // Log Redemption
+      transaction.set(redemptionRef, {
+        id: redemptionId,
+        promoCodeId: promoDoc.id,
+        code: normalizedCode,
+        userId,
+        redeemedAt: now,
+        rewardsGranted: grantedRewards,
+        status: 'success'
+      });
+
+      // Log Wallet Transaction for coins/energy
+      if (grantedRewards.mainCoins || grantedRewards.energy) {
+        const txRef = db.collection("walletTransactions").doc();
+        transaction.set(txRef, {
+          id: txRef.id,
+          userId,
+          type: 'earn',
+          source: 'promo_code',
+          amount: grantedRewards.mainCoins || grantedRewards.energy,
+          balanceType: grantedRewards.mainCoins ? 'main' : 'energy',
+          createdAt: now,
+          status: 'active',
+          description: `Promosyon kodu kullanıldı: ${normalizedCode}`
+        });
+      }
+
+      return { success: true, rewards: grantedRewards };
+    });
+  } catch (error: any) {
+    console.error("redeemPromoCode error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Kod kullanılırken bir hata oluştu.');
   }
 });

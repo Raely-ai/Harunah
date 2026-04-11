@@ -85,21 +85,21 @@ service cloud.firestore {
         (resource.data.get('isBanned', false) == false) &&
         // Prevent self-promotion or unbanning
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned']) &&
-        // Wallet Protection
-        (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
-            'subscription', 'socialSubscription', 'dailyAdWatchCount', 'lastAdReset',
-            'boostExpiresAt', 'isManagedProfile', 'operatorId'
-          ]) ||
-          // Allow initialization if the document was incomplete
-          (
-            resource.data.get('mainCoins', -1) == -1 && 
-            request.resource.data.mainCoins == 0
-          )
-        )
+        // Wallet & Subscription Protection (STRICT: Only Backend/Admin can change these)
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
+          'subscription', 'socialSubscription', 'dailyAdWatchCount', 'lastAdReset',
+          'boostExpiresAt', 'isManagedProfile', 'operatorId', 'lastAdDate', 'credits', 'adCredits'
+        ])
       );
       allow delete: if isAdmin();
+    }
+
+    // Usage Logs
+    match /usageLogs/{logId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if false; // Only backend
+      allow update, delete: if isAdmin();
     }
 
     // Social Swipes
@@ -309,6 +309,19 @@ service cloud.firestore {
     match /adminSettings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // Promo Codes
+    match /promoCodes/{promoCodeId} {
+      allow read: if isAdmin(); // Only admin can see the list/details of codes
+      allow write: if isAdmin();
+    }
+
+    // Promo Code Redemptions
+    match /promoCodeRedemptions/{redemptionId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if false; // Only via backend function
+      allow update, delete: if isAdmin();
     }
   }
 }

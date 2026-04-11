@@ -17,6 +17,11 @@ interface ReadingResultProps {
 }
 
 export default function ReadingResult({ reading, onClose }: ReadingResultProps) {
+  // Only show result if status is completed and content exists
+  if (reading.status !== 'completed' || !reading.content) {
+    return null;
+  }
+
   // Function to highlight important words in gold
   const highlightText = (text: string) => {
     const keywords = ['aşk', 'para', 'kariyer', 'şans', 'kısmet', 'yolculuk', 'haber', 'mutluluk', 'başarı', 'beklenti'];
@@ -89,9 +94,9 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
 
         {/* Content with Progressive Reveal */}
         <div className="space-y-8">
-          <div className="p-8 rounded-[2.5rem] border border-black/5 bg-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 opacity-5">
-              <Star className="w-32 h-32 text-amber-600" />
+          <div className="p-10 rounded-[3rem] border border-black/5 bg-white shadow-[0_20px_50px_rgba(0,0,0,0.08)] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none group-hover:scale-110 transition-transform duration-1000">
+              <Star className="w-48 h-48 text-amber-600" />
             </div>
             
             <motion.div
@@ -100,26 +105,31 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
               transition={{ delay: 0.5, duration: 1 }}
               className="relative z-10"
             >
-              <div className="text-lg font-serif italic text-body leading-relaxed space-y-6">
+              <div className="text-xl font-serif italic text-body leading-relaxed space-y-8">
                 {(reading.content || "").split('\n\n').map((paragraph, i) => (
                   <motion.p
                     key={i}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.8 + i * 0.3 }}
+                    transition={{ delay: 0.8 + i * 0.4 }}
+                    className="relative"
                   >
+                    <span className="absolute -left-4 top-0 w-1 h-full bg-amber-500/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                     {highlightText(paragraph)}
                   </motion.p>
                 ))}
               </div>
             </motion.div>
 
-            <div className="mt-12 pt-8 border-t border-black/5 flex justify-center">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-600/40">
-                <Sparkles className="w-3 h-3" />
+            <div className="mt-16 pt-10 border-t border-black/5 flex flex-col items-center gap-4">
+              <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600/40">
+                <div className="w-8 h-[1px] bg-amber-600/20" />
+                <Sparkles className="w-4 h-4" />
                 <span>LASYA'nın Kehaneti</span>
-                <Sparkles className="w-3 h-3" />
+                <Sparkles className="w-4 h-4" />
+                <div className="w-8 h-[1px] bg-amber-600/20" />
               </div>
+              <p className="text-[9px] text-muted/40 font-medium italic">Bu kehanet evrenin enerjisiyle sana özel hazırlanmıştır.</p>
             </div>
           </div>
 
@@ -127,11 +137,14 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 2 }}
-            className="p-6 rounded-3xl bg-indigo-50 border border-indigo-100 shadow-sm"
+            transition={{ delay: 2.5 }}
+            className="p-10 rounded-[2.5rem] bg-gradient-to-br from-indigo-600 to-indigo-700 text-white shadow-xl shadow-indigo-500/20 relative overflow-hidden group"
           >
-            <h4 className="text-xs font-bold uppercase tracking-widest text-indigo-600 mb-2">Günün Tavsiyesi</h4>
-            <p className="text-sm text-muted leading-relaxed italic">
+            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:rotate-12 transition-transform duration-700">
+              <Heart className="w-24 h-24" />
+            </div>
+            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-200 mb-4">Günün Tavsiyesi</h4>
+            <p className="text-lg leading-relaxed italic font-serif relative z-10">
               "Evrenin akışına güven, bugün karşına çıkan tesadüfler aslında senin için hazırlanmış birer rehber."
             </p>
           </motion.div>

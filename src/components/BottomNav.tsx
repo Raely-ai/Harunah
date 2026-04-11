@@ -3,7 +3,7 @@ import {
   Home, 
   Wallet, 
   User,
-  Sparkles,
+  Coffee,
   MessageCircle,
   Users
 } from "lucide-react";
@@ -19,7 +19,7 @@ interface BottomNavProps {
 export default function BottomNav({ activeTab, onTabChange, className = "", userRole }: BottomNavProps) {
   const tabs = [
     { id: 'home' as AppTab, icon: Home, label: 'Ana Sayfa' },
-    { id: 'fortunes' as AppTab, icon: Sparkles, label: 'Fallar' },
+    { id: 'fortunes' as AppTab, icon: Coffee, label: 'Fallar' },
     { id: 'messages' as AppTab, icon: MessageCircle, label: 'Mesajlar' },
     { id: 'profile' as AppTab, icon: User, label: 'Profil' },
     { id: 'wallet' as AppTab, icon: Wallet, label: 'Cüzdan' },

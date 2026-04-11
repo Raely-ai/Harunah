@@ -12,7 +12,8 @@ import {
   ImageIcon, DollarSign, Zap, Clock, Sparkles, Plus,
   User, MapPin, Heart, MessageCircle, Globe, Flag, ShieldAlert, Gavel,
   Shield, Eye, EyeOff, ShoppingBag, Crown, Filter, ArrowRight,
-  MoreVertical, UserPlus, UserMinus, Lock, Unlock, Check, Minus, Info
+  MoreVertical, UserPlus, UserMinus, Lock, Unlock, Check, Minus, Info,
+  Ticket
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -26,7 +27,7 @@ import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
 import { DEFAULT_AI_CONFIG, DEFAULT_ECONOMY_CONFIG } from '../constants';
 
 const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions' | 'promoCodes'>('users');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   
@@ -37,6 +38,9 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [walletConfig, setWalletConfig] = useState<AdminWalletConfig | null>(null);
   const [socialCommerce, setSocialCommerce] = useState<SocialCommerceConfig | null>(null);
   const [economyConfig, setEconomyConfig] = useState<EconomyConfig | null>(null);
+  const [promoCodes, setPromoCodes] = useState<any[]>([]);
+  const [selectedPromoCode, setSelectedPromoCode] = useState<any | null>(null);
+  const [isEditingPromoCode, setIsEditingPromoCode] = useState(false);
 
   // UI States
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,6 +119,13 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
       });
       unsubscribes.push(economyUnsub);
+
+      // Promo Codes Listener
+      const promoUnsub = onSnapshot(query(collection(db, 'promoCodes'), orderBy('createdAt', 'desc')), (snapshot) => {
+        const fetchedCodes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setPromoCodes(fetchedCodes);
+      });
+      unsubscribes.push(promoUnsub);
     };
 
     setupListeners();
@@ -165,6 +176,40 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       toast.error("Ayarlar kaydedilirken hata oluştu.");
     } finally {
       setSaving(null);
+    }
+  };
+
+  const handleSavePromoCode = async (promoData: any) => {
+    setSaving('promoCode');
+    try {
+      if (promoData.id) {
+        const { id, ...rest } = promoData;
+        await updateDoc(doc(db, 'promoCodes', id), rest);
+        toast.success("Promo kod güncellendi.");
+      } else {
+        await addDoc(collection(db, 'promoCodes'), {
+          ...promoData,
+          createdAt: new Date().toISOString(),
+          createdBy: auth.currentUser?.email || 'admin',
+          currentUses: 0
+        });
+        toast.success("Yeni promo kod oluşturuldu.");
+      }
+      setIsEditingPromoCode(false);
+      setSelectedPromoCode(null);
+    } catch (error) {
+      toast.error("Hata oluştu.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleDeletePromoCode = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'promoCodes', id));
+      toast.success("Kod silindi.");
+    } catch (error) {
+      toast.error("Silme hatası.");
     }
   };
 
@@ -288,6 +333,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             { id: 'economy', icon: DollarSign, label: 'Ekonomi' },
             { id: 'socialMarket', icon: ShoppingBag, label: 'Sosyal Market' },
             { id: 'subscriptions', icon: Crown, label: 'Abonelikler' },
+            { id: 'promoCodes', icon: Ticket, label: 'Promo Kodlar' },
             { id: 'settings', icon: Settings, label: 'Ayarlar' }
           ].map(tab => (
             <button
@@ -1105,8 +1151,8 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="space-y-1">
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 space-y-1">
                           <label className="text-[8px] font-bold text-white/20 uppercase">S.Like</label>
                           <input
                             type="number"
@@ -1119,7 +1165,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
                           />
                         </div>
-                        <div className="space-y-1">
+                        <div className="flex-1 space-y-1">
                           <label className="text-[8px] font-bold text-white/20 uppercase">Yenile</label>
                           <input
                             type="number"
@@ -1132,7 +1178,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
                           />
                         </div>
-                        <div className="space-y-1">
+                        <div className="flex-1 space-y-1">
                           <label className="text-[8px] font-bold text-white/20 uppercase">Uyum</label>
                           <input
                             type="number"
@@ -1150,6 +1196,88 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   ))}
                 </div>
               </section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'promoCodes' && (
+          <div className="space-y-6 max-w-7xl mx-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Promo Kod Yönetimi</h2>
+                <p className="text-sm text-white/40">Kampanya ve ödül kodlarını yönetin</p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedPromoCode({
+                    code: '',
+                    isActive: true,
+                    startsAt: new Date().toISOString(),
+                    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                    maxTotalUses: 100,
+                    maxUsesPerUser: 1,
+                    onlyNewUsers: false,
+                    description: '',
+                    source: 'admin',
+                    sourceName: 'Admin Panel',
+                    rewards: { energy: 10 }
+                  });
+                  setIsEditingPromoCode(true);
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Yeni Kod Oluştur</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {promoCodes.map((code) => (
+                <div key={code.id} className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4 hover:bg-white/[0.08] transition-all">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
+                        <Ticket className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-lg font-bold font-mono tracking-tighter">{code.code}</h3>
+                    </div>
+                    <div className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${code.isActive ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                      {code.isActive ? 'Aktif' : 'Pasif'}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-white/60 line-clamp-2 min-h-[2.5rem]">{code.description || 'Açıklama yok.'}</p>
+
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-bold text-white/20 uppercase">Kullanım</span>
+                      <p className="text-xs font-bold">{code.currentUses} / {code.maxTotalUses}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-bold text-white/20 uppercase">Bitiş</span>
+                      <p className="text-xs font-bold">{new Date(code.expiresAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedPromoCode(code);
+                        setIsEditingPromoCode(true);
+                      }}
+                      className="flex-1 py-2.5 rounded-xl bg-white/5 text-white text-xs font-bold hover:bg-white/10 transition-all border border-white/5"
+                    >
+                      Düzenle
+                    </button>
+                    <button
+                      onClick={() => handleDeletePromoCode(code.id)}
+                      className="p-2.5 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -1747,6 +1875,225 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     </div>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Promo Code Edit Modal */}
+      <AnimatePresence>
+        {isEditingPromoCode && selectedPromoCode && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsEditingPromoCode(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-2xl bg-[#121212] border border-white/10 rounded-[2.5rem] p-8 space-y-6 overflow-y-auto max-h-[90vh] custom-scrollbar"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold">{selectedPromoCode.id ? 'Kodu Düzenle' : 'Yeni Kod Oluştur'}</h2>
+                <button onClick={() => setIsEditingPromoCode(false)} className="p-2 text-white/20 hover:text-white"><X /></button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Kod</label>
+                  <input
+                    type="text"
+                    value={selectedPromoCode.code}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, code: e.target.value.toUpperCase() })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-bold tracking-widest focus:outline-none focus:border-amber-500/50 uppercase"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Durum</label>
+                  <select
+                    value={selectedPromoCode.isActive ? 'true' : 'false'}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, isActive: e.target.value === 'true' })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  >
+                    <option value="true">Aktif</option>
+                    <option value="false">Pasif</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-white/20 uppercase">Açıklama</label>
+                <textarea
+                  value={selectedPromoCode.description}
+                  onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, description: e.target.value })}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50 min-h-[80px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Başlangıç</label>
+                  <input
+                    type="datetime-local"
+                    value={selectedPromoCode.startsAt?.slice(0, 16)}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, startsAt: new Date(e.target.value).toISOString() })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Bitiş</label>
+                  <input
+                    type="datetime-local"
+                    value={selectedPromoCode.expiresAt?.slice(0, 16)}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, expiresAt: new Date(e.target.value).toISOString() })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Max Toplam</label>
+                  <input
+                    type="number"
+                    value={selectedPromoCode.maxTotalUses}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, maxTotalUses: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-white/20 uppercase">Max / Kullanıcı</label>
+                  <input
+                    type="number"
+                    value={selectedPromoCode.maxUsesPerUser}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, maxUsesPerUser: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-6">
+                  <input
+                    type="checkbox"
+                    checked={selectedPromoCode.onlyNewUsers}
+                    onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, onlyNewUsers: e.target.checked })}
+                    className="w-4 h-4 rounded bg-white/5 border-white/10 text-amber-500"
+                  />
+                  <label className="text-[10px] font-bold text-white/40 uppercase">Sadece Yeni</label>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <h3 className="text-xs font-black text-white/20 uppercase tracking-widest">Ödüller</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Enerji</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.energy || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, energy: parseInt(e.target.value) || 0 } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Ana Jeton</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.mainCoins || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, mainCoins: parseInt(e.target.value) || 0 } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                </div>
+                {/* Simplified social rewards for now */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Fal Aboneliği</label>
+                    <select
+                      value={selectedPromoCode.rewards.fortuneSubscription || ''}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, fortuneSubscription: e.target.value || undefined } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    >
+                      <option value="">Yok</option>
+                      <option value="daily">Günlük</option>
+                      <option value="weekly">Haftalık</option>
+                      <option value="monthly">Aylık</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Sosyal Abonelik</label>
+                    <select
+                      value={selectedPromoCode.rewards.socialSubscription || ''}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialSubscription: e.target.value || undefined } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    >
+                      <option value="">Yok</option>
+                      <option value="weekly">Haftalık</option>
+                      <option value="monthly">Aylık</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">S.Like</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.socialFeatures?.superLike || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialFeatures: { ...selectedPromoCode.rewards.socialFeatures, superLike: parseInt(e.target.value) || 0 } } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Yenileme</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.socialFeatures?.refresh || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialFeatures: { ...selectedPromoCode.rewards.socialFeatures, refresh: parseInt(e.target.value) || 0 } } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Analiz</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.socialFeatures?.analysis || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialFeatures: { ...selectedPromoCode.rewards.socialFeatures, analysis: parseInt(e.target.value) || 0 } } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Boost (Gün)</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.socialFeatures?.boostDays || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialFeatures: { ...selectedPromoCode.rewards.socialFeatures, boostDays: parseInt(e.target.value) || 0 } } })}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-6">
+                <button
+                  onClick={() => handleSavePromoCode(selectedPromoCode)}
+                  disabled={saving === 'promoCode' || !selectedPromoCode.code}
+                  className="flex-1 py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all disabled:opacity-50"
+                >
+                  {saving === 'promoCode' ? 'Kaydediliyor...' : 'Kaydet'}
+                </button>
+                <button
+                  onClick={() => setIsEditingPromoCode(false)}
+                  className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all"
+                >
+                  Vazgeç
+                </button>
               </div>
             </motion.div>
           </div>

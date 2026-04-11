@@ -6,6 +6,7 @@ import SocialMatchScreen from "./SocialMatchScreen";
 import { UserProfile, FortuneType, FortuneReading, AppTab, AppConfig, Horoscope } from "../types";
 import { getRemainingSwipes } from "../lib/swipeHelper";
 import { isSocialProfileReady } from "../lib/socialUtils";
+import { walletService } from "../lib/walletService";
 import SocialDisabledView from "./SocialDisabledView";
 
 interface HomeScreenProps {
@@ -15,7 +16,6 @@ interface HomeScreenProps {
   onSelectFortune: (type: FortuneType) => void;
   onNavigate: (tab: AppTab) => void;
   config: AppConfig | null;
-  horoscopes: Record<string, Horoscope>;
 }
 
 export default function HomeScreen({ 
@@ -24,30 +24,24 @@ export default function HomeScreen({
   history, 
   onSelectFortune, 
   onNavigate, 
-  config, 
-  horoscopes 
+  config 
 }: HomeScreenProps) {
   const [activeTopTab, setActiveTopTab] = useState<'discover' | 'match'>('discover');
   const [refreshTimer, setRefreshTimer] = useState<string>('');
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleRefreshDiscover = async () => {
-    const lastRefresh = userProfile.social?.lastDiscoverRefreshAt ? new Date(userProfile.social.lastDiscoverRefreshAt).getTime() : 0;
-    if (Date.now() - lastRefresh < 24 * 60 * 60 * 1000) {
-      import("sonner").then(({ toast }) => toast.error("Anlık yenileme için yenileme paketi almalısınız."));
-      return;
-    }
-    
     try {
-      const { doc, updateDoc } = await import("firebase/firestore");
-      const { db } = await import("../lib/firebase");
-      await updateDoc(doc(db, "users", userProfile.uid), { 
-        "social.lastDiscoverRefreshAt": new Date().toISOString() 
-      });
-      setRefreshKey(prev => prev + 1);
-      import("sonner").then(({ toast }) => toast.success("Keşfet listesi yenilendi!"));
-    } catch (error) {
+      const result = await walletService.refreshDiscover();
+      if (result.success) {
+        setRefreshKey(prev => prev + 1);
+        import("sonner").then(({ toast }) => toast.success("Keşfet listesi yenilendi!"));
+      } else {
+        import("sonner").then(({ toast }) => toast.error("Yenileme hakkınız bitti."));
+      }
+    } catch (error: any) {
       console.error("Refresh error:", error);
+      import("sonner").then(({ toast }) => toast.error(error.message || "Yenileme sırasında bir hata oluştu."));
     }
   };
 
@@ -163,7 +157,6 @@ export default function HomeScreen({
                   currentUser={userProfile} 
                   onNavigate={onNavigate}
                   config={config}
-                  horoscope={userProfile.horoscope ? horoscopes[userProfile.horoscope] : null}
                   onRefresh={handleRefreshDiscover}
                   refreshTimer={refreshTimer}
                 />

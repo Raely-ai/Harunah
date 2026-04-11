@@ -183,74 +183,84 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                   animate={{ opacity: 1, y: 0 }}
                   className="group relative"
                 >
-                  <div className={`p-5 rounded-[2rem] border border-black/5 bg-white shadow-sm transition-all duration-500 ${
-                    reading.isFavorite ? 'border-amber-500/30' : ''
+                  <div className={`p-6 rounded-[2.5rem] border border-black/5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-500 hover:shadow-xl ${
+                    reading.isFavorite ? 'border-amber-500/30 ring-1 ring-amber-500/10' : ''
                   }`}>
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                          reading.type === 'coffee' ? 'bg-amber-500/10 text-amber-600' : 'bg-purple-500/10 text-purple-600'
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden shadow-inner ${
+                          reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
                         }`}>
-                          <Icon className="w-6 h-6" />
+                          <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-40" />
+                          <Icon className="w-7 h-7 relative z-10 group-hover:scale-110 transition-transform duration-500" />
                         </div>
                         <div>
-                          <h3 className="font-serif font-bold text-heading">{reading.title}</h3>
+                          <h3 className="font-serif font-bold text-heading text-lg group-hover:text-amber-700 transition-colors">{reading.title}</h3>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-[10px] text-muted uppercase tracking-widest font-bold">
                               {reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
                             </span>
-                            <span className="w-1 h-1 rounded-full bg-black/5" />
-                            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${status.bg} ${status.color}`}>
-                              <StatusIcon className="w-2.5 h-2.5" />
-                              <span className="text-[8px] font-black uppercase tracking-widest">{status.label}</span>
+                            <span className="w-1 h-1 rounded-full bg-black/10" />
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bg} ${status.color} border border-black/5 shadow-sm`}>
+                              <StatusIcon className="w-3 h-3" />
+                              <span className="text-[9px] font-black uppercase tracking-widest">{status.label}</span>
                             </div>
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex items-center gap-1">
-                        <button
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => onToggleFavorite(reading.id)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            reading.isFavorite ? 'text-amber-600 bg-amber-500/10' : 'text-muted hover:text-amber-600 hover:bg-black/5'
+                          className={`p-2.5 rounded-xl transition-all ${
+                            reading.isFavorite ? 'text-amber-600 bg-amber-50 shadow-sm border border-amber-100' : 'text-muted hover:text-amber-600 hover:bg-black/5'
                           }`}
                         >
                           <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
-                        </button>
-                        <button
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => onDelete(reading.id)}
-                          className="p-2 rounded-lg text-muted hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                          className="p-2.5 rounded-xl text-muted hover:text-red-600 hover:bg-red-50 transition-all"
                         >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                        </motion.button>
                       </div>
                     </div>
 
-                    {reading.status === 'completed' ? (
+                    {reading.status === 'completed' && reading.content ? (
                       <div className="space-y-4">
-                        <p className="text-sm text-body line-clamp-2 leading-relaxed italic">
-                          "{reading.content || 'Kehanetin hazırlanıyor...'}"
-                        </p>
+                        <div className="p-4 rounded-2xl bg-black/[0.02] border border-black/5 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
+                            <Icon className="w-16 h-16" />
+                          </div>
+                          <p className="text-sm text-body line-clamp-2 leading-relaxed italic relative z-10">
+                            "{reading.content || 'Kehanetin hazırlanıyor...'}"
+                          </p>
+                        </div>
                         <div className="flex items-center justify-between pt-4 border-t border-black/5">
                           <button
                             onClick={() => handleShare(reading)}
                             className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted hover:text-amber-600 transition-colors"
                           >
-                            <Share2 className="w-3 h-3" />
+                            <Share2 className="w-3.5 h-3.5" />
                             Paylaş
                           </button>
                           <button
                             onClick={() => setSelectedReading(reading)}
-                            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-600 group-hover:translate-x-1 transition-transform"
+                            className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
                           >
                             Detayları Gör
-                            <ChevronRight className="w-3 h-3" />
+                            <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
                     ) : reading.status === 'error' ? (
                       <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-red-50 border border-dashed border-red-200 text-center">
+                        <div className="p-5 rounded-2xl bg-red-50 border border-dashed border-red-200 text-center">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">
                             {reading.error || 'Bir hata oluştu, lütfen tekrar deneyin.'}
                           </p>
@@ -258,14 +268,19 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-black/5 border border-dashed border-black/10 text-center">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
+                        <div className="p-5 rounded-2xl bg-black/[0.02] border border-dashed border-black/10 text-center relative overflow-hidden">
+                          <motion.div 
+                            animate={{ opacity: [0.3, 0.6, 0.3] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                          />
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted relative z-10">
                             {['interpreting', 'processing_ai'].includes(reading.status) ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : reading.status === 'found' ? 'Yorumcu bulundu, hazırlanıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-2">
-                          <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted">İşlem Devam Ediyor</span>
+                          <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted/60">İşlem Devam Ediyor</span>
                         </div>
                       </div>
                     )}
@@ -287,7 +302,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
 
       {/* Reading Detail Modal */}
       <AnimatePresence>
-        {selectedReading && (
+        {selectedReading && selectedReading.status === 'completed' && selectedReading.content && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

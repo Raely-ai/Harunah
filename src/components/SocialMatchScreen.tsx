@@ -134,9 +134,6 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
     const targetUser = activeUser;
     
-    const today = new Date().toISOString().split('T')[0];
-    const newUsed = (currentUser.dailySwipeDate === today ? (currentUser.dailySwipeUsed || 0) : 0) + 1;
-    
     // Optimistic update local state after animation
     setTimeout(() => {
       setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
@@ -146,11 +143,6 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     }, 400);
 
     try {
-      const updateData: any = {
-        dailySwipeUsed: newUsed,
-        dailySwipeDate: today
-      };
-
       if (type === 'super_like') {
         const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'superLike');
         if (!consumed) {
@@ -158,17 +150,23 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
           onNavigate('wallet');
           return;
         }
+      } else if (type === 'like') {
+        const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'swipe');
+        if (!consumed) {
+          toast.error("Günlük kaydırma hakkın bitti!");
+          onNavigate('wallet');
+          return;
+        }
       }
-
-      await updateDoc(doc(db, "users", currentUser.uid), updateData);
       
       await socialService.sendLike(currentUser, targetUser.uid, type);
       
       if (type === 'super_like') {
         toast.success("Süper Like gönderildi! ✨");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Swipe error:", error);
+      toast.error(error.message || "İşlem sırasında bir hata oluştu.");
       setIsProcessing(false);
     }
   };
