@@ -106,7 +106,7 @@ export default function SocialManagementScreen({ user, onNavigate }: SocialManag
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 pb-32">
+    <div className="min-h-screen bg-slate-50 p-6 pb-24">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>

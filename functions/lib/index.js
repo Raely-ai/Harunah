@@ -877,42 +877,64 @@ exports.consumeSocialFeature = functions.https.onCall(async (data, context) => {
     const userRef = db.collection("users").doc(userId);
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    return await db.runTransaction(async (transaction) => {
-        const userSnap = await transaction.get(userRef);
-        if (!userSnap.exists)
-            throw new Error("Kullanıcı bulunamadı.");
-        const userData = userSnap.data();
-        let consumedFrom = 'paid';
-        if (type === 'swipe') {
-            const dailyUsed = userData.dailySwipeUsed || 0;
-            const lastDate = userData.dailySwipeDate || "";
-            const maxSwipes = config.freeDailySwipes || 50;
-            if (lastDate !== today) {
-                transaction.update(userRef, { dailySwipeUsed: 1, dailySwipeDate: today });
+    try {
+        return await db.runTransaction(async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists)
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+            const userData = userSnap.data();
+            let consumedFrom = 'paid';
+            if (type === 'swipe') {
+                const dailyUsed = userData.dailySwipeUsed || 0;
+                const lastDate = userData.dailySwipeDate || "";
+                let maxSwipes = 15;
+                const sub = userData.subscription;
+                if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now) {
+                    if (sub.type === 'daily')
+                        maxSwipes = 100;
+                    else if (sub.type === 'weekly')
+                        maxSwipes = 150;
+                    else if (sub.type === 'monthly')
+                        maxSwipes = 200;
+                }
+                if (lastDate !== today) {
+                    transaction.update(userRef, {
+                        dailySwipeUsed: 1,
+                        dailySwipeDate: today,
+                        dailyFreeSuperLikeUsed: false,
+                        dailyFreeRefreshUsed: false
+                    });
+                }
+                else {
+                    if (dailyUsed >= maxSwipes)
+                        throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${maxSwipes} hak).`);
+                    transaction.update(userRef, { dailySwipeUsed: firestore_1.FieldValue.increment(1) });
+                }
             }
             else {
-                if (dailyUsed >= maxSwipes)
-                    throw new Error("Günlük kaydırma sınırına ulaştınız.");
-                transaction.update(userRef, { dailySwipeUsed: firestore_1.FieldValue.increment(1) });
+                const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
+                if ((userData[field] || 0) <= 0)
+                    throw new functions.https.HttpsError('failed-precondition', "Yetersiz hak.");
+                transaction.update(userRef, { [field]: firestore_1.FieldValue.increment(-1) });
             }
-        }
-        else {
-            const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
-            if ((userData[field] || 0) <= 0)
-                throw new Error("Yetersiz hak.");
-            transaction.update(userRef, { [field]: firestore_1.FieldValue.increment(-1) });
-        }
-        const logRef = db.collection("usageLogs").doc();
-        transaction.set(logRef, {
-            id: logRef.id,
-            userId,
-            type: 'social_feature',
-            feature: type,
-            consumedFrom,
-            createdAt: now.toISOString()
+            const logRef = db.collection("usageLogs").doc();
+            transaction.set(logRef, {
+                id: logRef.id,
+                userId,
+                type: 'social_feature',
+                feature: type,
+                consumedFrom,
+                createdAt: now.toISOString()
+            });
+            return { success: true, consumedFrom };
         });
-        return { success: true, consumedFrom };
-    });
+    }
+    catch (error) {
+        console.error("consumeSocialFeature error:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    }
 });
 exports.updateSocialSettings = functions.https.onCall(async (data, context) => {
     if (!context.auth)
@@ -925,12 +947,18 @@ exports.updateSocialSettings = functions.https.onCall(async (data, context) => {
     const allowedFields = [
         'visibility', 'discoveryEnabled', 'notificationsEnabled',
         'genderPreference', 'minAge', 'maxAge',
-        'whoCanMessage', 'whoCanAddFriend', 'notifications'
+        'whoCanMessage', 'whoCanAddFriend', 'notifications',
+        'enabled', 'visible'
     ];
     const updates = {};
     Object.keys(settings).forEach(key => {
         if (allowedFields.includes(key)) {
-            updates[`social.settings.${key}`] = settings[key];
+            if (key === 'enabled' || key === 'visible') {
+                updates[`social.${key}`] = settings[key];
+            }
+            else {
+                updates[`social.settings.${key}`] = settings[key];
+            }
         }
     });
     if (Object.keys(updates).length === 0)
@@ -949,13 +977,26 @@ exports.refreshDiscover = functions.https.onCall(async (data, context) => {
         if (!userSnap.exists)
             throw new Error("Kullanıcı bulunamadı.");
         const userData = userSnap.data();
+        const today = now.toISOString().split('T')[0];
+        const lastReset = userData.dailySwipeDate || "";
         let consumedFrom = 'paid';
-        if ((userData.refreshCount || 0) <= 0)
-            throw new Error("Yetersiz yenileme hakkı.");
-        transaction.update(userRef, {
-            refreshCount: firestore_1.FieldValue.increment(-1),
-            "social.lastDiscoverRefreshAt": now.toISOString()
-        });
+        const sub = userData.subscription;
+        const isPremium = sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now;
+        if (isPremium && lastReset === today && !userData.dailyFreeRefreshUsed) {
+            consumedFrom = 'daily_bonus';
+            transaction.update(userRef, {
+                dailyFreeRefreshUsed: true,
+                "social.lastDiscoverRefreshAt": now.toISOString()
+            });
+        }
+        else {
+            if ((userData.refreshCount || 0) <= 0)
+                throw new Error("Yetersiz yenileme hakkı.");
+            transaction.update(userRef, {
+                refreshCount: firestore_1.FieldValue.increment(-1),
+                "social.lastDiscoverRefreshAt": now.toISOString()
+            });
+        }
         const logRef = db.collection("usageLogs").doc();
         transaction.set(logRef, {
             id: logRef.id,
@@ -1340,40 +1381,67 @@ exports.adminAdjustWallet = functions.https.onCall(async (data, context) => {
     }
 });
 exports.completeSocialOnboarding = functions.https.onCall(async (data, context) => {
-    if (!context.auth)
-        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    console.log("completeSocialOnboarding called");
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Bu işlemi yapmak için giriş yapmalısınız.');
+    }
     const userId = context.auth.uid;
-    const { nickname, gender, lookingFor, birthDate, interests, photos, bio, horoscope, element, planet, mysticAnimal, luckyNumber, luckyColor } = data;
+    const { nickname, gender, lookingFor, birthDate, interests, photos, bio, zodiacSign, horoscope, element, rulingPlanet, planet, friendlySign, enemySign, age, mysticAnimal, luckyNumber, luckyColor } = data;
     if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
-        throw new functions.https.HttpsError('invalid-argument', 'Eksik profil bilgileri.');
+        throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
     }
     const userRef = db.collection("users").doc(userId);
+    const now = new Date().toISOString();
     try {
-        await userRef.update({
-            birthDate,
-            horoscope,
-            element,
-            planet,
-            mysticAnimal,
-            luckyNumber,
-            luckyColor,
-            "social.nickname": nickname,
-            "social.gender": gender,
-            "social.lookingFor": lookingFor,
-            "social.interests": interests,
-            "social.photos": photos,
-            "social.bio": bio,
-            "social.enabled": true,
-            "social.profileCompleted": true,
-            "social.visible": true,
-            "social.banned": false,
-            "social.lastOnboardingAt": new Date().toISOString()
+        return await db.runTransaction(async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            const socialData = {
+                nickname,
+                gender,
+                lookingFor,
+                interests,
+                photos,
+                bio,
+                enabled: true,
+                profileCompleted: true,
+                visible: true,
+                banned: false,
+                lastOnboardingAt: now,
+                updatedAt: now
+            };
+            const baseData = {
+                birthDate,
+                zodiacSign: zodiacSign || horoscope || "",
+                element: element || "",
+                rulingPlanet: rulingPlanet || planet || "",
+                friendlySign: friendlySign || "",
+                enemySign: enemySign || "",
+                age: age || 0,
+                mysticAnimal: mysticAnimal || "",
+                luckyNumber: luckyNumber || "",
+                luckyColor: luckyColor || "",
+                updatedAt: now,
+                social: socialData
+            };
+            if (!userSnap.exists) {
+                baseData.createdAt = now;
+                baseData.uid = userId;
+                baseData.email = context.auth?.token.email || "";
+                baseData.displayName = nickname;
+                baseData.photoURL = photos[0] || "";
+                baseData.energy = 50;
+                baseData.mainCoins = 0;
+                transaction.set(userRef, baseData);
+            }
+            else {
+                transaction.update(userRef, baseData);
+            }
+            return { success: true };
         });
-        return { success: true };
     }
     catch (error) {
         console.error("completeSocialOnboarding error:", error);
-        throw new functions.https.HttpsError('internal', 'Profil oluşturulurken bir hata oluştu.');
+        throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken bir hata oluştu.');
     }
 });
 exports.sendSuperLikeAndCreateChat = functions.https.onCall(async (data, context) => {
@@ -1395,16 +1463,27 @@ exports.sendSuperLikeAndCreateChat = functions.https.onCall(async (data, context
                 throw new Error("Hedef kullanıcı bulunamadı.");
             const userData = userSnap.data();
             const targetData = targetSnap.data();
-            if ((userData.superLikes || 0) <= 0) {
-                throw new Error("Yetersiz Süper Like hakkı.");
+            const now = new Date().toISOString();
+            const today = now.split('T')[0];
+            const lastReset = userData.dailySwipeDate || "";
+            let consumedFrom = 'paid';
+            const sub = userData.subscription;
+            const isPremium = sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date(now);
+            if (isPremium && lastReset === today && !userData.dailyFreeSuperLikeUsed) {
+                consumedFrom = 'daily_bonus';
+                transaction.update(userRef, { dailyFreeSuperLikeUsed: true });
             }
-            transaction.update(userRef, { superLikes: firestore_1.FieldValue.increment(-1) });
+            else {
+                if ((userData.superLikes || 0) <= 0) {
+                    throw new Error("Yetersiz Süper Like hakkı.");
+                }
+                transaction.update(userRef, { superLikes: firestore_1.FieldValue.increment(-1) });
+            }
             const chatsQuery = await db.collection("chats")
                 .where("participants", "array-contains", userId)
                 .get();
             const existingChat = chatsQuery.docs.find(doc => doc.data().participants.includes(targetUserId));
             let chatId;
-            const now = new Date().toISOString();
             if (existingChat) {
                 chatId = existingChat.id;
             }
@@ -1477,15 +1556,19 @@ exports.refreshDiscoverFeed = functions.https.onCall(async (data, context) => {
             if (!userSnap.exists)
                 throw new Error("Kullanıcı bulunamadı.");
             const userData = userSnap.data();
-            const lastFree = userData.social?.lastFreeRefreshAt ? new Date(userData.social.lastFreeRefreshAt) : null;
-            const isFreeAvailable = !lastFree || (now.getTime() - lastFree.getTime() > 24 * 60 * 60 * 1000);
-            if (!isFreeAvailable && (userData.refreshCount || 0) <= 0) {
-                throw new Error("Yetersiz yenileme hakkı.");
-            }
-            if (isFreeAvailable) {
-                transaction.update(userRef, { "social.lastFreeRefreshAt": nowIso });
+            const today = now.toISOString().split('T')[0];
+            const lastReset = userData.dailySwipeDate || "";
+            const sub = userData.subscription;
+            const isPremium = sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now;
+            let isFreeAvailable = false;
+            if (isPremium && lastReset === today && !userData.dailyFreeRefreshUsed) {
+                isFreeAvailable = true;
+                transaction.update(userRef, { dailyFreeRefreshUsed: true });
             }
             else {
+                if ((userData.refreshCount || 0) <= 0) {
+                    throw new Error("Yetersiz yenileme hakkı.");
+                }
                 transaction.update(userRef, { refreshCount: firestore_1.FieldValue.increment(-1) });
             }
             const recentIds = userData.social?.recentDiscoverIds || [];
@@ -1543,14 +1626,16 @@ exports.runDiscoverCompatibilityAnalysis = functions.https.onCall(async (data, c
         return await db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             const targetSnap = await transaction.get(targetUserRef);
-            if (!userSnap.exists)
-                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
-            if (!targetSnap.exists)
+            if (!userSnap.exists) {
+                throw new functions.https.HttpsError('not-found', "Kullanıcı profiliniz bulunamadı.");
+            }
+            if (!targetSnap.exists) {
                 throw new functions.https.HttpsError('not-found', "Hedef kullanıcı bulunamadı.");
+            }
             const userData = userSnap.data();
             const targetData = targetSnap.data();
             if ((userData.compatibilityCount || 0) <= 0) {
-                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi hakkı.");
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi hakkı. Lütfen cüzdanınızdan hak satın alın.");
             }
             transaction.update(userRef, { compatibilityCount: firestore_1.FieldValue.increment(-1) });
             const loveScore = Math.floor(Math.random() * 31) + 65;
@@ -1622,11 +1707,12 @@ exports.runManualCompatibilityAnalysis = functions.https.onCall(async (data, con
     try {
         return await db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
-            if (!userSnap.exists)
-                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+            if (!userSnap.exists) {
+                throw new functions.https.HttpsError('not-found', "Kullanıcı profiliniz bulunamadı.");
+            }
             const userData = userSnap.data();
             if ((userData.compatibilityCount || 0) <= 0) {
-                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi hakkı.");
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi hakkı. Lütfen cüzdanınızdan hak satın alın.");
             }
             transaction.update(userRef, { compatibilityCount: firestore_1.FieldValue.increment(-1) });
             const loveScore = Math.floor(Math.random() * 31) + 65;

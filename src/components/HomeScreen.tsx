@@ -92,11 +92,7 @@ export default function HomeScreen({
     if (userProfile.social?.profileCompleted && !userProfile.social?.enabled) {
       const fixEnabled = async () => {
         try {
-          const { doc, updateDoc } = await import("firebase/firestore");
-          const { db } = await import("../lib/firebase");
-          await updateDoc(doc(db, "users", userProfile.uid), { 
-            "social.enabled": true 
-          });
+          await walletService.updateSocialSettings({ enabled: true });
         } catch (error) {
           console.error("Auto-fix enabled error:", error);
         }
@@ -119,25 +115,21 @@ export default function HomeScreen({
 
   return (
     <div className="relative h-full w-full bg-[#F6F4F8] overflow-hidden">
-      {/* Top Navigation Bar - Absolute to allow content to go under */}
-      <div className={`absolute top-0 left-0 right-0 z-50 transition-all duration-500 ${
+      {/* Top Navigation Bar - Sticky & Full Width */}
+      <div className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 border-b ${
         activeTopTab === 'match' 
-          ? 'bg-transparent border-transparent' 
-          : 'bg-white/10 backdrop-blur-md border-b border-white/5'
-      } pt-[calc(env(safe-area-inset-top,1rem)+0.5rem)] pb-3 px-4`}>
-        <div className="max-w-md mx-auto flex items-center justify-center">
+          ? 'bg-black/20 backdrop-blur-xl border-white/10' 
+          : 'bg-white/80 backdrop-blur-xl border-black/5'
+      } pt-[env(safe-area-inset-top,1rem)] h-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
+        <div className="h-full max-w-md mx-auto px-4 flex items-center">
           {/* Social Tabs */}
-          <div className={`relative flex p-0.5 rounded-xl border flex-1 max-w-[280px] transition-all duration-500 ${
-            activeTopTab === 'match'
-              ? 'bg-white/10 border-white/10 backdrop-blur-sm'
-              : 'bg-black/10 border-white/5 shadow-inner'
-          }`}>
-            {/* Sliding Background Indicator */}
+          <div className="relative flex w-full bg-black/5 p-1 rounded-2xl border border-black/5">
+            {/* Sliding Background Indicator (iOS Style) */}
             <motion.div
-              layoutId="activeTab"
-              className={`absolute inset-y-1 rounded-xl shadow-lg z-0 ${
+              layoutId="activeTabHighlight"
+              className={`absolute inset-y-1 rounded-xl shadow-md z-0 ${
                 activeTopTab === 'match'
-                  ? 'bg-white/20 border border-white/30'
+                  ? 'bg-white/20 border border-white/20'
                   : 'bg-white border border-black/5'
               }`}
               initial={false}
@@ -145,42 +137,42 @@ export default function HomeScreen({
                 left: activeTopTab === 'match' ? '4px' : activeTopTab === 'discover' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 1px)',
                 width: 'calc(33.33% - 4px)',
               }}
-              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
             />
 
             <button
               onClick={() => setActiveTopTab('match')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
                 activeTopTab === 'match' 
-                  ? 'text-white' 
-                  : 'text-muted hover:text-body'
+                  ? 'text-white scale-[1.03]' 
+                  : 'text-muted/60 hover:text-muted'
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'match' ? 'text-rose-400 fill-rose-400' : ''}`} />
+              <Heart className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'match' ? 'text-rose-400 fill-rose-400' : ''}`} />
               <span>Karşılaşma</span>
             </button>
 
             <button
               onClick={() => setActiveTopTab('discover')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
                 activeTopTab === 'discover' 
-                  ? 'text-heading' 
-                  : 'text-muted hover:text-body'
+                  ? 'text-heading scale-[1.03]' 
+                  : 'text-muted/60 hover:text-muted'
               }`}
             >
-              <Users className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'discover' ? 'text-amber-600' : ''}`} />
+              <Users className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'discover' ? 'text-amber-500' : ''}`} />
               <span>Keşfet</span>
             </button>
 
             <button
               onClick={() => setActiveTopTab('compatibility')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
                 activeTopTab === 'compatibility' 
-                  ? 'text-heading' 
-                  : 'text-muted hover:text-body'
+                  ? 'text-heading scale-[1.03]' 
+                  : 'text-muted/60 hover:text-muted'
               }`}
             >
-              <Sparkles className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${activeTopTab === 'compatibility' ? 'text-purple-600' : ''}`} />
+              <Sparkles className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'compatibility' ? 'text-purple-500' : ''}`} />
               <span>Uyum</span>
             </button>
           </div>
@@ -199,14 +191,15 @@ export default function HomeScreen({
               transition={{ duration: 0.3 }}
               className="h-full w-full"
             >
-              {!isSocialEnabled ? (
-                <SocialDisabledView onNavigate={onNavigate} />
-              ) : (
-                <SocialMatchScreen 
-                  currentUser={userProfile} 
-                  onNavigate={onNavigate}
-                />
-              )}
+              <div className="relative h-full w-full">
+                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                  <SocialMatchScreen 
+                    currentUser={userProfile} 
+                    onNavigate={onNavigate}
+                  />
+                </div>
+                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+              </div>
             </motion.div>
           )}
 
@@ -217,20 +210,21 @@ export default function HomeScreen({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="h-full w-full overflow-y-auto pt-24 pb-32"
+              className="h-full w-full overflow-y-auto pb-32"
             >
-              {!isSocialEnabled ? (
-                <SocialDisabledView onNavigate={onNavigate} />
-              ) : (
-                <SocialDiscoverScreen 
-                  key={`discover-${refreshKey}`}
-                  currentUser={userProfile} 
-                  onNavigate={onNavigate}
-                  config={config}
-                  onRefresh={handleRefreshDiscover}
-                  refreshTimer={refreshTimer}
-                />
-              )}
+              <div className="relative h-full w-full overflow-y-auto pb-32">
+                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                  <SocialDiscoverScreen 
+                    key={`discover-${refreshKey}`}
+                    currentUser={userProfile} 
+                    onNavigate={onNavigate}
+                    config={config}
+                    onRefresh={handleRefreshDiscover}
+                    refreshTimer={refreshTimer}
+                  />
+                </div>
+                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+              </div>
             </motion.div>
           )}
 
@@ -243,15 +237,17 @@ export default function HomeScreen({
               transition={{ duration: 0.3 }}
               className="h-full w-full"
             >
-              {!isSocialEnabled ? (
-                <SocialDisabledView onNavigate={onNavigate} />
-              ) : (
-                <SocialCompatibilityHistory 
-                  currentUser={userProfile} 
-                  onBack={() => setActiveTopTab('match')}
-                  isTab={true}
-                />
-              )}
+              <div className="relative h-full w-full">
+                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                  <SocialCompatibilityHistory 
+                    currentUser={userProfile} 
+                    onBack={() => setActiveTopTab('match')}
+                    isTab={true}
+                    isMock={!isSocialEnabled}
+                  />
+                </div>
+                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

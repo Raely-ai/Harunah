@@ -1094,13 +1094,18 @@ export const updateSocialSettings = functions.https.onCall(async (data, context)
   const allowedFields = [
     'visibility', 'discoveryEnabled', 'notificationsEnabled', 
     'genderPreference', 'minAge', 'maxAge',
-    'whoCanMessage', 'whoCanAddFriend', 'notifications'
+    'whoCanMessage', 'whoCanAddFriend', 'notifications',
+    'enabled', 'visible'
   ];
   const updates: any = {};
   
   Object.keys(settings).forEach(key => {
     if (allowedFields.includes(key)) {
-      updates[`social.settings.${key}`] = settings[key];
+      if (key === 'enabled' || key === 'visible') {
+        updates[`social.${key}`] = settings[key];
+      } else {
+        updates[`social.settings.${key}`] = settings[key];
+      }
     }
   });
 
@@ -1606,7 +1611,10 @@ export const adminAdjustWallet = functions.https.onCall(async (data, context) =>
 
 // 15. Complete Social Onboarding
 export const completeSocialOnboarding = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  console.log("completeSocialOnboarding called");
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Bu işlemi yapmak için giriş yapmalısınız.');
+  }
   
   const userId = context.auth.uid;
   const { 
@@ -1617,9 +1625,14 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
     interests, 
     photos, 
     bio,
-    horoscope,
+    zodiacSign,
+    horoscope, // fallback
     element,
-    planet,
+    rulingPlanet,
+    planet, // fallback
+    friendlySign,
+    enemySign,
+    age,
     mysticAnimal,
     luckyNumber,
     luckyColor
@@ -1627,21 +1640,17 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
 
   // Basic validation
   if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
-    throw new functions.https.HttpsError('invalid-argument', 'Eksik profil bilgileri.');
+    throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
   }
 
   const userRef = db.collection("users").doc(userId);
+  const now = new Date().toISOString();
 
   try {
-    await userRef.set({
-      birthDate,
-      horoscope,
-      element,
-      planet,
-      mysticAnimal,
-      luckyNumber,
-      luckyColor,
-      social: {
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      
+      const socialData = {
         nickname,
         gender,
         lookingFor,
@@ -1652,11 +1661,60 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
         profileCompleted: true,
         visible: true,
         banned: false,
-        lastOnboardingAt: new Date().toISOString()
-      }
-    }, { merge: true });
+        lastOnboardingAt: now,
+        updatedAt: now,
+        settings: {
+          whoCanMessage: 'everyone',
+          whoCanAddFriend: 'everyone',
+          notifications: {
+            messages: true,
+            friendRequests: true,
+            roomInvites: true,
+            gifts: true
+          }
+        }
+      };
 
-    return { success: true };
+      const baseData: any = {
+        // Root level fields for compatibility
+        nickname,
+        gender,
+        lookingFor,
+        interests,
+        photos,
+        bio,
+        birthDate,
+        zodiacSign: zodiacSign || horoscope || "",
+        element: element || "",
+        rulingPlanet: rulingPlanet || planet || "",
+        friendlySign: friendlySign || "",
+        enemySign: enemySign || "",
+        age: age || 0,
+        mysticAnimal: mysticAnimal || "",
+        luckyNumber: luckyNumber || "",
+        luckyColor: luckyColor || "",
+        updatedAt: now,
+        social: socialData
+      };
+
+      if (!userSnap.exists) {
+        baseData.createdAt = now;
+        baseData.uid = userId;
+        baseData.email = context.auth?.token.email || "";
+        baseData.displayName = nickname;
+        baseData.photoURL = photos[0] || "";
+        baseData.energy = 50; // Welcome energy
+        baseData.mainCoins = 0;
+        baseData.superLikes = 0;
+        baseData.refreshCount = 0;
+        baseData.compatibilityCount = 0;
+        transaction.set(userRef, baseData);
+      } else {
+        transaction.update(userRef, baseData);
+      }
+
+      return { success: true };
+    });
   } catch (error: any) {
     console.error("completeSocialOnboarding error:", error);
     throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken bir hata oluştu.');
@@ -1687,6 +1745,7 @@ export const sendSuperLikeAndCreateChat = functions.https.onCall(async (data, co
 
       const userData = userSnap.data() as any;
       const targetData = targetSnap.data() as any;
+      const now = new Date().toISOString();
       const today = now.split('T')[0];
       const lastReset = userData.dailySwipeDate || "";
 
@@ -1714,7 +1773,6 @@ export const sendSuperLikeAndCreateChat = functions.https.onCall(async (data, co
       const existingChat = chatsQuery.docs.find(doc => doc.data().participants.includes(targetUserId));
 
       let chatId: string;
-      const now = new Date().toISOString();
 
       if (existingChat) {
         chatId = existingChat.id;

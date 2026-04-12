@@ -858,7 +858,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
+              className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
               <SocialMessagesScreen 
                 currentUser={activeProfile}
@@ -875,7 +875,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
+              className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
               <HistoryScreen 
                 history={history}
@@ -895,7 +895,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
+              className="fixed inset-0 z-40 bg-[#F6F4F8]"
             >
               <SocialWalletScreen 
                 currentUser={activeProfile}
@@ -987,7 +987,7 @@ function AppContent() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="min-h-screen pb-32"
+              className="min-h-screen"
             >
               <SocialManagementScreen 
                 user={activeProfile} 

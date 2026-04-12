@@ -10,7 +10,7 @@ import {
   MoreVertical,
   ShieldAlert,
   ChevronRight,
-  Users
+  Handshake
 } from "lucide-react";
 import { 
   collection, 
@@ -307,86 +307,136 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
             </div>
 
             {/* TOP STATS (Swipe/Super Like Rights) */}
-            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+5.5rem)] left-6 z-20 flex flex-col gap-2">
-              <motion.div 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/10 text-white"
-              >
-                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-                <span className="text-[10px] font-black tabular-nums">
-                  {getRemainingSwipes(currentUser)} / {getDailySwipeLimit(currentUser)}
-                </span>
-              </motion.div>
-              <motion.div 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/10 text-white"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                <span className="text-[10px] font-black tabular-nums">{superLikes}</span>
-              </motion.div>
+            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+72px)] left-0 right-0 z-20 flex justify-center px-6">
+              <div className="flex items-center gap-3">
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-xl border border-white/20 text-white shadow-2xl"
+                >
+                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+                  <span className="text-[11px] font-black tabular-nums tracking-wider drop-shadow-md">
+                    {getRemainingSwipes(currentUser)} / {getDailySwipeLimit(currentUser)}
+                  </span>
+                </motion.div>
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-xl border border-white/20 text-white shadow-2xl"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  <span className="text-[11px] font-black tabular-nums tracking-wider drop-shadow-md">{superLikes}</span>
+                </motion.div>
+              </div>
             </div>
 
             {/* REPORT BUTTON */}
-            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+5.5rem)] right-6 z-20">
+            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+72px)] right-6 z-20">
               <button 
                 onClick={() => setShowReportModal(true)}
-                className="p-2.5 bg-black/20 backdrop-blur-sm rounded-full text-white/70 hover:text-white border border-white/10 transition-colors"
+                className="p-2.5 bg-black/40 backdrop-blur-xl rounded-full text-white/70 hover:text-white border border-white/20 transition-colors shadow-xl"
               >
                 <Flag className="w-4 h-4" />
               </button>
             </div>
 
-            {/* BOTTOM CONTENT AREA */}
-            <div className="absolute inset-x-0 bottom-0 z-20 pb-[calc(env(safe-area-inset-bottom,1.5rem)+1rem)] px-6 flex flex-col items-center">
-              
-              {/* COMPATIBILITY CIRCLES (WOW AREA) */}
-              <div className="flex items-center justify-center gap-6 mb-8">
-                {[
-                  { label: 'Aşk', value: compatibility?.love || 0, color: '#f43f5e', icon: Heart },
-                  { label: 'Dost', value: compatibility?.friendship || 0, color: '#3b82f6', icon: Users },
-                  { label: 'Uyum', value: compatibility?.understanding || 0, color: '#f59e0b', icon: Sparkles }
-                ].map((item, idx) => (
-                  <motion.div 
-                    key={idx}
-                    initial={{ opacity: 0, scale: 0.5, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    transition={{ delay: 0.3 + idx * 0.1, type: "spring" }}
-                    className="flex flex-col items-center gap-2"
+            {/* ACTION BAR (Elevated to avoid BottomNav overlap) */}
+            <div 
+              className="absolute inset-x-0 z-30 px-6 flex justify-center pointer-events-none"
+              style={{ bottom: 'calc(env(safe-area-inset-bottom, 1.5rem) + 80px)' }}
+            >
+              <div className="flex items-end justify-center gap-8 w-full max-w-sm pointer-events-auto">
+                {/* PASS BUTTON */}
+                <div className="flex flex-col items-center gap-2">
+                  <motion.button 
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleSwipe('pass')} 
+                    className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white/70 flex items-center justify-center transition-all hover:text-white shadow-lg"
                   >
-                    <div className="relative w-14 h-14 flex items-center justify-center bg-black/20 rounded-full border border-white/5">
-                      <svg className="w-full h-full -rotate-90 p-1">
-                        <circle cx="28" cy="28" r="24" fill="none" stroke="white" strokeWidth="3" className="opacity-10" />
-                        <motion.circle 
-                          cx="28" cy="28" r="24" fill="none" stroke={item.color} strokeWidth="3" 
-                          strokeDasharray="150.8"
-                          initial={{ strokeDashoffset: 150.8 }}
-                          animate={{ strokeDashoffset: 150.8 - (150.8 * item.value) / 100 }}
-                          transition={{ duration: 2, ease: "easeOut", delay: 0.6 + idx * 0.1 }}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <span className="absolute text-[10px] font-black text-white">%{item.value}</span>
+                    <X className="w-6 h-6" />
+                  </motion.button>
+                  <span className="text-[10px] font-black text-white/80 uppercase tracking-widest drop-shadow-md">GEÇ</span>
+                </div>
+
+                {/* SUPER LIKE BUTTON */}
+                <div className="flex flex-col items-center gap-2">
+                  <motion.button 
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleSwipe('super_like')} 
+                    className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.5)] border-2 border-amber-300/40 relative group overflow-hidden"
+                  >
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/30 to-white/0"
+                    />
+                    <Sparkles className="w-9 h-9 fill-white/30 relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
+                    <div className="absolute top-1 right-1 bg-white text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-500 shadow-lg z-20 scale-90">
+                      {superLikes}
                     </div>
-                    <span className="text-[8px] font-black uppercase tracking-widest text-white/80">{item.label}</span>
-                  </motion.div>
-                ))}
+                  </motion.button>
+                  <div className="flex flex-col items-center">
+                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest drop-shadow-md">SÜPER LIKE</span>
+                    <span className="text-[8px] font-bold text-amber-300/80 uppercase tracking-tighter">{superLikes} kaldı</span>
+                  </div>
+                </div>
+
+                {/* LIKE BUTTON */}
+                <div className="flex flex-col items-center gap-2">
+                  <motion.button 
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleSwipe('like')} 
+                    className="w-18 h-18 rounded-full bg-gradient-to-br from-rose-500 via-rose-600 to-pink-600 text-white flex items-center justify-center shadow-[0_0_30_rgba(244,63,94,0.5)] border-2 border-rose-400/40 relative overflow-hidden"
+                  >
+                    <motion.div 
+                      animate={{ scale: [1, 1.15, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                      className="absolute inset-0 bg-white/20 rounded-full"
+                    />
+                    <Heart className="w-9 h-9 fill-white relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
+                  </motion.button>
+                  <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest drop-shadow-md">BEĞEN</span>
+                </div>
+              </div>
+            </div>
+
+            {/* INFO AREA (Positioned above Action Bar) */}
+            <div 
+              className="absolute inset-x-0 z-20 px-6 flex flex-col items-center pointer-events-none"
+              style={{ bottom: 'calc(env(safe-area-inset-bottom, 1.5rem) + 200px)' }}
+            >
+              {/* COMPATIBILITY INLINE (Minimal) */}
+              <div className="flex items-center justify-center gap-4 mb-2 pointer-events-auto">
+                <div className="flex items-center gap-1.5">
+                  <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.love || 0}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Handshake className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.friendship || 0}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.understanding || 0}</span>
+                </div>
               </div>
 
               {/* USER INFO */}
-              <div className="w-full text-center space-y-2 mb-8">
+              <div className="w-full text-center space-y-2 pointer-events-auto">
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.6 }}
                   className="flex items-center justify-center gap-3"
                 >
-                  <h2 className="text-3xl font-serif font-black text-white drop-shadow-lg">
+                  <h2 className="text-3xl font-serif font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
                     {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age}
                   </h2>
-                  <div className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-[9px] font-black text-white uppercase tracking-widest backdrop-blur-sm">
+                  <div className="px-3 py-1 rounded-full bg-white/20 border border-white/30 text-[9px] font-black text-white uppercase tracking-widest backdrop-blur-md shadow-lg">
                     {activeUser.zodiacSign || "Burç"}
                   </div>
                 </motion.div>
@@ -396,7 +446,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                   transition={{ delay: 0.7 }}
                   className="space-y-1"
                 >
-                  <p className="text-sm text-white/80 font-medium max-w-sm mx-auto drop-shadow-md line-clamp-2">
+                  <p className="text-xs text-white/90 font-medium max-w-sm mx-auto drop-shadow-md line-clamp-2">
                     {activeUser.social?.bio || activeUser.bio || "Bio henüz eklenmemiş."}
                   </p>
                   {compatibility && (
@@ -404,7 +454,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: 1.2 }}
-                      className="text-[10px] text-amber-300/90 font-bold italic"
+                      className="text-[9px] text-amber-300/90 font-bold italic drop-shadow-md"
                     >
                       {compatibility.understanding > 80 ? "✨ Ruh ikizi potansiyeli çok yüksek!" : 
                        compatibility.understanding > 60 ? "💫 Yıldızlarınız oldukça uyumlu görünüyor." :
@@ -418,60 +468,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                   transition={{ delay: 0.8 }}
                   className="flex items-center justify-center gap-2 pt-1"
                 >
-                  <div className="h-px w-4 bg-amber-500/50" />
-                  <p className="text-[9px] font-black text-amber-400 uppercase tracking-[0.2em]">
+                  <div className="h-px w-4 bg-white/30" />
+                  <p className="text-[8px] font-black text-white/60 uppercase tracking-[0.2em] drop-shadow-md">
                     Karşılaştığın için uyumunu ücretsiz görüyorsun
                   </p>
-                  <div className="h-px w-4 bg-amber-500/50" />
+                  <div className="h-px w-4 bg-white/30" />
                 </motion.div>
               </div>
-
-              {/* ACTION BUTTONS */}
-              <div className="flex items-center justify-center gap-6 w-full max-w-xs">
-                {/* PASS BUTTON */}
-                <motion.button 
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => handleSwipe('pass')} 
-                  className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white/60 flex items-center justify-center transition-all hover:text-white"
-                >
-                  <X className="w-6 h-6" />
-                </motion.button>
-
-                {/* SUPER LIKE BUTTON */}
-                <motion.button 
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => handleSwipe('super_like')} 
-                  className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.3)] border border-amber-300/30 relative group overflow-hidden"
-                >
-                  <motion.div 
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/20 to-white/0"
-                  />
-                  <Sparkles className="w-7 h-7 fill-white/20 relative z-10" />
-                  <div className="absolute -top-1 -right-1 bg-white text-amber-600 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-amber-500 shadow-lg z-20">
-                    {superLikes}
-                  </div>
-                </motion.button>
-
-                {/* LIKE BUTTON */}
-                <motion.button 
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => handleSwipe('like')} 
-                  className="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.4)] border border-rose-400/30 relative overflow-hidden"
-                >
-                  <motion.div 
-                    animate={{ scale: [1, 1.1, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="absolute inset-0 bg-white/10 rounded-full"
-                  />
-                  <Heart className="w-9 h-9 fill-white relative z-10" />
-                </motion.button>
-              </div>
-
             </div>
           </motion.div>
         </AnimatePresence>

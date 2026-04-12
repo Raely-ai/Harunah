@@ -300,7 +300,7 @@ export default function SocialDiscoverScreen({
   };
 
   return (
-    <div className="w-full text-body relative">
+    <div className="w-full text-body relative pt-[calc(env(safe-area-inset-top,1rem)+64px)]">
       <div className="pb-28 relative z-10">
         {/* Header with Refresh */}
         <div className="px-6 pt-4 flex items-center justify-between">

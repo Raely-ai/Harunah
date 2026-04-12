@@ -1,7 +1,6 @@
 import { uploadPhoto } from "../lib/uploadService";
 import { toast } from "sonner";
-import { doc, updateDoc } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
+import { auth } from "../lib/firebase";
 import { calculateMysticProfile } from "../lib/mysticProfileHelper";
 import { walletService } from "../lib/walletService";
 import React, { useState, useEffect, useRef } from "react";

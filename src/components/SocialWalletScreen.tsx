@@ -244,7 +244,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-32 relative z-10">
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-24 relative z-10">
         <div className="p-6 space-y-8">
           
           {/* A) BALANCE SUMMARY */}

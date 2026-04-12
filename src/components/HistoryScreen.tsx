@@ -166,7 +166,7 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
       </header>
 
       {/* History List */}
-      <main className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar pb-32">
+      <main className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar pb-24">
         <div className="space-y-4">
           {filteredHistory.length > 0 ? (
             filteredHistory.map((reading) => {
