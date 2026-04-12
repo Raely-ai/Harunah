@@ -22,7 +22,7 @@ import {
   query, 
   where, 
   orderBy, 
-  onSnapshot, 
+  getDocs, 
   deleteDoc, 
   doc 
 } from 'firebase/firestore';
@@ -108,6 +108,8 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       if (result.success) {
         toast.success("Uyum analizi tamamlandı! ✨");
         setSelectedAnalysis(result.analysis);
+        // Refresh history
+        fetchHistory(true);
         // Reset form
         setPerson1({ name: '', birthDate: '', status: 'Bekar', photo: '' });
         setPerson2({ name: '', birthDate: '', status: 'Bekar', photo: '' });
@@ -148,24 +150,27 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
     reader.readAsDataURL(file);
   };
 
-  useEffect(() => {
+  const fetchHistory = async (force = false) => {
     if (!uid) return;
-    const q = query(
-      collection(db, "compatibilityHistory"),
-      where("userId", "==", uid),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    setLoading(true);
+    try {
+      const q = query(
+        collection(db, "compatibilityHistory"),
+        where("userId", "==", uid),
+        orderBy("createdAt", "desc")
+      );
+      const snapshot = await getDocs(q);
       setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityHistory)));
-      setLoading(false);
-    }, (error) => {
+    } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "compatibilityHistory");
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
-  }, [currentUser.uid]);
+  useEffect(() => {
+    fetchHistory();
+  }, [uid]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -173,6 +178,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
 
     try {
       await deleteDoc(doc(db, "compatibilityHistory", id));
+      setHistory(prev => prev.filter(h => h.id !== id));
       toast.success("Analiz silindi.");
     } catch (error) {
       toast.error("Silme işlemi başarısız.");

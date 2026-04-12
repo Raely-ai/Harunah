@@ -201,11 +201,6 @@ export default function SocialProfilePopup({
                   <h2 className="text-3xl font-serif font-bold text-heading tracking-tight">
                     {social.nickname || user?.nickname}, {social.age || user?.age || 25}
                   </h2>
-                  <div className="px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-full">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">
-                      {user?.horoscope || "Burç"}
-                    </span>
-                  </div>
                 </div>
                 <button 
                   onClick={handleReport}

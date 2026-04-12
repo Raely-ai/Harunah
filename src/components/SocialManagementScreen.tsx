@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, getDocs, doc, updateDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, orderBy, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, AppTab, Chat, normalizeUserProfile } from '../types';
 import { Lock, Unlock, MessageCircle, User, LogOut, ExternalLink, Users, ArrowLeft } from 'lucide-react';
@@ -55,18 +55,21 @@ export default function SocialManagementScreen({ user, onNavigate }: SocialManag
     setLoggedInProfiles(prev => ({ ...prev, [uid]: false }));
   };
 
-  const fetchRecentChats = (uid: string) => {
-    const q = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', uid),
-      orderBy('lastMessageAt', 'desc'),
-      limit(3)
-    );
+  const fetchRecentChats = async (uid: string) => {
+    try {
+      const q = query(
+        collection(db, 'chats'),
+        where('participants', 'array-contains', uid),
+        orderBy('lastMessageAt', 'desc'),
+        limit(3)
+      );
 
-    onSnapshot(q, (snap) => {
+      const snap = await getDocs(q);
       const chats = snap.docs.map(d => d.data() as Chat);
       setRecentChats(prev => ({ ...prev, [uid]: chats }));
-    });
+    } catch (error) {
+      console.error("Error fetching recent chats:", error);
+    }
   };
 
   if (user.role !== 'social_operator' && user.role !== 'admin') {

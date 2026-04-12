@@ -4,7 +4,7 @@ import { Users, Heart, RefreshCw, Sparkles } from "lucide-react";
 import SocialDiscoverScreen from "./SocialDiscoverScreen";
 import SocialMatchScreen from "./SocialMatchScreen";
 import SocialCompatibilityHistory from "./SocialCompatibilityHistory";
-import { UserProfile, FortuneType, FortuneReading, AppTab, AppConfig, Horoscope } from "../types";
+import { UserProfile, FortuneType, FortuneReading, AppTab, AppConfig } from "../types";
 import { getRemainingSwipes } from "../lib/swipeHelper";
 import { isSocialProfileReady } from "../lib/socialUtils";
 import { walletService } from "../lib/walletService";

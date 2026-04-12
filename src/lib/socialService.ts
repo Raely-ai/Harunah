@@ -555,6 +555,7 @@ export const socialService = {
       chatId,
       participants: [senderId, otherUserId],
       senderId,
+      receiverId: otherUserId,
       text: content.text || "",
       mediaUrl: content.mediaUrl || null,
       mediaType: content.mediaType || null,

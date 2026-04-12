@@ -36,7 +36,7 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string", "description": "Owner of the reading." },
-        "type": { "type": "string", "enum": ["coffee", "tarot", "horoscope", "dream"], "description": "Type of reading." },
+        "type": { "type": "string", "enum": ["coffee", "tarot", "dream"], "description": "Type of reading." },
         "content": { "type": "string", "description": "The generated reading text." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the reading was generated." }
       },

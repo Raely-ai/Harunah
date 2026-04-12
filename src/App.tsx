@@ -32,7 +32,7 @@ import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
-import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, Horoscope, EconomyConfig, normalizeUserProfile } from "./types";
+import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, EconomyConfig, normalizeUserProfile } from "./types";
 import { DEFAULT_ECONOMY_CONFIG } from "./constants";
 import { socialService } from "./lib/socialService";
 import { walletService } from "./lib/walletService";
@@ -65,8 +65,6 @@ function AppContent() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [previewUser, setPreviewUser] = useState<UserProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [horoscopes, setHoroscopes] = useState<Record<string, Horoscope>>({});
-  const [isHoroscopesLoading, setIsHoroscopesLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
@@ -182,25 +180,8 @@ function AppContent() {
   }, [user]);
 
   // Listen for global notifications
-  useEffect(() => {
-    if (!user || !userProfile) return;
-    
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Notifications are written to the database and visible in the Notifications screen.
-      // Toast notifications are disabled to prevent spam.
-    }, (error) => {
-      console.error('Notification listener error:', error);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+  // REMOVED: Global notification listener is too expensive. 
+  // Notifications are fetched on-demand in the Notifications screen.
 
   // AI Prompts State
   const [prompts, setPrompts] = useState<{type: FortuneType, content: string}[]>([
@@ -244,7 +225,6 @@ function AppContent() {
             email: user.email || "",
             displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
             photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
-            horoscope: 'Koç',
             dailyAdReadingsUsed: {
               coffee: 0,
               tarot: 0,
@@ -305,60 +285,58 @@ function AppContent() {
       return () => unsubscribe();
     }, [user]);
 
-  // Fetch Horoscopes (Lazy load only when needed)
-  useEffect(() => {
-    if (activeTab !== 'home' || Object.keys(horoscopes).length > 0 || isHoroscopesLoading) return;
-    
-    setIsHoroscopesLoading(true);
-    const fetchHoroscopes = async () => {
-      try {
-        const q = query(collection(db, "horoscopes"));
-        const snapshot = await getDocs(q);
-        const data: Record<string, Horoscope> = {};
-        snapshot.forEach(doc => {
-          data[doc.id] = doc.data() as Horoscope;
-        });
-        setHoroscopes(data);
-      } catch (err: any) {
-        if (err.message?.includes("quota")) setQuotaExceeded(true);
-        console.error("Horoscopes fetch error:", err);
-      } finally {
-        setIsHoroscopesLoading(false);
-      }
-    };
-    fetchHoroscopes();
-  }, [activeTab]);
-
   // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
   const [lastHistoryDoc, setLastHistoryDoc] = useState<any>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
-  useEffect(() => {
-    if (!user || (activeTab !== 'fortunes' && activeTab !== 'history')) return;
+  const fetchHistory = async (force = false) => {
+    if (!user) return;
     
-    // Initial fetch
-    const q = query(
-      collection(db, "readings"), 
-      where("userId", "==", user.uid), 
-      orderBy("createdAt", "desc"),
-      limit(20)
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // Check cache if not forced
+    if (!force) {
+      const cached = cacheManager.get<FortuneReading[]>(`userHistory_${user.uid}`);
+      if (cached) {
+        setHistory(cached);
+        return;
+      }
+    }
+
+    setIsHistoryLoading(true);
+    try {
+      const q = query(
+        collection(db, "readings"), 
+        where("userId", "==", user.uid), 
+        orderBy("createdAt", "desc"),
+        limit(20)
+      );
+      
+      const snapshot = await getDocs(q);
       const fetchedHistory: FortuneReading[] = [];
       snapshot.forEach((doc) => {
         fetchedHistory.push({ id: doc.id, ...doc.data() } as FortuneReading);
       });
+      
       setHistory(fetchedHistory);
       setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
       setHasMoreHistory(snapshot.docs.length === 20);
-    }, (err: any) => {
+      
+      // Cache for 5 minutes
+      cacheManager.set(`userHistory_${user.uid}`, fetchedHistory, 300);
+    } catch (err: any) {
       if (err.message?.includes("quota")) setQuotaExceeded(true);
       handleFirestoreError(err, OperationType.LIST, "readings");
-    });
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    if (!user) return;
+    // Fetch once on mount or when tab changes to history/fortunes
+    if (activeTab === 'fortunes' || activeTab === 'history' || activeTab === 'home') {
+      fetchHistory();
+    }
   }, [user, activeTab]);
 
   const loadMoreHistory = async () => {
@@ -600,6 +578,10 @@ function AppContent() {
 
       setActiveFortune(null);
       playSound('success');
+      
+      // Clear history cache to force refresh
+      cacheManager.clear(`userHistory_${user.uid}`);
+      fetchHistory(true);
       
       // Navigate to history to show the new reading status
       setActiveTab('fortunes');
@@ -899,7 +881,7 @@ function AppContent() {
                 history={history}
                 onDeleteHistory={handleDeleteHistory}
                 onToggleFavorite={handleToggleFavorite}
-                onRefreshHistory={syncReadings}
+                onRefreshHistory={() => fetchHistory(true)}
               />
             </motion.div>
           )}
@@ -936,7 +918,7 @@ function AppContent() {
                 onBack={() => handleNavigate('home')}
                 onDelete={handleDeleteHistory}
                 onToggleFavorite={handleToggleFavorite}
-                onRefresh={syncReadings}
+                onRefresh={() => fetchHistory(true)}
               />
             </motion.div>
           )}

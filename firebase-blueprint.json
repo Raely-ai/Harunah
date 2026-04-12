@@ -9,7 +9,6 @@
         "displayName": { "type": "string" },
         "email": { "type": "string" },
         "photoURL": { "type": "string" },
-        "horoscope": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "mainCoins": { "type": "integer", "default": 0 },
         "energy": { "type": "integer", "default": 0 },
@@ -33,7 +32,9 @@
             "photos": { "type": "array", "items": { "type": "string" } },
             "interests": { "type": "array", "items": { "type": "string" } },
             "visible": { "type": "boolean" },
-            "banned": { "type": "boolean" }
+            "banned": { "type": "boolean" },
+            "lastDiscoverRefreshAt": { "type": "string", "format": "date-time" },
+            "lastFreeRefreshAt": { "type": "string", "format": "date-time" }
           }
         },
         "subscription": {
@@ -145,17 +146,6 @@
           "description": "Prices for credit and subscription packages"
         }
       }
-    },
-    "Horoscope": {
-      "title": "Daily Horoscope",
-      "description": "Daily interpretations for each zodiac sign.",
-      "type": "object",
-      "properties": {
-        "sign": { "type": "string" },
-        "interpretation": { "type": "string" },
-        "date": { "type": "string", "format": "date" }
-      },
-      "required": ["sign", "interpretation", "date"]
     },
     "Notification": {
       "title": "Global Notification",
@@ -345,10 +335,6 @@
     "/readings/{readingId}": {
       "schema": "Reading",
       "description": "Fortune readings"
-    },
-    "/horoscopes/{horoscopeId}": {
-      "schema": "Horoscope",
-      "description": "Daily horoscopes"
     },
     "/notifications/{notificationId}": {
       "schema": "Notification",

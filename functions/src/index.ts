@@ -1127,18 +1127,16 @@ export const refreshDiscover = functions.https.onCall(async (data, context) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
     const userData = userSnap.data() as any;
-    const today = now.toISOString().split('T')[0];
-    const lastReset = userData.dailySwipeDate || "";
+    const lastFreeRefreshAt = userData.social?.lastFreeRefreshAt;
+    const isFreeAvailable = !lastFreeRefreshAt || (now.getTime() - new Date(lastFreeRefreshAt).getTime() >= 24 * 60 * 60 * 1000);
 
     let consumedFrom = 'paid';
-    const sub = userData.subscription;
-    const isPremium = sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now;
     
     // Check for Free Daily Bonus
-    if (isPremium && lastReset === today && !userData.dailyFreeRefreshUsed) {
+    if (isFreeAvailable) {
       consumedFrom = 'daily_bonus';
       transaction.update(userRef, { 
-        dailyFreeRefreshUsed: true,
+        "social.lastFreeRefreshAt": now.toISOString(),
         "social.lastDiscoverRefreshAt": now.toISOString()
       });
     } else {
@@ -1626,7 +1624,6 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
     photos, 
     bio,
     zodiacSign,
-    horoscope, // fallback
     element,
     rulingPlanet,
     planet, // fallback
@@ -1684,7 +1681,7 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
         photos,
         bio,
         birthDate,
-        zodiacSign: zodiacSign || horoscope || "",
+        zodiacSign: zodiacSign || "",
         element: element || "",
         rulingPlanet: rulingPlanet || planet || "",
         friendlySign: friendlySign || "",
@@ -1855,23 +1852,23 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
       if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
       
-      const today = now.toISOString().split('T')[0];
-      const lastReset = userData.dailySwipeDate || "";
-      const sub = userData.subscription;
-      const isPremium = sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now;
-
-      let isFreeAvailable = false;
+      const lastFreeRefreshAt = userData.social?.lastFreeRefreshAt;
+      const isFreeAvailable = !lastFreeRefreshAt || (now.getTime() - new Date(lastFreeRefreshAt).getTime() >= 24 * 60 * 60 * 1000);
       
-      // Check for Premium Daily Bonus
-      if (isPremium && lastReset === today && !userData.dailyFreeRefreshUsed) {
-        isFreeAvailable = true;
-        transaction.update(userRef, { dailyFreeRefreshUsed: true });
+      if (isFreeAvailable) {
+        transaction.update(userRef, { 
+          "social.lastFreeRefreshAt": nowIso,
+          "social.lastDiscoverRefreshAt": nowIso
+        });
       } else {
         // Fallback to existing refreshCount
         if ((userData.refreshCount || 0) <= 0) {
           throw new Error("Yetersiz yenileme hakkı.");
         }
-        transaction.update(userRef, { refreshCount: FieldValue.increment(-1) });
+        transaction.update(userRef, { 
+          refreshCount: FieldValue.increment(-1),
+          "social.lastDiscoverRefreshAt": nowIso
+        });
       }
       
       // Get new users

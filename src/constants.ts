@@ -46,7 +46,6 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     ebced: 250,
     yildizname: 300,
     havas: 500,
-    horoscope: 50,
     dream: 100,
     extraQuestion: 50,
     priorityFee: 100
@@ -67,7 +66,6 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     ebced: DEFAULT_AI_CONFIG,
     yildizname: DEFAULT_AI_CONFIG,
     havas: DEFAULT_AI_CONFIG,
-    horoscope: DEFAULT_AI_CONFIG,
     dream: DEFAULT_AI_CONFIG
   },
   rewards: {

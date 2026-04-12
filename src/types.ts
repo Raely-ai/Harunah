@@ -1,4 +1,4 @@
-export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' | 'havas' | 'horoscope' | 'dream';
+export type FortuneType = 'coffee' | 'tarot' | 'water' | 'ebced' | 'yildizname' | 'havas' | 'dream';
 
 export type AuthScreen = 'welcome' | 'login' | 'register' | 'forgot-password';
 
@@ -152,7 +152,6 @@ export interface UserProfile {
   jobStatus?: string;
   gender?: string;
   extraInfo?: string;
-  horoscope?: string;
   createdAt: string;
   // Wallet & Economy (New Structure)
   mainCoins: number;
@@ -408,7 +407,6 @@ export interface EconomyConfig {
     ebced: number;
     yildizname: number;
     havas: number;
-    horoscope: number;
     dream: number;
     extraQuestion: number;
     priorityFee: number;
@@ -492,7 +490,6 @@ export interface AppConfig {
     ebced: number;
     yildizname: number;
     havas: number;
-    horoscope: number;
     dream: number;
     extraQuestion: number;
     priorityFee: number;
@@ -548,13 +545,6 @@ export interface AppConfig {
     weekly: number;
     monthly: number;
   };
-}
-
-export interface Horoscope {
-  id?: string;
-  sign: string;
-  content: string;
-  date: string;
 }
 
 export interface SocialTransaction {
@@ -761,12 +751,14 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string;
+  receiverId?: string;
+  participants?: string[];
   text?: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'video';
   createdAt: any;
   seen: boolean; // Deprecated, use status
-  status: 'sent' | 'delivered' | 'seen';
+  status: 'sent' | 'delivered' | 'seen' | 'sending';
   type: 'text' | 'image' | 'video' | 'system';
   editedAt?: any;
   isDeleted?: boolean;

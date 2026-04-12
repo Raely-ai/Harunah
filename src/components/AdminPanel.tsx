@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, OperationType, handleFirestoreError, auth } from '../lib/firebase';
 import { 
   doc, setDoc, getDocs, collection, updateDoc, getDoc, 
-  query, orderBy, limit, addDoc, onSnapshot, where, deleteDoc 
+  query, orderBy, limit, addDoc, where, deleteDoc 
 } from 'firebase/firestore';
 import { 
   Save, RefreshCw, ChevronLeft, Users, MessageSquare, 
