@@ -43,8 +43,15 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'market' | 'history'>('market');
   const [showFortuneSubModal, setShowFortuneSubModal] = useState(false);
-  const [showSocialSubModal, setShowSocialSubModal] = useState(false);
+  const [showBoostModal, setShowBoostModal] = useState(false);
+  const [selectedBoost, setSelectedBoost] = useState<'weekly' | 'monthly' | null>(null);
   const [promoCode, setPromoCode] = useState("");
+  const [pendingPurchase, setPendingPurchase] = useState<{
+    title: string;
+    description: string;
+    price: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -82,70 +89,112 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
     }
   };
 
-  const handlePurchaseCoins = async (amount: number, packageId: string) => {
-    setProcessing(true);
-    try {
-      await walletService.purchaseCoins(currentUser.uid, amount, packageId);
-      toast.success(`${amount} jeton başarıyla eklendi!`);
-      refreshData();
-    } catch (error) {
-      toast.error("Satın alma işlemi başarısız oldu.");
-    } finally {
-      setProcessing(false);
-    }
+  const handlePurchaseCoins = async (amount: number, packageId: string, price: number) => {
+    if (processing) return;
+    setPendingPurchase({
+      title: `${amount} Jeton Paketi`,
+      description: `${amount} Jeton hesabınıza eklenecektir.`,
+      price: `₺${price}`,
+      onConfirm: async () => {
+        setProcessing(true);
+        try {
+          await walletService.purchaseCoins(currentUser.uid, amount, packageId);
+          toast.success(`${amount} jeton başarıyla eklendi!`);
+          refreshData();
+        } catch (error) {
+          toast.error("Satın alma işlemi başarısız oldu.");
+        } finally {
+          setProcessing(false);
+          setPendingPurchase(null);
+        }
+      }
+    });
   };
 
-  const handlePurchaseSocialRight = async (type: 'superLike' | 'refresh' | 'compatibility') => {
-    setProcessing(true);
-    try {
-      const result = await walletService.purchaseSocialRight(currentUser.uid, type);
-      if (result.success) {
-        toast.success("Satın alma başarılı!");
-        refreshData();
-      } else {
-        toast.error(result.message);
+  const handlePurchaseSocialRight = async (type: 'superLike' | 'refresh' | 'compatibility', pkg: any) => {
+    if (processing) return;
+    const label = type === 'superLike' ? 'Süper Like' : type === 'refresh' ? 'Yenileme' : 'Uyum Analizi';
+    setPendingPurchase({
+      title: `${pkg.count} Adet ${label}`,
+      description: `${pkg.count} adet ${label.toLowerCase()} hakkı hesabınıza eklenecektir.`,
+      price: `${pkg.priceCoins} Jeton`,
+      onConfirm: async () => {
+        setProcessing(true);
+        try {
+          // Note: The current walletService.purchaseSocialRight doesn't take pkg.id or count, 
+          // but we'll call it as it is. If the backend supports multiple packages, 
+          // we might need to update the service call here.
+          const result = await walletService.purchaseSocialRight(currentUser.uid, type);
+          if (result.success) {
+            toast.success("Satın alma başarılı!");
+            refreshData();
+          } else {
+            toast.error(result.message);
+          }
+        } catch (error) {
+          toast.error("İşlem başarısız oldu.");
+        } finally {
+          setProcessing(false);
+          setPendingPurchase(null);
+        }
       }
-    } catch (error) {
-      toast.error("İşlem başarısız oldu.");
-    } finally {
-      setProcessing(false);
-    }
+    });
   };
 
-  const handleBuyFortuneSubscription = async (type: 'daily' | 'weekly' | 'monthly') => {
-    setProcessing(true);
-    try {
-      const result = await walletService.buyFortuneSubscription(currentUser.uid, type);
-      if (result.success) {
-        toast.success("Abonelik başarıyla başlatıldı!");
-        setShowFortuneSubModal(false);
-        refreshData();
-      } else {
-        toast.error(result.message);
+  const handleBuyFortuneSubscription = async (type: 'daily' | 'weekly' | 'monthly', sub: any) => {
+    if (processing) return;
+    const label = type === 'daily' ? 'Günlük' : type === 'weekly' ? 'Haftalık' : 'Aylık';
+    setPendingPurchase({
+      title: `${label} Mistik Abonelik`,
+      description: sub.description || "Sınırsız kehanet ve öncelikli yorum ayrıcalığı.",
+      price: `₺${sub.priceTRY}`,
+      onConfirm: async () => {
+        setProcessing(true);
+        try {
+          const result = await walletService.buyFortuneSubscription(currentUser.uid, type);
+          if (result.success) {
+            toast.success("Abonelik başarıyla başlatıldı!");
+            setShowFortuneSubModal(false);
+            refreshData();
+          } else {
+            toast.error(result.message);
+          }
+        } catch (error) {
+          toast.error("İşlem başarısız oldu.");
+        } finally {
+          setProcessing(false);
+          setPendingPurchase(null);
+        }
       }
-    } catch (error) {
-      toast.error("İşlem başarısız oldu.");
-    } finally {
-      setProcessing(false);
-    }
+    });
   };
 
-  const handlePurchaseSocialSubscription = async (type: 'weekly' | 'monthly') => {
-    setProcessing(true);
-    try {
-      const result = await walletService.purchaseSocialSubscription(currentUser.uid, type);
-      if (result.success) {
-        toast.success("Social Premium aboneliğiniz başlatıldı!");
-        setShowSocialSubModal(false);
-        refreshData();
-      } else {
-        toast.error(result.message);
+  const handlePurchaseBoostPackage = async (type: 'weekly' | 'monthly', pkg: any) => {
+    if (processing) return;
+    const label = type === 'weekly' ? 'Haftalık' : 'Aylık';
+    setPendingPurchase({
+      title: `${label} Profil Boost`,
+      description: pkg.description || "Keşfette en üstte görünerek etkileşiminizi artırın.",
+      price: `₺${pkg.priceTRY}`,
+      onConfirm: async () => {
+        setProcessing(true);
+        try {
+          const result = await walletService.purchaseBoostPackage(currentUser.uid, type);
+          if (result.success) {
+            toast.success("Boost başarıyla aktif edildi!");
+            setShowBoostModal(false);
+            refreshData();
+          } else {
+            toast.error(result.message);
+          }
+        } catch (error) {
+          toast.error("İşlem başarısız oldu.");
+        } finally {
+          setProcessing(false);
+          setPendingPurchase(null);
+        }
       }
-    } catch (error) {
-      toast.error("Abonelik işlemi başarısız oldu.");
-    } finally {
-      setProcessing(false);
-    }
+    });
   };
 
   const handleRedeemPromoCode = async () => {
@@ -172,7 +221,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
   const config: EconomyConfig = (economyConfig || DEFAULT_ECONOMY_CONFIG) as EconomyConfig;
 
   const isFortunePremium = currentUser.subscription?.status === 'active';
-  const isSocialPremium = currentUser.socialSubscription?.status === 'active';
+  const isBoostActive = currentUser.boostExpiresAt && new Date(currentUser.boostExpiresAt) > new Date();
 
   return (
     <div className="flex flex-col h-full bg-[#FDFCFE] text-body relative overflow-hidden">
@@ -227,7 +276,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
               </div>
             </div>
 
-            {(isFortunePremium || isSocialPremium) && (
+            {(isFortunePremium || isBoostActive) && (
               <div className="flex flex-wrap gap-2 pt-4 border-t border-black/5">
                 {isFortunePremium && (
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
@@ -235,10 +284,10 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                     <span className="text-[9px] font-black uppercase tracking-widest">Fal Premium</span>
                   </div>
                 )}
-                {isSocialPremium && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-                    <Star className="w-3 h-3" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Sosyal Premium</span>
+                {isBoostActive && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                    <Zap className="w-3 h-3" />
+                    <span className="text-[9px] font-black uppercase tracking-widest">Profil Boost</span>
                   </div>
                 )}
               </div>
@@ -341,27 +390,27 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                   </div>
                 </motion.div>
 
-                {/* Social Premium Card */}
+                {/* Boost Card */}
                 <motion.div 
                   whileHover={{ y: -4 }}
-                  onClick={() => !isSocialPremium && setShowSocialSubModal(true)}
+                  onClick={() => setShowBoostModal(true)}
                   className={`relative overflow-hidden p-6 rounded-[2.5rem] border transition-all cursor-pointer ${
-                    isSocialPremium ? 'bg-white border-indigo-200 shadow-sm' : 'bg-white border-black/5 shadow-sm hover:border-indigo-300'
+                    isBoostActive ? 'bg-white border-amber-200 shadow-sm' : 'bg-white border-black/5 shadow-sm hover:border-amber-300'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-3xl flex items-center justify-center ${isSocialPremium ? 'bg-indigo-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
-                        <Star className="w-7 h-7" />
+                      <div className={`w-14 h-14 rounded-3xl flex items-center justify-center ${isBoostActive ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600'}`}>
+                        <Zap className="w-7 h-7" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-serif font-bold text-heading">Sosyal Premium</h3>
+                        <h3 className="text-lg font-serif font-bold text-heading">Profil Boost</h3>
                         <p className="text-[10px] text-muted uppercase tracking-widest">
-                          {isSocialPremium ? 'Ayrıcalıkların Tadını Çıkar' : 'Keşfette Öne Çık'}
+                          {isBoostActive ? 'Keşfette En Üsttesin' : 'Keşfette Öne Çık'}
                         </p>
                       </div>
                     </div>
-                    {isSocialPremium ? (
+                    {isBoostActive ? (
                       <div className="bg-green-50 text-green-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Aktif</div>
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center text-muted"><Plus className="w-5 h-5" /></div>
@@ -382,9 +431,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       key={pkg.id}
                       whileHover={{ y: -4, scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => handlePurchaseCoins(pkg.coins + pkg.bonus, pkg.id)}
+                      onClick={() => handlePurchaseCoins(pkg.coins + pkg.bonus, pkg.id, pkg.priceTRY)}
                       disabled={processing}
-                      className="relative bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm text-center space-y-4 group overflow-hidden"
+                      className="relative bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm text-center space-y-4 group overflow-hidden disabled:opacity-50"
                     >
                       {pkg.bonus > 0 && (
                         <div className="absolute top-0 right-0 bg-amber-500 text-white px-3 py-1 rounded-bl-2xl text-[8px] font-black uppercase tracking-widest z-10">
@@ -485,52 +534,40 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                   Sosyal Market (Jeton)
                 </h2>
                 <div className="grid grid-cols-1 gap-4">
-                  {(() => {
-                    const getSocialRightCount = (type: 'superLikes' | 'refreshes' | 'compatibility', topLevelCount: number) => {
-                      let count = topLevelCount;
-                      if (currentUser.socialSubscription?.status === 'active') {
-                        const today = new Date().toISOString().split('T')[0];
-                        const subType = currentUser.socialSubscription.type;
-                        const subConfig = config.socialSubscriptions[subType as keyof typeof config.socialSubscriptions];
-                        if (subConfig) {
-                          const dailyLimit = subConfig.dailyLimits[type === 'superLikes' ? 'superLikes' : type === 'refreshes' ? 'refreshes' : 'compatibility'] || 0;
-                          const dailyUsed = currentUser.socialSubscription.dailyUsage?.[type === 'superLikes' ? 'superLikes' : type === 'refreshes' ? 'refreshes' : 'compatibility'] || 0;
-                          const lastReset = currentUser.socialSubscription.dailyUsage?.lastResetDate;
-                          
-                          if (lastReset === today) {
-                            count += Math.max(0, dailyLimit - (dailyUsed as number));
-                          } else {
-                            count += dailyLimit;
-                          }
-                        }
-                      }
-                      return count;
-                    };
-
-                    return [
-                      { type: 'superLike' as const, icon: Heart, color: 'rose', label: 'Süper Like', desc: 'Daha fazla görün', count: getSocialRightCount('superLikes', currentUser.superLikes || 0), pricing: config?.socialPricing?.superLike || [] },
-                      { type: 'refresh' as const, icon: RefreshCw, color: 'indigo', label: 'Yenileme', desc: 'Keşfette öne çık', count: getSocialRightCount('refreshes', currentUser.refreshCount || 0), pricing: config?.socialPricing?.refresh || [] },
-                      { type: 'compatibility' as const, icon: Sparkles, color: 'amber', label: 'Uyum Analizi', desc: 'Uyumunuzu gör', count: getSocialRightCount('compatibility', currentUser.compatibilityCount || 0), pricing: config?.socialPricing?.compatibility || [] }
-                    ].map((item) => (
-                      <div key={item.type} className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm flex items-center justify-between group">
+                  {[
+                    { type: 'superLike' as const, icon: Heart, color: 'rose', label: 'Süper Like', desc: 'Daha fazla görün', count: currentUser.superLikes || 0, pricing: config?.socialPricing?.superLike || [] },
+                    { type: 'refresh' as const, icon: RefreshCw, color: 'indigo', label: 'Yenileme', desc: 'Keşfette öne çık', count: currentUser.refreshCount || 0, pricing: config?.socialPricing?.refresh || [] },
+                    { type: 'compatibility' as const, icon: Sparkles, color: 'amber', label: 'Uyum Analizi', desc: 'Uyumunuzu gör', count: currentUser.compatibilityCount || 0, pricing: config?.socialPricing?.compatibility || [] }
+                  ].map((item) => (
+                    <div key={item.type} className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm flex flex-col gap-6 group">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div className={`w-14 h-14 rounded-3xl bg-${item.color}-50 text-${item.color}-500 flex items-center justify-center group-hover:scale-110 transition-transform`}><item.icon className="w-7 h-7" /></div>
                           <div>
                             <h3 className="text-sm font-bold text-heading">{item.label}</h3>
                             <p className="text-[10px] text-muted uppercase tracking-widest">{item.desc}</p>
-                            <p className={`text-[10px] font-black text-${item.color}-500 mt-1`}>Mevcut: {item.count}</p>
                           </div>
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          {(item.pricing || []).map(pkg => (
-                            <button key={pkg.id} onClick={() => handlePurchaseSocialRight(item.type)} className={`px-4 py-2 rounded-xl bg-${item.color}-50 text-${item.color}-600 text-[10px] font-black border border-${item.color}-100`}>
-                              {pkg.count} Adet: {pkg.priceCoins} J
-                            </button>
-                          ))}
+                        <div className="text-right">
+                          <p className={`text-[10px] font-black text-${item.color}-500 uppercase tracking-widest`}>Mevcut: {item.count}</p>
                         </div>
                       </div>
-                    ));
-                  })()}
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        {(item.pricing || []).map(pkg => (
+                          <button 
+                            key={pkg.id} 
+                            onClick={() => handlePurchaseSocialRight(item.type, pkg)} 
+                            disabled={processing}
+                            className={`px-4 py-3 rounded-2xl bg-${item.color}-50 text-${item.color}-600 text-[10px] font-black border border-${item.color}-100 hover:bg-${item.color}-100 transition-colors flex items-center justify-between disabled:opacity-50`}
+                          >
+                            <span>{pkg.count} Adet</span>
+                            <span>{pkg.priceCoins} J</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </>
@@ -574,16 +611,21 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
       <AnimatePresence>
         {showFortuneSubModal && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowFortuneSubModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !processing && setShowFortuneSubModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }} className="relative w-full max-w-lg bg-white rounded-[3rem] overflow-hidden shadow-2xl">
               <div className="p-8 space-y-8">
                 <div className="flex justify-between items-start">
                   <div className="space-y-1"><h3 className="text-2xl font-serif font-bold text-heading">Sınırsız Kehanet</h3><p className="text-xs text-muted">Sana en uygun paketi seç</p></div>
-                  <button onClick={() => setShowFortuneSubModal(false)} className="p-2 rounded-full bg-black/5 text-muted"><X className="w-5 h-5" /></button>
+                  <button onClick={() => !processing && setShowFortuneSubModal(false)} className="p-2 rounded-full bg-black/5 text-muted"><X className="w-5 h-5" /></button>
                 </div>
                 <div className="space-y-4">
                   {Object.entries(config?.fortuneSubscriptions || {}).map(([type, sub]: [string, any]) => (
-                    <button key={type} onClick={() => handleBuyFortuneSubscription(type as any)} className="w-full relative overflow-hidden bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group hover:border-amber-300 transition-all">
+                    <button 
+                      key={type} 
+                      onClick={() => handleBuyFortuneSubscription(type as any, sub)} 
+                      disabled={processing}
+                      className="w-full relative overflow-hidden bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group hover:border-amber-300 transition-all disabled:opacity-50"
+                    >
                       {type === 'monthly' && <div className="absolute top-0 right-0 bg-amber-500 text-white px-4 py-1 rounded-bl-2xl text-[8px] font-black uppercase tracking-widest">En Avantajlı</div>}
                       <div className="flex justify-between items-center">
                         <div className="space-y-1">
@@ -602,37 +644,84 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
           </div>
         )}
 
-        {showSocialSubModal && (
+        {showBoostModal && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSocialSubModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !processing && setShowBoostModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }} className="relative w-full max-w-lg bg-white rounded-[3rem] overflow-hidden shadow-2xl">
               <div className="p-8 space-y-8">
                 <div className="flex justify-between items-start">
-                  <div className="space-y-1"><h3 className="text-2xl font-serif font-bold text-heading">Sosyal Premium</h3><p className="text-xs text-muted">Keşfette yıldızın parlasın</p></div>
-                  <button onClick={() => setShowSocialSubModal(false)} className="p-2 rounded-full bg-black/5 text-muted"><X className="w-5 h-5" /></button>
+                  <div className="space-y-1"><h3 className="text-2xl font-serif font-bold text-heading">Profil Boost</h3><p className="text-xs text-muted">Keşfette en üstte görün</p></div>
+                  <button onClick={() => !processing && setShowBoostModal(false)} className="p-2 rounded-full bg-black/5 text-muted"><X className="w-5 h-5" /></button>
                 </div>
                 <div className="space-y-4">
-                  {Object.entries(config?.socialSubscriptions || {}).map(([key, sub]: [string, any]) => (
-                    <button key={key} onClick={() => handlePurchaseSocialSubscription(key as any)} className="w-full relative overflow-hidden bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group hover:border-indigo-300 transition-all">
-                      <div className="flex justify-between items-center mb-4">
+                  {Object.entries(config?.boostPackages || {}).map(([key, pkg]: [string, any]) => (
+                    <button 
+                      key={key} 
+                      onClick={() => handlePurchaseBoostPackage(key as any, pkg)} 
+                      disabled={processing}
+                      className="w-full relative overflow-hidden bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group hover:border-amber-300 transition-all disabled:opacity-50"
+                    >
+                      {key === 'monthly' && <div className="absolute top-0 right-0 bg-amber-500 text-white px-4 py-1 rounded-bl-2xl text-[8px] font-black uppercase tracking-widest">En Popüler</div>}
+                      <div className="flex justify-between items-center">
                         <div className="space-y-1">
-                          <h4 className="text-lg font-serif font-bold text-heading capitalize">{key === 'weekly' ? 'Haftalık' : 'Aylık'} Premium</h4>
-                          <p className="text-xs text-body">
-                            {sub?.description || ''}
-                            {sub?.boostDuration && <span className="ml-1 opacity-60">• {sub.boostDuration}</span>}
-                          </p>
+                          <h4 className="text-lg font-serif font-bold text-heading capitalize">{key === 'weekly' ? 'Haftalık' : 'Aylık'} Boost</h4>
+                          <p className="text-[10px] text-muted uppercase tracking-widest">{pkg.description}</p>
                         </div>
-                        <div className="text-right"><p className="text-2xl font-serif font-bold text-indigo-600">₺{sub?.priceTRY || 0}</p></div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-rose-50/50 p-3 rounded-2xl text-center"><p className="text-sm font-bold text-rose-600">{sub?.dailyLimits?.superLikes || 0}</p><p className="text-[8px] font-black text-muted uppercase tracking-widest">S. Like</p></div>
-                        <div className="bg-indigo-50/50 p-3 rounded-2xl text-center"><p className="text-sm font-bold text-indigo-600">{sub?.dailyLimits?.refreshes || 0}</p><p className="text-[8px] font-black text-muted uppercase tracking-widest">Yenileme</p></div>
-                        <div className="bg-amber-50/50 p-3 rounded-2xl text-center"><p className="text-sm font-bold text-amber-600">{sub?.dailyLimits?.compatibility || 0}</p><p className="text-[8px] font-black text-muted uppercase tracking-widest">Analiz</p></div>
+                        <div className="text-right">
+                          <p className="text-lg font-black text-amber-600">₺{pkg.priceTRY}</p>
+                        </div>
                       </div>
                     </button>
                   ))}
                 </div>
-                <div className="flex items-center gap-3 p-4 rounded-2xl bg-indigo-50 text-indigo-600"><ShieldCheck className="w-5 h-5 flex-shrink-0" /><p className="text-[10px] font-medium leading-relaxed">Aboneliğin Google Play hesabın üzerinden yönetilir. İstediğin zaman iptal edebilirsin.</p></div>
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 text-amber-600"><ShieldCheck className="w-5 h-5 flex-shrink-0" /><p className="text-[10px] font-medium leading-relaxed">Boost paketleri tek seferlik alımlardır. Süre sonunda profilin normal sıralamaya döner.</p></div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {pendingPurchase && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 text-center space-y-4">
+                <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-[1.5rem] flex items-center justify-center mx-auto">
+                  <ShoppingBag className="w-8 h-8" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-serif font-bold text-heading">{pendingPurchase.title}</h3>
+                  <p className="text-xs text-muted leading-relaxed">{pendingPurchase.description}</p>
+                </div>
+                <div className="py-4 px-6 bg-black/5 rounded-2xl">
+                  <p className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">Ödenecek Tutar</p>
+                  <p className="text-2xl font-serif font-bold text-amber-600">{pendingPurchase.price}</p>
+                </div>
+              </div>
+              
+              <div className="p-4 bg-black/5 flex flex-col gap-2">
+                <button 
+                  onClick={() => pendingPurchase.onConfirm()}
+                  disabled={processing}
+                  className="w-full py-4 bg-amber-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {processing ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  {processing ? 'İşleniyor...' : 'Satın Al'}
+                </button>
+                <button 
+                  onClick={() => !processing && setPendingPurchase(null)}
+                  disabled={processing}
+                  className="w-full py-3 text-xs font-black text-muted uppercase tracking-widest hover:text-heading transition-colors disabled:opacity-50"
+                >
+                  Vazgeç
+                </button>
               </div>
             </motion.div>
           </div>

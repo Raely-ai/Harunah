@@ -82,12 +82,11 @@ export interface PromoCode {
     energy?: number;
     mainCoins?: number;
     fortuneSubscription?: 'daily' | 'weekly' | 'monthly';
-    socialSubscription?: 'weekly' | 'monthly';
+    boostDays?: number;
     socialFeatures?: {
       superLike?: number;
       refresh?: number;
       analysis?: number;
-      boostDays?: number;
     };
   };
   createdAt: string;
@@ -103,6 +102,45 @@ export interface PromoCodeRedemption {
   redeemedAt: string;
   rewards: any;
 }
+
+export interface CompatibilityHistory {
+  id: string;
+  userId: string;
+  source: 'discover' | 'manual';
+  targetUserId: string;
+  targetName: string;
+  targetPhoto: string;
+  relationshipType: RelationshipType;
+  loveScore: number;
+  friendshipScore: number;
+  energyScore: number;
+  summaryShort: string;
+  summaryLong: string;
+  createdAt: string;
+  cacheKey: string;
+  person1?: {
+    name: string;
+    birthDate: string;
+    status: string;
+    photo: string;
+  };
+  person2?: {
+    name: string;
+    birthDate: string;
+    status: string;
+    photo: string;
+  };
+}
+
+export type RelationshipType = 
+  | 'ask' 
+  | 'arkadas' 
+  | 'flirt' 
+  | 'platonik' 
+  | 'gorucu_usulu' 
+  | 'eski_sevgili' 
+  | 'karsiliksiz_sevgi' 
+  | 'evlilik_adayi';
 
 export interface UserProfile {
   uid: string;
@@ -186,6 +224,8 @@ export interface UserProfile {
     };
     lastDiscoverRefreshAt?: string;
     discoverRefreshCredits?: number;
+    lastFreeRefreshAt?: string;
+    recentDiscoverIds?: string[];
   };
 
   zodiacSign?: string;
@@ -205,25 +245,13 @@ export interface UserProfile {
   dailySwipeLimit?: number;
   dailySwipeUsed?: number;
   dailySwipeDate?: string;
+  dailyFreeRefreshUsed?: boolean;
+  dailyFreeSuperLikeUsed?: boolean;
   extraSwipeLimit?: number;
   
   // Social Wallet Fields
   boostExpiresAt?: string;
-  socialSubscriptionType?: 'none' | 'daily' | 'weekly' | 'monthly';
-  socialSubscriptionExpireAt?: string;
-
-  socialSubscription?: {
-    status: 'active' | 'inactive' | 'expired' | 'none';
-    type: 'weekly' | 'monthly' | 'none';
-    expiresAt: string;
-    dailyUsage: {
-      superLikes: number;
-      refreshes: number;
-      compatibility: number;
-      lastResetDate: string;
-    };
-  };
-
+  
   subscription?: {
     status: 'active' | 'inactive' | 'expired' | 'none';
     type: 'none' | 'daily' | 'weekly' | 'monthly';
@@ -304,20 +332,6 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
     };
   }
 
-  if (!profile.socialSubscription) {
-    profile.socialSubscription = {
-      status: 'none',
-      type: 'none',
-      expiresAt: new Date().toISOString(),
-      dailyUsage: {
-        superLikes: 0,
-        refreshes: 0,
-        compatibility: 0,
-        lastResetDate: new Date().toISOString().split('T')[0]
-      }
-    };
-  }
-
   return profile;
 }
 
@@ -350,18 +364,10 @@ export interface AdminWalletConfig {
     monthly: { price: number, dailyLimit: number, description: string };
   };
 
-  // Social Subscriptions (TL)
-  socialSubscriptions: {
-    weekly: { 
-      price: number, 
-      dailyLimits: { superLikes: number, refreshes: number, compatibility: number },
-      description: string 
-    };
-    monthly: { 
-      price: number, 
-      dailyLimits: { superLikes: number, refreshes: number, compatibility: number },
-      description: string 
-    };
+  // Boost Packages (TL)
+  boostPackages: {
+    weekly: { price: number, days: number, description: string };
+    monthly: { price: number, days: number, description: string };
   };
 
   // Social Rights (Bought with Main Coins)
@@ -450,19 +456,9 @@ export interface EconomyConfig {
     refresh: { id: string; count: number; priceCoins: number }[];
     compatibility: { id: string; count: number; priceCoins: number }[];
   };
-  socialSubscriptions: {
-    weekly: { 
-      priceTRY: number; 
-      dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
-      description: string;
-      boostDuration?: string;
-    };
-    monthly: { 
-      priceTRY: number; 
-      dailyLimits: { superLikes: number; refreshes: number; compatibility: number };
-      description: string;
-      boostDuration?: string;
-    };
+  boostPackages: {
+    weekly: { priceTRY: number; days: number; description: string };
+    monthly: { priceTRY: number; days: number; description: string };
   };
   fortuneSubscriptions: {
     daily: { priceTRY: number; dailyLimit: number; description: string };

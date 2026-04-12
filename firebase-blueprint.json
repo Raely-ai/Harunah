@@ -18,6 +18,7 @@
         "compatibilityCount": { "type": "integer", "default": 0 },
         "dailyAdWatchCount": { "type": "integer", "default": 0 },
         "lastAdReset": { "type": "string", "format": "date-time" },
+        "boostExpiresAt": { "type": "string", "format": "date-time" },
         "isBanned": { "type": "boolean", "default": false },
         "role": { "type": "string", "enum": ["user", "admin", "social_operator"], "default": "user" },
         "social": {
@@ -300,6 +301,28 @@
         "rewards": { "type": "object" }
       },
       "required": ["promoCodeId", "code", "userId", "redeemedAt"]
+    },
+    "CompatibilityHistory": {
+      "title": "Compatibility History",
+      "description": "Stores results of compatibility analyses between users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "source": { "type": "string", "enum": ["discover", "manual"] },
+        "targetUserId": { "type": "string" },
+        "targetName": { "type": "string" },
+        "targetPhoto": { "type": "string" },
+        "relationshipType": { "type": "string" },
+        "loveScore": { "type": "integer" },
+        "friendshipScore": { "type": "integer" },
+        "energyScore": { "type": "integer" },
+        "summaryShort": { "type": "string" },
+        "summaryLong": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "cacheKey": { "type": "string" }
+      },
+      "required": ["id", "userId", "targetUserId", "relationshipType", "createdAt", "cacheKey"]
     }
   },
   "firestore": {
@@ -362,6 +385,10 @@
     "/promoCodeRedemptions/{redemptionId}": {
       "schema": "PromoCodeRedemption",
       "description": "Redemption logs for promo codes"
+    },
+    "/compatibilityHistory/{id}": {
+      "schema": "CompatibilityHistory",
+      "description": "History of compatibility analyses"
     }
   }
 }

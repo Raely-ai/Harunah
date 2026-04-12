@@ -92,32 +92,6 @@ function AppContent() {
     };
   }, [user?.uid]);
 
-  useEffect(() => {
-    // Auto-fix: If profile has core data but flag is missing, fix it.
-    if (userProfile && !userProfile.social?.profileCompleted) {
-      const hasNickname = !!(userProfile.social?.nickname || userProfile.nickname);
-      const hasPhotos = (userProfile.social?.photos?.length || 0) > 0 || (userProfile.photos?.length || 0) > 0;
-      const hasGender = !!(userProfile.social?.gender || userProfile.gender);
-
-      if (hasNickname && hasPhotos && hasGender) {
-        const fixProfileFlag = async () => {
-          try {
-            const { doc, updateDoc } = await import("firebase/firestore");
-            await updateDoc(doc(db, "users", userProfile.uid), { 
-              "social.profileCompleted": true,
-              "social.enabled": true,
-              "social.visible": true
-            });
-            console.log("Auto-fixed social profile flags for user:", userProfile.uid);
-          } catch (error) {
-            console.error("Auto-fix profile flag error:", error);
-          }
-        };
-        fixProfileFlag();
-      }
-    }
-  }, [userProfile]);
-
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
   // Admin Preview Mode
@@ -186,7 +160,7 @@ function AppContent() {
           aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
           rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
           socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
-          socialSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.socialSubscriptions, ...(data.socialSubscriptions || {}) },
+          boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
           fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
         } as EconomyConfig);
       } else {
@@ -884,7 +858,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-20"
+              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
             >
               <SocialMessagesScreen 
                 currentUser={activeProfile}
@@ -901,7 +875,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8]"
+              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
             >
               <HistoryScreen 
                 history={history}
@@ -921,7 +895,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8]"
+              className="fixed inset-0 z-40 bg-[#F6F4F8] pb-32"
             >
               <SocialWalletScreen 
                 currentUser={activeProfile}
@@ -1013,7 +987,7 @@ function AppContent() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="min-h-screen pb-20"
+              className="min-h-screen pb-32"
             >
               <SocialManagementScreen 
                 user={activeProfile} 

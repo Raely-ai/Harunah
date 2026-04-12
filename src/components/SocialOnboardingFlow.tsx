@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { doc, updateDoc } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { calculateMysticProfile } from "../lib/mysticProfileHelper";
+import { walletService } from "../lib/walletService";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -73,26 +74,6 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
     }
   };
 
-  const updateFirestore = async (data: any) => {
-    if (!auth.currentUser) {
-      console.log("updateFirestore: No user found");
-      return;
-    }
-    
-    console.log("updateFirestore: start", data);
-    setLoading(true);
-    try {
-      const userRef = doc(db, "users", auth.currentUser.uid);
-      await updateDoc(userRef, data);
-      console.log("updateFirestore: success");
-    } catch (error) {
-      console.error("updateFirestore: error", error);
-      toast.error("İlerleme kaydedilemedi.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const nextStep = async () => {
     console.log("nextStep: start", { step });
     if (step === 1 && !formData.lookingFor) return toast.error("Lütfen bir niyet seçin.");
@@ -110,51 +91,40 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
     }
     if (step === 4 && !formData.gender) return toast.error("Lütfen cinsiyetinizi seçin.");
     if (step === 5 && formData.interests.length < 5) return toast.error("En az 5 ilgi alanı seçmelisiniz.");
-
-    // Save progress at each step
-    if (step === 1) await updateFirestore({ "social.lookingFor": formData.lookingFor });
-    if (step === 2) await updateFirestore({ "social.nickname": formData.nickname });
-    if (step === 3) {
-      const mysticProfile = calculateMysticProfile(formData.birthDate);
-      await updateFirestore({ 
-        birthDate: formData.birthDate,
-        ...mysticProfile 
-      });
-    }
-    if (step === 4) await updateFirestore({ "social.gender": formData.gender });
-    if (step === 5) await updateFirestore({ "social.interests": formData.interests });
-    if (step === 6) {
-      // Handle default photo if none provided
-      let finalPhotos = formData.photos;
-      if (finalPhotos.length === 0) {
-        finalPhotos = [formData.gender === 'erkek' ? DEFAULT_AVATARS.erkek : DEFAULT_AVATARS.kadın];
-      }
-      await updateFirestore({ "social.photos": finalPhotos });
-    }
-    if (step === 7) await updateFirestore({ "social.bio": formData.bio });
+    if (step === 7 && formData.bio.trim().length < 10) return toast.error("Lütfen kendinizden biraz daha bahsedin (en az 10 karakter).");
 
     if (step < totalSteps) {
       setStep(step + 1);
     } else {
-      // Final step: Complete onboarding
+      // Final step: Complete onboarding via backend
       console.log("Final onboarding step: start");
       setLoading(true);
       try {
         if (!auth.currentUser) throw new Error("No user found");
         
-        const userRef = doc(db, "users", auth.currentUser.uid);
-        await updateDoc(userRef, {
-          "social.enabled": true,
-          "social.profileCompleted": true,
-          "social.visible": true,
-          "social.banned": false
-        });
+        const mysticProfile = calculateMysticProfile(formData.birthDate);
         
-        console.log("Final onboarding step: success");
-        onComplete();
-      } catch (error) {
+        // Handle default photo if none provided
+        let finalPhotos = formData.photos;
+        if (finalPhotos.length === 0) {
+          finalPhotos = [formData.gender === 'erkek' ? DEFAULT_AVATARS.erkek : DEFAULT_AVATARS.kadın];
+        }
+
+        const result = await walletService.completeSocialOnboarding({
+          ...formData,
+          ...mysticProfile,
+          photos: finalPhotos
+        });
+
+        if (result.success) {
+          console.log("Final onboarding step: success");
+          onComplete();
+        } else {
+          throw new Error(result.message || "Profil oluşturulurken bir hata oluştu.");
+        }
+      } catch (error: any) {
         console.error("Final onboarding step: error", error);
-        toast.error("Profil oluşturulurken bir hata oluştu.");
+        toast.error(error.message || "Profil oluşturulurken bir hata oluştu.");
       } finally {
         setLoading(false);
       }

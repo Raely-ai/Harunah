@@ -29,16 +29,21 @@ import { UserProfile } from "../types";
 import { toast } from "sonner";
 import { calculateCompatibility } from "../lib/compatibilityEngine";
 import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
-import { canSwipe, getRemainingSwipes, FREE_DAILY_LIMIT } from "../lib/swipeHelper";
+import { canSwipe, getRemainingSwipes, getDailySwipeLimit } from "../lib/swipeHelper";
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
 
 import { reportService } from "../services/reportService";
 
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
+  // Safe access with fallbacks
+  const uid = currentUser?.uid || "";
+  const superLikes = currentUser?.superLikes || 0;
+  const social = currentUser?.social || { photos: [], nickname: "", bio: "", zodiacSign: "" };
+
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([currentUser.uid]));
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([uid]));
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -53,11 +58,11 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
   // Listen for swipes to know who to exclude
   useEffect(() => {
-    if (!currentUser.uid) return;
+    if (!uid) return;
     
     const q = query(
       collection(db, "swipes"),
-      where("fromUserId", "==", currentUser.uid)
+      where("fromUserId", "==", uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -76,7 +81,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
   // Listen for potential matches in real-time
   useEffect(() => {
-    if (!currentUser.uid) return;
+    if (!uid) return;
 
     const targetGender = getTargetGender(currentUser);
     const usersRef = collection(db, "users");
@@ -92,7 +97,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedUsers = snapshot.docs
         .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-        .filter(u => isEligibleSocialUser(u, currentUser.uid, targetGender));
+        .filter(u => isEligibleSocialUser(u, uid, targetGender));
 
       // Sort by compatibility score
       fetchedUsers.sort((a, b) => {
@@ -109,13 +114,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     });
 
     return () => unsubscribe();
-  }, [currentUser.uid, currentUser.social?.gender]); // Minimal dependencies
+  }, [uid, currentUser?.social?.gender]); // Minimal dependencies
 
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
     if (!activeUser || isAnimating || isProcessing) return;
     
     // Super Like Check
-    if (type === 'super_like' && (currentUser.superLikes || 0) <= 0) {
+    if (type === 'super_like' && superLikes <= 0) {
       onNavigate('wallet');
       return;
     }
@@ -144,15 +149,18 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
     try {
       if (type === 'super_like') {
-        const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'superLike');
-        if (!consumed) {
+        const res = await walletService.consumeSocialFeature(uid, 'superLike');
+        if (!res.success) {
           toast.error("Süper Like hakkın bitti!");
           onNavigate('wallet');
           return;
         }
+        if (res.consumedFrom === 'daily_bonus') {
+          toast.success("Günlük ücretsiz Süper Like hakkın kullanıldı! ✨");
+        }
       } else if (type === 'like') {
-        const consumed = await walletService.consumeSocialFeature(currentUser.uid, 'swipe');
-        if (!consumed) {
+        const res = await walletService.consumeSocialFeature(uid, 'swipe');
+        if (!res.success) {
           toast.error("Günlük kaydırma hakkın bitti!");
           onNavigate('wallet');
           return;
@@ -223,14 +231,14 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
   };
 
   return (
-    <div className="h-full w-full relative">
+    <div className="h-full w-full relative bg-black overflow-hidden">
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-full space-y-4">
+        <div className="flex flex-col items-center justify-center h-full space-y-4 bg-[#FDFCFE]">
           <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
           <p className="text-muted text-sm font-medium">Yıldızlar eşleşiyor...</p>
         </div>
       ) : !activeUser ? (
-        <div className="flex items-center justify-center h-full px-6">
+        <div className="flex items-center justify-center h-full px-6 bg-[#FDFCFE]">
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -255,38 +263,23 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
           </motion.div>
         </div>
       ) : (
-        <AnimatePresence>
+        <AnimatePresence mode="wait">
           <motion.div
             key={activeUser.uid}
             initial={{ opacity: 0 }}
             animate={{ 
               opacity: 1,
-              x: exitDirection === 'left' ? -400 : exitDirection === 'right' ? 400 : 0,
-              y: exitDirection === 'up' ? -400 : 0,
-              rotate: exitDirection === 'left' ? -20 : exitDirection === 'right' ? 20 : 0
+              x: exitDirection === 'left' ? -500 : exitDirection === 'right' ? 500 : 0,
+              y: exitDirection === 'up' ? -500 : 0,
+              rotate: exitDirection === 'left' ? -30 : exitDirection === 'right' ? 30 : 0,
+              scale: exitDirection ? 0.8 : 1
             }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.4 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ type: "spring", damping: 20, stiffness: 100 }}
             className="absolute inset-0 w-full h-full"
           >
-            {/* Full Screen Photo */}
-            <div 
-              className="w-full h-full relative"
-              onTouchStart={(e) => {
-                const touch = e.touches[0];
-                const startX = touch.clientX;
-                (e.currentTarget as any).startX = startX;
-              }}
-              onTouchEnd={(e) => {
-                const touch = e.changedTouches[0];
-                const startX = (e.currentTarget as any).startX;
-                const diff = touch.clientX - startX;
-                if (Math.abs(diff) > 50) {
-                  if (diff > 0) prevPhoto(e as any);
-                  else nextPhoto(e as any);
-                }
-              }}
-            >
+            {/* FULL SCREEN PHOTO */}
+            <div className="absolute inset-0 z-0">
               <img 
                 src={photos[currentPhotoIndex]}
                 alt={activeUser.nickname}
@@ -294,169 +287,191 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
                 referrerPolicy="no-referrer"
               />
               
-              {/* Photo Navigation Indicators */}
+              {/* Photo Navigation Overlay (Invisible areas for tapping) */}
+              <div className="absolute inset-0 flex z-10">
+                <div className="flex-1 h-full cursor-pointer" onClick={prevPhoto} />
+                <div className="flex-1 h-full cursor-pointer" onClick={nextPhoto} />
+              </div>
+
+              {/* Photo Navigation Indicators (Top) */}
               {photos.length > 1 && (
-                <>
-                  <div className="absolute top-32 left-6 right-6 flex gap-1.5 z-30">
-                    {photos.map((_, idx) => (
-                      <div key={idx} className={`h-1 flex-1 rounded-full transition-all ${idx === currentPhotoIndex ? 'bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'bg-white/30'}`} />
-                    ))}
-                  </div>
-                  <div className="absolute inset-y-0 left-0 w-1/3 cursor-pointer z-20" onClick={prevPhoto} />
-                  <div className="absolute inset-y-0 right-0 w-1/3 cursor-pointer z-20" onClick={nextPhoto} />
-                </>
+                <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+4rem)] left-6 right-6 flex gap-1.5 z-20">
+                  {photos.map((_, idx) => (
+                    <div key={idx} className={`h-1 flex-1 rounded-full transition-all duration-300 ${idx === currentPhotoIndex ? 'bg-white shadow-lg' : 'bg-white/30'}`} />
+                  ))}
+                </div>
               )}
+
+              {/* Subtle Bottom Shadow for Text Readability */}
+              <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none z-[5]" />
             </div>
-            
-            {/* Gradient Overlays */}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#F6F4F8] via-transparent to-black/40 pointer-events-none z-10" />
-            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#F6F4F8] via-[#F6F4F8]/40 to-transparent pointer-events-none z-10" />
 
-            {/* Report Button */}
-            <button 
-              onClick={() => setShowReportModal(true)}
-              className="absolute top-32 right-6 p-2.5 bg-white/20 backdrop-blur-md rounded-xl text-white/80 hover:text-white hover:bg-white/30 transition-all border border-white/10 z-30 shadow-lg"
-            >
-              <Flag className="w-4 h-4" />
-            </button>
+            {/* TOP STATS (Swipe/Super Like Rights) */}
+            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+5.5rem)] left-6 z-20 flex flex-col gap-2">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/10 text-white"
+              >
+                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                <span className="text-[10px] font-black tabular-nums">
+                  {getRemainingSwipes(currentUser)} / {getDailySwipeLimit(currentUser)}
+                </span>
+              </motion.div>
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/10 text-white"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                <span className="text-[10px] font-black tabular-nums">{superLikes}</span>
+              </motion.div>
+            </div>
 
-            {/* User Limit Display (Top Center) */}
-            <div className="absolute top-32 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white shadow-lg">
-                <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />
-                <span className="text-[10px] font-black tabular-nums">{getRemainingSwipes(currentUser)}</span>
-                <button 
-                  onClick={() => onNavigate('wallet')}
-                  className="ml-1 p-0.5 rounded-full bg-white/20 hover:bg-white/40 transition-colors"
+            {/* REPORT BUTTON */}
+            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+5.5rem)] right-6 z-20">
+              <button 
+                onClick={() => setShowReportModal(true)}
+                className="p-2.5 bg-black/20 backdrop-blur-sm rounded-full text-white/70 hover:text-white border border-white/10 transition-colors"
+              >
+                <Flag className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* BOTTOM CONTENT AREA */}
+            <div className="absolute inset-x-0 bottom-0 z-20 pb-[calc(env(safe-area-inset-bottom,1.5rem)+1rem)] px-6 flex flex-col items-center">
+              
+              {/* COMPATIBILITY CIRCLES (WOW AREA) */}
+              <div className="flex items-center justify-center gap-6 mb-8">
+                {[
+                  { label: 'Aşk', value: compatibility?.love || 0, color: '#f43f5e', icon: Heart },
+                  { label: 'Dost', value: compatibility?.friendship || 0, color: '#3b82f6', icon: Users },
+                  { label: 'Uyum', value: compatibility?.understanding || 0, color: '#f59e0b', icon: Sparkles }
+                ].map((item, idx) => (
+                  <motion.div 
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.5, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ delay: 0.3 + idx * 0.1, type: "spring" }}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="relative w-14 h-14 flex items-center justify-center bg-black/20 rounded-full border border-white/5">
+                      <svg className="w-full h-full -rotate-90 p-1">
+                        <circle cx="28" cy="28" r="24" fill="none" stroke="white" strokeWidth="3" className="opacity-10" />
+                        <motion.circle 
+                          cx="28" cy="28" r="24" fill="none" stroke={item.color} strokeWidth="3" 
+                          strokeDasharray="150.8"
+                          initial={{ strokeDashoffset: 150.8 }}
+                          animate={{ strokeDashoffset: 150.8 - (150.8 * item.value) / 100 }}
+                          transition={{ duration: 2, ease: "easeOut", delay: 0.6 + idx * 0.1 }}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <span className="absolute text-[10px] font-black text-white">%{item.value}</span>
+                    </div>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-white/80">{item.label}</span>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* USER INFO */}
+              <div className="w-full text-center space-y-2 mb-8">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="flex items-center justify-center gap-3"
                 >
-                  <Plus className="w-2.5 h-2.5" />
-                </button>
-              </div>
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white shadow-lg">
-                <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
-                <span className="text-[10px] font-black tabular-nums">{currentUser.superLikes || 0}</span>
-              </div>
-            </div>
-
-            {/* Scores (Top Overlay) */}
-            <div className="absolute top-44 left-6 right-6 flex flex-col gap-3 z-30">
-              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-3 border border-white/10 shadow-2xl flex items-center justify-around">
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <Heart className="w-2.5 h-2.5 text-rose-500 fill-rose-500" />
-                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Aşk</span>
-                  </div>
-                  <div className={`text-lg font-black ${
-                    (compatibility?.love || 0) < 50 ? 'text-rose-400' : 
-                    (compatibility?.love || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
-                  }`}>
-                    %{compatibility?.love || 0}
-                  </div>
-                </div>
-                
-                <div className="w-px h-8 bg-white/10" />
-
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <Users className="w-2.5 h-2.5 text-blue-400 fill-blue-400" />
-                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Dost</span>
-                  </div>
-                  <div className={`text-lg font-black ${
-                    (compatibility?.friendship || 0) < 50 ? 'text-rose-400' : 
-                    (compatibility?.friendship || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
-                  }`}>
-                    %{compatibility?.friendship || 0}
-                  </div>
-                </div>
-
-                <div className="w-px h-8 bg-white/10" />
-
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <Sparkles className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                    <span className="text-[8px] uppercase text-white/60 font-black tracking-widest">Uyum</span>
-                  </div>
-                  <div className={`text-lg font-black ${
-                    (compatibility?.understanding || 0) < 50 ? 'text-rose-400' : 
-                    (compatibility?.understanding || 0) < 75 ? 'text-amber-400' : 'text-emerald-400'
-                  }`}>
-                    %{compatibility?.understanding || 0}
-                  </div>
-                </div>
-              </div>
-
-              {/* Emotional Hint Text */}
-              <div className="text-center">
-                <p className="text-[10px] font-medium text-white/80 italic drop-shadow-sm">
-                  { (compatibility?.overallScore || 0) > 80 ? "Aranızda gerçek bir kıvılcım var!" :
-                    (compatibility?.overallScore || 0) > 60 ? "Enerjiniz kararsız ama açık." :
-                    "Düşük ama sürpriz olabilir." }
-                </p>
-              </div>
-            </div>
-
-            {/* Info & Actions Container */}
-            <div className="absolute bottom-32 left-0 right-0 px-8 z-30 flex flex-col gap-6">
-              {/* User Info */}
-              <div className="text-heading">
-                <div className="flex items-center gap-3 mb-2">
-                  <h2 className="text-3xl font-serif font-bold tracking-tight drop-shadow-sm">
+                  <h2 className="text-3xl font-serif font-black text-white drop-shadow-lg">
                     {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age}
                   </h2>
-                  <span className="text-[9px] font-black uppercase tracking-widest bg-black/5 backdrop-blur-xl px-2.5 py-1 rounded-full border border-black/5">
+                  <div className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-[9px] font-black text-white uppercase tracking-widest backdrop-blur-sm">
                     {activeUser.zodiacSign || "Burç"}
-                  </span>
-                </div>
-                <p className="text-sm text-body line-clamp-2 leading-relaxed font-medium drop-shadow-sm">
-                  {activeUser.social?.bio || activeUser.bio || "Bio henüz eklenmemiş."}
-                </p>
+                  </div>
+                </motion.div>
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                  className="space-y-1"
+                >
+                  <p className="text-sm text-white/80 font-medium max-w-sm mx-auto drop-shadow-md line-clamp-2">
+                    {activeUser.social?.bio || activeUser.bio || "Bio henüz eklenmemiş."}
+                  </p>
+                  {compatibility && (
+                    <motion.p 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 1.2 }}
+                      className="text-[10px] text-amber-300/90 font-bold italic"
+                    >
+                      {compatibility.understanding > 80 ? "✨ Ruh ikizi potansiyeli çok yüksek!" : 
+                       compatibility.understanding > 60 ? "💫 Yıldızlarınız oldukça uyumlu görünüyor." :
+                       "🌙 Enerjileriniz keşfedilmeyi bekliyor."}
+                    </motion.p>
+                  )}
+                </motion.div>
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.8 }}
+                  className="flex items-center justify-center gap-2 pt-1"
+                >
+                  <div className="h-px w-4 bg-amber-500/50" />
+                  <p className="text-[9px] font-black text-amber-400 uppercase tracking-[0.2em]">
+                    Karşılaştığın için uyumunu ücretsiz görüyorsun
+                  </p>
+                  <div className="h-px w-4 bg-amber-500/50" />
+                </motion.div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-center gap-8">
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleSwipe('pass')} 
-                    className="w-14 h-14 rounded-full bg-white/40 backdrop-blur-2xl border border-black/5 text-muted flex items-center justify-center hover:bg-white/60 transition-all shadow-xl"
-                  >
-                    <X className="w-7 h-7" />
-                  </motion.button>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-muted">Geç</span>
-                </div>
+              {/* ACTION BUTTONS */}
+              <div className="flex items-center justify-center gap-6 w-full max-w-xs">
+                {/* PASS BUTTON */}
+                <motion.button 
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => handleSwipe('pass')} 
+                  className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white/60 flex items-center justify-center transition-all hover:text-white"
+                >
+                  <X className="w-6 h-6" />
+                </motion.button>
 
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleSwipe('super_like')} 
-                    className="w-16 h-16 rounded-full bg-amber-500/10 backdrop-blur-2xl border border-amber-500/20 text-amber-600 flex items-center justify-center hover:bg-amber-500/20 transition-all shadow-2xl relative"
-                  >
-                    <Sparkles className="w-7 h-7" />
-                    <div className="absolute -bottom-1 bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-white shadow-sm">
-                      {currentUser.superLikes || 0} kaldı
-                    </div>
-                  </motion.button>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-amber-600/60 mt-1">Süper</span>
-                </div>
+                {/* SUPER LIKE BUTTON */}
+                <motion.button 
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleSwipe('super_like')} 
+                  className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.3)] border border-amber-300/30 relative group overflow-hidden"
+                >
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/20 to-white/0"
+                  />
+                  <Sparkles className="w-7 h-7 fill-white/20 relative z-10" />
+                  <div className="absolute -top-1 -right-1 bg-white text-amber-600 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-amber-500 shadow-lg z-20">
+                    {superLikes}
+                  </div>
+                </motion.button>
 
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    animate={{ 
-                      boxShadow: ["0 0 20px rgba(244,63,94,0.1)", "0 0 40px rgba(244,63,94,0.3)", "0 0 20px rgba(244,63,94,0.1)"]
-                    }}
-                    transition={{ repeat: Infinity, duration: 3 }}
-                    onClick={() => handleSwipe('like')} 
-                    className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-600 to-rose-500 text-white flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)] border border-rose-400/20 transition-all"
-                  >
-                    <Heart className="w-7 h-7 fill-white" />
-                  </motion.button>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-rose-600">Beğen</span>
-                </div>
+                {/* LIKE BUTTON */}
+                <motion.button 
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleSwipe('like')} 
+                  className="w-20 h-20 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.4)] border border-rose-400/30 relative overflow-hidden"
+                >
+                  <motion.div 
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="absolute inset-0 bg-white/10 rounded-full"
+                  />
+                  <Heart className="w-9 h-9 fill-white relative z-10" />
+                </motion.button>
               </div>
+
             </div>
           </motion.div>
         </AnimatePresence>

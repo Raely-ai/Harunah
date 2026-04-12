@@ -7,6 +7,7 @@ import NicknameEditor from "./NicknameEditor";
 import BioEditor from "./BioEditor";
 import InterestsEditor from "./InterestsEditor";
 import SocialSettingsModal from "./SocialSettingsModal";
+import SocialCompatibilityHistory from "./SocialCompatibilityHistory";
 
 interface SocialProfileScreenProps {
   currentUser: UserProfile;
@@ -123,6 +124,22 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
             <ChevronRight size={24} />
           </button>
         </div>
+
+        {/* Compatibility History Card */}
+        <div className="bg-white p-6 rounded-[2.5rem] border border-black/5 shadow-sm flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-600">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-heading">Uyum Geçmişi</h3>
+              <p className="text-muted text-sm">Geçmiş analizlerin</p>
+            </div>
+          </div>
+          <button onClick={() => setEditingField('compatibility_history')} className="p-3 rounded-xl bg-black/5 text-muted hover:bg-black/10 transition-all border border-black/5">
+            <ChevronRight size={24} />
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -130,6 +147,12 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
         {editingField === 'bio' && <BioEditor uid={localUser.uid} currentBio={localUser.social?.bio || ''} onClose={() => setEditingField(null)} onUpdate={(val) => updateLocalUser('bio', val)} />}
         {editingField === 'interests' && <InterestsEditor uid={localUser.uid} currentInterests={localUser.social?.interests || []} onClose={() => setEditingField(null)} onUpdate={(val) => updateLocalUser('interests', val)} />}
         {editingField === 'privacy' && <SocialSettingsModal isOpen={true} onClose={() => setEditingField(null)} user={localUser} onUpdate={(user) => setLocalUser(user)} />}
+        {editingField === 'compatibility_history' && (
+          <SocialCompatibilityHistory 
+            currentUser={currentUser} 
+            onBack={() => setEditingField(null)} 
+          />
+        )}
       </AnimatePresence>
     </div>
   );

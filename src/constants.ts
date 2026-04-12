@@ -75,18 +75,16 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
       { id: 'cm_1', count: 1, priceCoins: 25 }
     ]
   },
-  socialSubscriptions: {
+  boostPackages: {
     weekly: { 
       priceTRY: 49.99, 
-      dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 1 },
-      description: "Haftalık Sosyal Paket",
-      boostDuration: "7 Gün Boost"
+      days: 7,
+      description: "1 Hafta boyunca keşfette en üstte görün!"
     },
     monthly: { 
       priceTRY: 149.99, 
-      dailyLimits: { superLikes: 10, refreshes: 5, compatibility: 3 },
-      description: "Aylık Sosyal Paket",
-      boostDuration: "30 Gün Boost"
+      days: 30,
+      description: "1 Ay boyunca keşfette en üstte görün!"
     }
   },
   fortuneSubscriptions: {

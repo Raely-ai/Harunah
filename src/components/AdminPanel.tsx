@@ -108,7 +108,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
             rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
             socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
-            socialSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.socialSubscriptions, ...(data.socialSubscriptions || {}) },
+            boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
             fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
           } as EconomyConfig);
         } else {
@@ -1123,32 +1123,32 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
               </section>
 
-              {/* Social Subscriptions */}
+              {/* Boost Packages */}
               <section className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
                 <div className="flex items-center gap-4">
-                  <div className="p-4 rounded-3xl bg-indigo-500/10 text-indigo-500">
-                    <Heart className="w-8 h-8" />
+                  <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                    <Zap className="w-8 h-8" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold">Sosyal Abonelikler</h3>
-                    <p className="text-sm text-white/40">Haftalık ve Aylık</p>
+                    <h3 className="text-xl font-bold">Boost Paketleri</h3>
+                    <p className="text-sm text-white/40">Haftalık ve Aylık Görünürlük</p>
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  {Object.entries(economyConfig.socialSubscriptions).map(([key, sub]) => (
+                  {Object.entries(economyConfig.boostPackages).map(([key, pkg]) => (
                     <div key={key} className="bg-black/40 border border-white/5 rounded-3xl p-6 space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">{key}</span>
+                        <span className="text-sm font-black text-amber-500 uppercase tracking-widest">{key}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-white/20 uppercase font-bold">Fiyat (TRY)</span>
                           <input
                             type="number"
-                            value={sub.priceTRY}
+                            value={pkg.priceTRY}
                             onChange={(e) => {
-                              const newSubs = { ...economyConfig.socialSubscriptions };
-                              (newSubs as any)[key].priceTRY = parseFloat(e.target.value) || 0;
-                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                              const newPackages = { ...economyConfig.boostPackages };
+                              (newPackages as any)[key].priceTRY = parseFloat(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, boostPackages: newPackages });
                             }}
                             className="w-24 bg-white/5 border border-white/10 rounded-xl px-3 py-1 text-right text-sm font-bold"
                           />
@@ -1156,42 +1156,29 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="flex-1 space-y-1">
-                          <label className="text-[8px] font-bold text-white/20 uppercase">S.Like</label>
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Süre (Gün)</label>
                           <input
                             type="number"
-                            value={sub.dailyLimits.superLikes}
+                            value={pkg.days}
                             onChange={(e) => {
-                              const newSubs = { ...economyConfig.socialSubscriptions };
-                              (newSubs as any)[key].dailyLimits.superLikes = parseInt(e.target.value) || 0;
-                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                              const newPackages = { ...economyConfig.boostPackages };
+                              (newPackages as any)[key].days = parseInt(e.target.value) || 0;
+                              setEconomyConfig({ ...economyConfig, boostPackages: newPackages });
                             }}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
                           />
                         </div>
-                        <div className="flex-1 space-y-1">
-                          <label className="text-[8px] font-bold text-white/20 uppercase">Yenile</label>
+                        <div className="flex-[2] space-y-1">
+                          <label className="text-[8px] font-bold text-white/20 uppercase">Açıklama</label>
                           <input
-                            type="number"
-                            value={sub.dailyLimits.refreshes}
+                            type="text"
+                            value={pkg.description}
                             onChange={(e) => {
-                              const newSubs = { ...economyConfig.socialSubscriptions };
-                              (newSubs as any)[key].dailyLimits.refreshes = parseInt(e.target.value) || 0;
-                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
+                              const newPackages = { ...economyConfig.boostPackages };
+                              (newPackages as any)[key].description = e.target.value;
+                              setEconomyConfig({ ...economyConfig, boostPackages: newPackages });
                             }}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
-                          />
-                        </div>
-                        <div className="flex-1 space-y-1">
-                          <label className="text-[8px] font-bold text-white/20 uppercase">Uyum</label>
-                          <input
-                            type="number"
-                            value={sub.dailyLimits.compatibility}
-                            onChange={(e) => {
-                              const newSubs = { ...economyConfig.socialSubscriptions };
-                              (newSubs as any)[key].dailyLimits.compatibility = parseInt(e.target.value) || 0;
-                              setEconomyConfig({ ...economyConfig, socialSubscriptions: newSubs });
-                            }}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-center text-xs font-bold"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs font-bold"
                           />
                         </div>
                       </div>
@@ -1549,27 +1536,25 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </div>
                     </div>
 
-                    {/* Social Subscription */}
+                    {/* Boost Status */}
                     <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-6">
                       <div className="flex items-center gap-4">
-                        <div className="p-4 rounded-3xl bg-indigo-500/10 text-indigo-500">
-                          <Heart className="w-8 h-8" />
+                        <div className="p-4 rounded-3xl bg-amber-500/10 text-amber-500">
+                          <Zap className="w-8 h-8" />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold">Sosyal Abonelik</h3>
-                          <p className="text-sm text-white/40">Durum: {selectedUser.socialSubscription?.status === 'active' ? 'Aktif' : 'Pasif'}</p>
+                          <h3 className="text-xl font-bold">Profil Boost</h3>
+                          <p className="text-sm text-white/40">
+                            Durum: {selectedUser.boostExpiresAt && new Date(selectedUser.boostExpiresAt) > new Date() ? 'Aktif' : 'Pasif'}
+                          </p>
                         </div>
                       </div>
 
-                      {selectedUser.socialSubscription?.status === 'active' && (
+                      {selectedUser.boostExpiresAt && new Date(selectedUser.boostExpiresAt) > new Date() && (
                         <div className="bg-black/40 border border-white/5 rounded-2xl p-6 space-y-4">
                           <div className="flex justify-between text-sm">
-                            <span className="text-white/40">Tür:</span>
-                            <span className="text-indigo-500 font-bold uppercase">{selectedUser.socialSubscription.type}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
                             <span className="text-white/40">Bitiş:</span>
-                            <span className="text-white font-bold">{new Date(selectedUser.socialSubscription.expiresAt!).toLocaleDateString('tr-TR')}</span>
+                            <span className="text-white font-bold">{new Date(selectedUser.boostExpiresAt).toLocaleString('tr-TR')}</span>
                           </div>
                         </div>
                       )}
@@ -1577,23 +1562,17 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           onClick={() => adminService.updateUser(selectedUser.uid, {
-                            socialSubscription: {
-                              status: 'active',
-                              type: 'monthly',
-                              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                              dailyUsage: { superLikes: 0, refreshes: 0, compatibility: 0, lastResetDate: new Date().toISOString().split('T')[0] }
-                            },
                             boostExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
                           })}
-                          className="py-4 rounded-2xl bg-indigo-500 text-white font-bold hover:bg-indigo-400 transition-all"
+                          className="py-4 rounded-2xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all"
                         >
-                          Premium Ver
+                          30 Gün Boost Ver
                         </button>
                         <button
-                          onClick={() => adminService.updateUser(selectedUser.uid, { 'socialSubscription.status': 'inactive', boostExpiresAt: null })}
+                          onClick={() => adminService.updateUser(selectedUser.uid, { boostExpiresAt: null })}
                           className="py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold hover:bg-white/10 transition-all"
                         >
-                          İptal Et
+                          Boost Kaldır
                         </button>
                       </div>
                     </div>
@@ -2027,16 +2006,13 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-white/20 uppercase">Sosyal Abonelik</label>
-                    <select
-                      value={selectedPromoCode.rewards.socialSubscription || ''}
-                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, socialSubscription: e.target.value || undefined } })}
+                    <label className="text-[10px] font-bold text-white/20 uppercase">Boost (Gün)</label>
+                    <input
+                      type="number"
+                      value={selectedPromoCode.rewards.boostDays || 0}
+                      onChange={(e) => setSelectedPromoCode({ ...selectedPromoCode, rewards: { ...selectedPromoCode.rewards, boostDays: parseInt(e.target.value) || 0 } })}
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500/50"
-                    >
-                      <option value="">Yok</option>
-                      <option value="weekly">Haftalık</option>
-                      <option value="monthly">Aylık</option>
-                    </select>
+                    />
                   </div>
                 </div>
 

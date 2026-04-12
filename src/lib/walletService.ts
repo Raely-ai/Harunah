@@ -21,7 +21,24 @@ export const callFunction = async (name: string, data?: any) => {
     return result.data as any;
   } catch (error: any) {
     console.error(`Firebase Function ${name} error:`, error);
-    throw error;
+    
+    // Extract meaningful error message
+    let message = "Bir hata oluştu.";
+    if (error.message) {
+      // If it's a standard HttpsError, the message is usually what we want
+      message = error.message;
+    }
+    
+    // If it's an internal error, try to see if there's more detail in the details object
+    if (error.code === 'internal' && error.details) {
+      message = typeof error.details === 'string' ? error.details : JSON.stringify(error.details);
+    }
+
+    const enhancedError = new Error(message);
+    (enhancedError as any).code = error.code;
+    (enhancedError as any).details = error.details;
+    
+    throw enhancedError;
   }
 };
 
@@ -36,17 +53,9 @@ export const DEFAULT_ADMIN_WALLET_CONFIG: AdminWalletConfig = {
     weekly: { price: 59.99, dailyLimit: 10, description: "Günde 10 fal hakkı" },
     monthly: { price: 149.99, dailyLimit: 10, description: "Günde 10 fal hakkı" }
   },
-  socialSubscriptions: {
-    weekly: { 
-      price: 99.99, 
-      dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 3 },
-      description: "Haftalık Social Premium: Günlük 5 Süper Like, 3 Yenileme, 3 Analiz ve Profil Öne Çıkarma!"
-    },
-    monthly: { 
-      price: 249.99, 
-      dailyLimits: { superLikes: 5, refreshes: 3, compatibility: 3 },
-      description: "Aylık Social Premium: Günlük 5 Süper Like, 3 Yenileme, 3 Analiz ve Profil Öne Çıkarma!"
-    }
+  boostPackages: {
+    weekly: { price: 49.99, days: 7, description: "1 Hafta boyunca keşfette en üstte görün!" },
+    monthly: { price: 149.99, days: 30, description: "1 Ay boyunca keşfette en üstte görün!" }
   },
   socialRightsPrices: {
     superLike: 20,
@@ -57,13 +66,13 @@ export const DEFAULT_ADMIN_WALLET_CONFIG: AdminWalletConfig = {
     {
       id: "starter_bundle",
       name: "Başlangıç Paketi",
-      description: "1 Hafta Öne Çık + 5 Süper Like + 5 Yenileme + 5 Analiz",
+      description: "5 Süper Like + 5 Yenileme + 5 Analiz",
       price: 150,
       contents: {
         superLikes: 5,
         refreshes: 5,
         compatibility: 5,
-        boostDays: 7
+        boostDays: 0
       }
     }
   ],
@@ -91,16 +100,16 @@ export const walletService = {
             weekly: { price: economy.fortuneSubscriptions.weekly.priceTRY, dailyLimit: economy.fortuneSubscriptions.weekly.dailyLimit, description: economy.fortuneSubscriptions.weekly.description },
             monthly: { price: economy.fortuneSubscriptions.monthly.priceTRY, dailyLimit: economy.fortuneSubscriptions.monthly.dailyLimit, description: economy.fortuneSubscriptions.monthly.description }
           },
-          socialSubscriptions: {
+          boostPackages: {
             weekly: { 
-              price: economy.socialSubscriptions.weekly.priceTRY, 
-              dailyLimits: economy.socialSubscriptions.weekly.dailyLimits,
-              description: economy.socialSubscriptions.weekly.description
+              price: economy.boostPackages?.weekly?.priceTRY || 49.99, 
+              days: economy.boostPackages?.weekly?.days || 7,
+              description: economy.boostPackages?.weekly?.description || "1 Hafta Öne Çık"
             },
             monthly: { 
-              price: economy.socialSubscriptions.monthly.priceTRY, 
-              dailyLimits: economy.socialSubscriptions.monthly.dailyLimits,
-              description: economy.socialSubscriptions.monthly.description
+              price: economy.boostPackages?.monthly?.priceTRY || 149.99, 
+              days: economy.boostPackages?.monthly?.days || 30,
+              description: economy.boostPackages?.monthly?.description || "1 Ay Öne Çık"
             }
           },
           socialRightsPrices: {
@@ -143,6 +152,10 @@ export const walletService = {
     return await callFunction('buyFortuneSubscription', { type });
   },
 
+  async completeSocialOnboarding(data: any): Promise<{ success: boolean; message?: string }> {
+    return await callFunction('completeSocialOnboarding', data);
+  },
+
   async getTransactions(userId: string, limitCount: number = 20): Promise<WalletTransaction[]> {
     const q = query(
       collection(db, "walletTransactions"),
@@ -159,15 +172,29 @@ export const walletService = {
     }
   },
 
-  async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<boolean> {
+  async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string }> {
     const config = await this.getAdminConfig();
-    const result = await callFunction('consumeSocialFeature', { type, config });
-    if (result && result.success !== undefined) return result.success;
-    return false;
+    return await callFunction('consumeSocialFeature', { type, config });
   },
 
-  async purchaseSocialSubscription(_userId: string, type: 'weekly' | 'monthly'): Promise<{ success: boolean; message?: string }> {
-    return await callFunction('buySocialSubscription', { type });
+  async purchaseBoostPackage(_userId: string, type: 'weekly' | 'monthly'): Promise<{ success: boolean; message?: string; boostExpiresAt?: string }> {
+    return await callFunction('purchaseBoostPackage', { type });
+  },
+
+  async sendSuperLike(targetUserId: string): Promise<{ success: boolean; chatId?: string }> {
+    return await callFunction('sendSuperLikeAndCreateChat', { targetUserId });
+  },
+
+  async refreshDiscoverFeed(): Promise<{ success: boolean; users: any[] }> {
+    return await callFunction('refreshDiscoverFeed');
+  },
+
+  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis: any; cached: boolean }> {
+    return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
+  },
+  
+  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; analysis: any }> {
+    return await callFunction('runManualCompatibilityAnalysis', data);
   },
 
   async refreshDiscover(): Promise<{ success: boolean; consumedFrom: string; lastRefreshAt: string }> {
