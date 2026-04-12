@@ -10,65 +10,117 @@ interface SocialDisabledViewProps {
 
 export default function SocialDisabledView({ 
   onNavigate, 
-  title = "Sosyal Dünyaya Katıl ✨",
+  title = "Sosyal Dünya Seni Bekliyor ✨",
   description = "Enerjine uygun insanları keşfet, sohbet et ve uyumunu gör."
 }: SocialDisabledViewProps) {
   return (
-    <div className="absolute inset-0 z-[100] flex items-center justify-center p-6 overflow-hidden pointer-events-none">
-      {/* Glassmorphism Card */}
-      <motion.div 
-        initial={{ opacity: 0, y: 40, scale: 0.9 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative w-full max-w-sm bg-white/10 backdrop-blur-[20px] border border-white/20 rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex flex-col items-center text-center space-y-6 pointer-events-auto"
-      >
-        {/* Glow Effects */}
-        <div className="absolute -top-20 -left-20 w-40 h-40 bg-purple-500/20 blur-[80px] rounded-full pointer-events-none" />
-        <div className="absolute -bottom-20 -right-20 w-40 h-40 bg-amber-500/20 blur-[80px] rounded-full pointer-events-none" />
+    <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-8 overflow-hidden pointer-events-none">
+      {/* Dark Vignette Overlay */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/40 to-black/80 pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+      
+      {/* Noise / Grain Texture */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none mix-blend-overlay bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
 
-        {/* Icon / Sparkles */}
-        <div className="relative">
-          <motion.div 
-            animate={{ 
-              scale: [1, 1.2, 1],
-              opacity: [0.2, 0.4, 0.2]
+      {/* Floating Glow Particles */}
+      <div className="absolute inset-0 pointer-events-none">
+        {[...Array(6)].map((_, i) => (
+          <motion.div
+            key={i}
+            initial={{ 
+              x: Math.random() * 100 + "%", 
+              y: Math.random() * 100 + "%",
+              opacity: 0 
             }}
-            transition={{ duration: 3, repeat: Infinity }}
-            className="absolute inset-0 bg-amber-500/20 blur-2xl rounded-full" 
+            animate={{ 
+              y: [null, "-20%", "20%"],
+              opacity: [0, 0.3, 0],
+              scale: [1, 1.2, 1]
+            }}
+            transition={{ 
+              duration: 5 + Math.random() * 5, 
+              repeat: Infinity,
+              delay: Math.random() * 5
+            }}
+            className="absolute w-32 h-32 bg-purple-500/10 blur-[60px] rounded-full"
           />
-          <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-white/10 to-white/5 border border-white/20 flex items-center justify-center text-amber-500 shadow-2xl">
-            <Sparkles className="w-10 h-10" />
-          </div>
-        </div>
+        ))}
+      </div>
 
-        <div className="space-y-3">
-          <h3 className="text-2xl font-serif font-bold text-white tracking-tight drop-shadow-md">
-            {title}
-          </h3>
-          <p className="text-white/70 text-sm leading-relaxed max-w-[240px] mx-auto font-medium">
-            {description}
-          </p>
-        </div>
-
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          animate={{ 
-            boxShadow: [
-              "0 0 0 rgba(245,158,11,0)", 
-              "0 0 20px rgba(245,158,11,0.4)", 
-              "0 0 0 rgba(245,158,11,0)"
-            ]
-          }}
-          transition={{ 
-            boxShadow: { repeat: Infinity, duration: 2 }
-          }}
-          onClick={() => onNavigate('social-intro')}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white font-black text-sm shadow-2xl transition-all uppercase tracking-widest"
+      {/* Center Content (Minimalist) */}
+      <div className="relative z-10 flex flex-col items-center text-center max-w-xs space-y-8">
+        {/* Glow Icon */}
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="relative"
         >
-          Hemen Başla ✨
-        </motion.button>
-      </motion.div>
+          <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full animate-pulse" />
+          <div className="relative w-16 h-16 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 flex items-center justify-center text-amber-400 shadow-2xl">
+            <Sparkles className="w-8 h-8" />
+          </div>
+        </motion.div>
+
+        {/* Text Content */}
+        <div className="space-y-4">
+          <motion.h3 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.8 }}
+            className="text-3xl font-serif font-bold text-white tracking-tight leading-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]"
+          >
+            {title}
+          </motion.h3>
+          <motion.p 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.8 }}
+            className="text-white/60 text-sm leading-relaxed font-medium px-4"
+          >
+            {description}
+          </motion.p>
+        </div>
+
+        {/* Premium Glass CTA Button */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6, duration: 0.8 }}
+          className="w-full pointer-events-auto"
+        >
+          <motion.button 
+            whileHover={{ scale: 1.02, backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+            whileTap={{ scale: 0.98 }}
+            animate={{ 
+              boxShadow: [
+                "0 0 0 rgba(255,255,255,0)", 
+                "0 0 20px rgba(255,255,255,0.1)", 
+                "0 0 0 rgba(255,255,255,0)"
+              ]
+            }}
+            transition={{ 
+              boxShadow: { repeat: Infinity, duration: 3 }
+            }}
+            onClick={() => onNavigate('social-intro')}
+            className="group relative w-full py-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 text-white font-black text-sm transition-all overflow-hidden"
+          >
+            {/* Subtle Inner Glow */}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-50" />
+            
+            {/* Shimmer Effect */}
+            <motion.div 
+              animate={{ x: ["-100%", "200%"] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12"
+            />
+
+            <span className="relative z-10 flex items-center justify-center gap-2 tracking-widest uppercase">
+              Hemen Başla ✨
+            </span>
+          </motion.button>
+        </motion.div>
+      </div>
     </div>
   );
 }

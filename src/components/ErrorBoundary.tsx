@@ -36,25 +36,30 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      const isQuotaError = this.state.error?.message.includes('Quota limit exceeded') || 
+                          this.state.error?.message.includes('Quota exceeded');
+      
       return (
         <div className="min-h-screen bg-[#F6F4F8] flex items-center justify-center p-6">
           <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border border-black/5">
-            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <AlertCircle className="w-10 h-10 text-red-500" />
+            <div className={`w-20 h-20 ${isQuotaError ? 'bg-amber-50' : 'bg-red-50'} rounded-full flex items-center justify-center mx-auto mb-6`}>
+              <AlertCircle className={`w-10 h-10 ${isQuotaError ? 'text-amber-500' : 'text-red-500'}`} />
             </div>
             
             <h1 className="text-2xl font-bold text-heading mb-4">
-              Bir Şeyler Yanlış Gitti
+              {isQuotaError ? 'Günlük Limit Aşıldı' : 'Bir Şeyler Yanlış Gitti'}
             </h1>
             
             <p className="text-body mb-8">
-              Beklenmedik bir hata oluştu. Lütfen sayfayı yenilemeyi veya ana sayfaya dönmeyi deneyin.
+              {isQuotaError 
+                ? 'Uygulamamızın ücretsiz kullanım kotası bugünlük dolmuştur. Yarın tekrar bekleriz veya daha sonra tekrar deneyebilirsiniz. Anlayışınız için teşekkürler! ✨'
+                : 'Beklenmedik bir hata oluştu. Lütfen sayfayı yenilemeyi veya ana sayfaya dönmeyi deneyin.'}
             </p>
 
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <div className="mb-8 p-4 bg-red-50 rounded-xl text-left overflow-auto max-h-40">
-                <code className="text-xs text-red-600 font-mono">
-                  {this.state.error.toString()}
+            {this.state.error && (
+              <div className="mb-8 p-4 bg-black/5 rounded-xl text-left overflow-auto max-h-40">
+                <code className="text-[10px] text-muted font-mono">
+                  {this.state.error.message}
                 </code>
               </div>
             )}

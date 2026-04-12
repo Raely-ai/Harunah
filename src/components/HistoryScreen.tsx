@@ -36,6 +36,8 @@ interface HistoryScreenProps {
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onRefresh?: () => Promise<void>;
+  hasMore?: boolean;
+  onLoadMore?: () => Promise<void>;
 }
 
 const TYPE_ICONS: Record<string, any> = {
@@ -58,11 +60,31 @@ const STATUS_CONFIG = {
   pending: { label: 'Hazırlanıyor', color: 'text-gray-600', bg: 'bg-gray-500/10', icon: Clock },
 };
 
-export default function HistoryScreen({ history, userProfile, onBack, onDelete, onToggleFavorite, onRefresh }: HistoryScreenProps) {
+export default function HistoryScreen({ 
+  history, 
+  userProfile, 
+  onBack, 
+  onDelete, 
+  onToggleFavorite, 
+  onRefresh,
+  hasMore,
+  onLoadMore
+}: HistoryScreenProps) {
   const [filter, setFilter] = useState<FortuneType | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReading, setSelectedReading] = useState<FortuneReading | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const handleLoadMore = async () => {
+    if (!onLoadMore || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      await onLoadMore();
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
@@ -169,125 +191,148 @@ export default function HistoryScreen({ history, userProfile, onBack, onDelete, 
       <main className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar pb-24">
         <div className="space-y-4">
           {filteredHistory.length > 0 ? (
-            filteredHistory.map((reading) => {
-              const Icon = TYPE_ICONS[reading.type] || History;
-              
-              const status = STATUS_CONFIG[reading.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
-              const StatusIcon = status.icon;
+            <>
+              {filteredHistory.map((reading) => {
+                const Icon = TYPE_ICONS[reading.type] || History;
+                
+                const status = STATUS_CONFIG[reading.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
+                const StatusIcon = status.icon;
 
-              return (
-                <motion.div
-                  key={reading.id}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="group relative"
-                >
-                  <div className={`p-6 rounded-[2.5rem] border border-black/5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-500 hover:shadow-xl ${
-                    reading.isFavorite ? 'border-amber-500/30 ring-1 ring-amber-500/10' : ''
-                  }`}>
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden shadow-inner ${
-                          reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
-                        }`}>
-                          <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-40" />
-                          <Icon className="w-7 h-7 relative z-10 group-hover:scale-110 transition-transform duration-500" />
-                        </div>
-                        <div>
-                          <h3 className="font-serif font-bold text-heading text-lg group-hover:text-amber-700 transition-colors">{reading.title}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-muted uppercase tracking-widest font-bold">
-                              {reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
-                            </span>
-                            <span className="w-1 h-1 rounded-full bg-black/10" />
-                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bg} ${status.color} border border-black/5 shadow-sm`}>
-                              <StatusIcon className="w-3 h-3" />
-                              <span className="text-[9px] font-black uppercase tracking-widest">{status.label}</span>
+                return (
+                  <motion.div
+                    key={reading.id}
+                    layout
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="group relative"
+                  >
+                    <div className={`p-6 rounded-[2.5rem] border border-black/5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-500 hover:shadow-xl ${
+                      reading.isFavorite ? 'border-amber-500/30 ring-1 ring-amber-500/10' : ''
+                    }`}>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden shadow-inner ${
+                            reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
+                          }`}>
+                            <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-40" />
+                            <Icon className="w-7 h-7 relative z-10 group-hover:scale-110 transition-transform duration-500" />
+                          </div>
+                          <div>
+                            <h3 className="font-serif font-bold text-heading text-lg group-hover:text-amber-700 transition-colors">{reading.title}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] text-muted uppercase tracking-widest font-bold">
+                                {reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
+                              </span>
+                              <span className="w-1 h-1 rounded-full bg-black/10" />
+                              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bg} ${status.color} border border-black/5 shadow-sm`}>
+                                <StatusIcon className="w-3 h-3" />
+                                <span className="text-[9px] font-black uppercase tracking-widest">{status.label}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
+                        
+                        <div className="flex items-center gap-1">
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => onToggleFavorite(reading.id)}
+                            className={`p-2.5 rounded-xl transition-all ${
+                              reading.isFavorite ? 'text-amber-600 bg-amber-50 shadow-sm border border-amber-100' : 'text-muted hover:text-amber-600 hover:bg-black/5'
+                            }`}
+                          >
+                            <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => onDelete(reading.id)}
+                            className="p-2.5 rounded-xl text-muted hover:text-red-600 hover:bg-red-50 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </motion.button>
+                        </div>
                       </div>
-                      
-                      <div className="flex items-center gap-1">
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => onToggleFavorite(reading.id)}
-                          className={`p-2.5 rounded-xl transition-all ${
-                            reading.isFavorite ? 'text-amber-600 bg-amber-50 shadow-sm border border-amber-100' : 'text-muted hover:text-amber-600 hover:bg-black/5'
-                          }`}
-                        >
-                          <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => onDelete(reading.id)}
-                          className="p-2.5 rounded-xl text-muted hover:text-red-600 hover:bg-red-50 transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </motion.button>
-                      </div>
-                    </div>
 
-                    {reading.status === 'completed' && reading.content ? (
-                      <div className="space-y-4">
-                        <div className="p-4 rounded-2xl bg-black/[0.02] border border-black/5 relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
-                            <Icon className="w-16 h-16" />
+                      {reading.status === 'completed' && reading.content ? (
+                        <div className="space-y-4">
+                          <div className="p-4 rounded-2xl bg-black/[0.02] border border-black/5 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
+                              <Icon className="w-16 h-16" />
+                            </div>
+                            <p className="text-sm text-body line-clamp-2 leading-relaxed italic relative z-10">
+                              "{reading.content || 'Kehanetin hazırlanıyor...'}"
+                            </p>
                           </div>
-                          <p className="text-sm text-body line-clamp-2 leading-relaxed italic relative z-10">
-                            "{reading.content || 'Kehanetin hazırlanıyor...'}"
-                          </p>
+                          <div className="flex items-center justify-between pt-4 border-t border-black/5">
+                            <button
+                              onClick={() => handleShare(reading)}
+                              className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted hover:text-amber-600 transition-colors"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                              Paylaş
+                            </button>
+                            <button
+                              onClick={() => setSelectedReading(reading)}
+                              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
+                            >
+                              Detayları Gör
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between pt-4 border-t border-black/5">
-                          <button
-                            onClick={() => handleShare(reading)}
-                            className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted hover:text-amber-600 transition-colors"
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                            Paylaş
-                          </button>
-                          <button
-                            onClick={() => setSelectedReading(reading)}
-                            className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
-                          >
-                            Detayları Gör
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                      ) : reading.status === 'error' ? (
+                        <div className="space-y-4">
+                          <div className="p-5 rounded-2xl bg-red-50 border border-dashed border-red-200 text-center">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">
+                              {reading.error || 'Bir hata oluştu, lütfen tekrar deneyin.'}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ) : reading.status === 'error' ? (
-                      <div className="space-y-4">
-                        <div className="p-5 rounded-2xl bg-red-50 border border-dashed border-red-200 text-center">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">
-                            {reading.error || 'Bir hata oluştu, lütfen tekrar deneyin.'}
-                          </p>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="p-5 rounded-2xl bg-black/[0.02] border border-dashed border-black/10 text-center relative overflow-hidden">
+                            <motion.div 
+                              animate={{ opacity: [0.3, 0.6, 0.3] }}
+                              transition={{ duration: 2, repeat: Infinity }}
+                              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                            />
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted relative z-10">
+                              {['interpreting', 'processing_ai'].includes(reading.status) ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : reading.status === 'found' ? 'Yorumcu bulundu, hazırlanıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted/60">İşlem Devam Ediyor</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+
+              {hasMore && (
+                <div className="pt-6 flex justify-center">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    className="flex items-center gap-2 px-8 py-3 rounded-2xl bg-black/5 border border-black/5 text-xs font-bold uppercase tracking-widest text-muted hover:bg-black/10 transition-all disabled:opacity-50"
+                  >
+                    {isLoadingMore ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <div className="space-y-4">
-                        <div className="p-5 rounded-2xl bg-black/[0.02] border border-dashed border-black/10 text-center relative overflow-hidden">
-                          <motion.div 
-                            animate={{ opacity: [0.3, 0.6, 0.3] }}
-                            transition={{ duration: 2, repeat: Infinity }}
-                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                          />
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted relative z-10">
-                            {['interpreting', 'processing_ai'].includes(reading.status) ? 'Yorumcu kehanetini hazırlıyor...' : reading.status === 'searching' ? 'Yorumcu aranıyor...' : reading.status === 'found' ? 'Yorumcu bulundu, hazırlanıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-center gap-2">
-                          <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted/60">İşlem Devam Ediyor</span>
-                        </div>
-                      </div>
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        Daha Fazla Yükle
+                      </>
                     )}
-                  </div>
-                </motion.div>
-              );
-            })
+                  </motion.button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="w-20 h-20 rounded-full bg-black/5 flex items-center justify-center mb-6">

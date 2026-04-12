@@ -12,11 +12,12 @@ import {
   ChevronRight,
   Handshake
 } from "lucide-react";
+import { cacheManager } from "../lib/cacheManager";
 import { 
   collection, 
   query, 
   where, 
-  onSnapshot, 
+  getDocs, 
   doc, 
   limit,
   updateDoc,
@@ -35,15 +36,23 @@ import { walletService } from "../lib/walletService";
 
 import { reportService } from "../services/reportService";
 
+// Simple Memory Cache for Social Match
+const matchCache = {
+  potentialMatches: [] as UserProfile[],
+  swipedUserIds: new Set<string>(),
+  isLoaded: false,
+  lastFetched: 0
+};
+
 export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
   // Safe access with fallbacks
   const uid = currentUser?.uid || "";
   const superLikes = currentUser?.superLikes || 0;
   const social = currentUser?.social || { photos: [], nickname: "", bio: "", zodiacSign: "" };
 
-  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([uid]));
+  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>(matchCache.potentialMatches);
+  const [loading, setLoading] = useState(!matchCache.isLoaded);
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(matchCache.swipedUserIds.size > 0 ? matchCache.swipedUserIds : new Set([uid]));
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -56,65 +65,74 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
   const activeUser = displayMatches[0];
 
-  // Listen for swipes to know who to exclude
+  // Fetch swipes and potential matches (One-time fetch with cache)
   useEffect(() => {
     if (!uid) return;
     
-    const q = query(
-      collection(db, "swipes"),
-      where("fromUserId", "==", uid)
-    );
+    const fetchData = async () => {
+      // Check Cache First
+      const cached = cacheManager.get<any>("socialMatchData");
+      if (cached) {
+        setPotentialMatches(cached.potentialMatches);
+        setSwipedUserIds(cached.swipedUserIds);
+        setLoading(false);
+        return;
+      }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const firestoreIds = snapshot.docs.map(doc => doc.data().toUserId);
-      setSwipedUserIds(prev => {
-        const next = new Set(prev);
-        firestoreIds.forEach(id => next.add(id));
-        return next;
-      });
-    }, (error) => {
-      console.error("Swipes listener error:", error);
-    });
+      setLoading(true);
+      try {
+        // 1. Fetch Swipes
+        const swipesQ = query(
+          collection(db, "swipes"),
+          where("fromUserId", "==", uid)
+        );
+        const swipesSnap = await getDocs(swipesQ);
+        const firestoreIds = swipesSnap.docs.map(doc => doc.data().toUserId);
+        
+        const newSwipedIds = new Set([uid, ...firestoreIds]);
+        setSwipedUserIds(newSwipedIds);
 
-    return () => unsubscribe();
-  }, [currentUser.uid]);
+        // 2. Fetch Potential Matches
+        const targetGender = getTargetGender(currentUser);
+        const usersRef = collection(db, "users");
+        const matchQ = query(
+          usersRef,
+          where("social.enabled", "==", true),
+          where("social.profileCompleted", "==", true),
+          where("social.visible", "==", true),
+          where("social.gender", "==", targetGender),
+          limit(40)
+        );
 
-  // Listen for potential matches in real-time
-  useEffect(() => {
-    if (!uid) return;
+        const snapshot = await getDocs(matchQ);
+        const fetchedUsers = snapshot.docs
+          .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
+          .filter(u => isEligibleSocialUser(u, uid, targetGender));
 
-    const targetGender = getTargetGender(currentUser);
-    const usersRef = collection(db, "users");
-    const q = query(
-      usersRef,
-      where("social.enabled", "==", true),
-      where("social.profileCompleted", "==", true),
-      where("social.visible", "==", true),
-      where("social.gender", "==", targetGender),
-      limit(50)
-    );
+        // Sort by compatibility score
+        fetchedUsers.sort((a, b) => {
+          const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
+          const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
+          return scoreB - scoreA;
+        });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedUsers = snapshot.docs
-        .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-        .filter(u => isEligibleSocialUser(u, uid, targetGender));
+        setPotentialMatches(fetchedUsers);
+        
+        // Update Cache
+        cacheManager.set("socialMatchData", {
+          potentialMatches: fetchedUsers,
+          swipedUserIds: newSwipedIds
+        }, 600); // Cache for 10 minutes
 
-      // Sort by compatibility score
-      fetchedUsers.sort((a, b) => {
-        const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
-        const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
-        return scoreB - scoreA;
-      });
+      } catch (error) {
+        console.error("Match fetch error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      setPotentialMatches(fetchedUsers);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "users");
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [uid, currentUser?.social?.gender]); // Minimal dependencies
+    fetchData();
+  }, [uid]);
 
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
     if (!activeUser || isAnimating || isProcessing) return;

@@ -192,7 +192,7 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
                   <SocialMatchScreen 
                     currentUser={userProfile} 
                     onNavigate={onNavigate}
@@ -213,7 +213,7 @@ export default function HomeScreen({
               className="h-full w-full overflow-y-auto pb-32"
             >
               <div className="relative h-full w-full overflow-y-auto pb-32">
-                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
                   <SocialDiscoverScreen 
                     key={`discover-${refreshKey}`}
                     currentUser={userProfile} 
@@ -238,7 +238,7 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                <div className={!isSocialEnabled ? "blur-[20px] opacity-30 pointer-events-none h-full w-full" : "h-full w-full"}>
+                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
                   <SocialCompatibilityHistory 
                     currentUser={userProfile} 
                     onBack={() => setActiveTopTab('match')}

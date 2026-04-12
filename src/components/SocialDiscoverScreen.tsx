@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { cacheManager } from "../lib/cacheManager";
 import { 
   collection, 
   query, 
   where, 
   limit, 
   onSnapshot, 
+  getDocs
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, AppConfig, Horoscope, normalizeUserProfile, CompatibilityHistory } from "../types";
@@ -98,6 +100,18 @@ function DiscoverCard({ user, onClick, variant = 'medium', compatibility }: { us
   );
 }
 
+// Simple Memory Cache for Social Discover
+const socialCache = {
+  featuredUsers: [] as UserProfile[],
+  activeUsers: [] as UserProfile[],
+  compatibleUsers: [] as UserProfile[],
+  feelingEnergyUsers: [] as UserProfile[],
+  newFrequencyUsers: [] as UserProfile[],
+  compatibilityHistory: [] as CompatibilityHistory[],
+  isLoaded: false,
+  lastFetched: 0
+};
+
 export default function SocialDiscoverScreen({ 
   currentUser, 
   onNavigate, 
@@ -118,89 +132,129 @@ export default function SocialDiscoverScreen({
   const [featuredUsers, setFeaturedUsers] = useState<UserProfile[]>([]);
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!socialCache.isLoaded);
   const [internalRefreshTimer, setInternalRefreshTimer] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>([]);
+  const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>(socialCache.compatibilityHistory);
+
+  // Simple Memory Cache for Social Discover
+  const [cacheLoaded, setCacheLoaded] = useState(socialCache.isLoaded);
 
   const refreshTimer = externalRefreshTimer || internalRefreshTimer;
 
   useEffect(() => {
     if (!uid) return;
-    const q = query(
-      collection(db, "compatibilityHistory"),
-      where("userId", "==", uid)
-    );
-    const unsubscribe = onSnapshot(q, (snap) => {
-      setCompatibilityHistory(snap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "compatibilityHistory");
-    });
-    return () => unsubscribe();
+    
+    const fetchData = async () => {
+      // Check Cache First
+      const cached = cacheManager.get<any>("socialDiscoverData");
+      if (cached) {
+        setFeaturedUsers(cached.featuredUsers);
+        setActiveUsers(cached.activeUsers);
+        setCompatibleUsers(cached.compatibleUsers);
+        setFeelingEnergyUsers(cached.feelingEnergyUsers);
+        setNewFrequencyUsers(cached.newFrequencyUsers);
+        setCompatibilityHistory(cached.compatibilityHistory);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // 1. Fetch Compatibility History
+        const histQ = query(
+          collection(db, "compatibilityHistory"),
+          where("userId", "==", uid)
+        );
+        const histSnap = await getDocs(histQ);
+        const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
+        setCompatibilityHistory(history);
+
+        // 2. Fetch Discover Users
+        const targetGender = getTargetGender(currentUser);
+        const usersRef = collection(db, "users");
+        const discoverQ = query(
+          usersRef,
+          where("social.enabled", "==", true),
+          where("social.profileCompleted", "==", true),
+          where("social.visible", "==", true),
+          where("social.gender", "==", targetGender),
+          limit(40) // Reduced from 100 to save reads
+        );
+
+        const snapshot = await getDocs(discoverQ);
+        const allFetched = snapshot.docs
+          .map(doc => normalizeUserProfile(doc.data(), doc.id))
+          .filter(u => isEligibleSocialUser(u, uid, targetGender));
+
+        // Shuffle for variety
+        const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
+
+        // Featured (Boosted)
+        const now = new Date().toISOString();
+        const featured = allFetched
+          .filter(u => u.boostExpiresAt && u.boostExpiresAt > now)
+          .slice(0, 10);
+        setFeaturedUsers(featured);
+        
+        // Active Users (First 10)
+        const active = allFetched.slice(0, 10);
+        setActiveUsers(active);
+        
+        // Section A: Compatible
+        const compatibleIds = history.map(h => h.targetUserId);
+        const matchedCompatible = shuffled.filter(u => compatibleIds.includes(u.uid));
+        const others = shuffled.filter(u => !compatibleIds.includes(u.uid) && !featured.some(f => f.uid === u.uid));
+        
+        const sectionA = [...matchedCompatible, ...others].slice(0, 6);
+        setCompatibleUsers(sectionA);
+
+        // Section B: Feeling Energy (Next 4)
+        const usedIds = new Set([...featured.map(u => u.uid), ...sectionA.map(u => u.uid)]);
+        const sectionB = others.filter(u => !usedIds.has(u.uid)).slice(0, 4);
+        setFeelingEnergyUsers(sectionB);
+
+        // Section C: New Frequencies (Next 6)
+        const usedIdsFinal = new Set([...usedIds, ...sectionB.map(u => u.uid)]);
+        const sectionC = others.filter(u => !usedIdsFinal.has(u.uid)).slice(0, 6);
+        setNewFrequencyUsers(sectionC);
+
+        // Update Cache
+        cacheManager.set("socialDiscoverData", {
+          featuredUsers: featured,
+          activeUsers: active,
+          compatibleUsers: sectionA,
+          feelingEnergyUsers: sectionB,
+          newFrequencyUsers: sectionC,
+          compatibilityHistory: history
+        }, 600); // Cache for 10 minutes
+
+      } catch (error) {
+        console.error("Discover fetch error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
   }, [uid]);
 
+  // Load from cache if available
   useEffect(() => {
-    if (!uid) return;
-    const targetGender = getTargetGender(currentUser);
-    const usersRef = collection(db, "users");
-    
-    const q = query(
-      usersRef,
-      where("social.enabled", "==", true),
-      where("social.profileCompleted", "==", true),
-      where("social.visible", "==", true),
-      where("social.gender", "==", targetGender),
-      limit(100)
-    );
+    if (socialCache.isLoaded) {
+      setFeaturedUsers(socialCache.featuredUsers);
+      setActiveUsers(socialCache.activeUsers);
+      setCompatibleUsers(socialCache.compatibleUsers);
+      setFeelingEnergyUsers(socialCache.feelingEnergyUsers);
+      setNewFrequencyUsers(socialCache.newFrequencyUsers);
+      setCompatibilityHistory(socialCache.compatibilityHistory);
+    }
+  }, []);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allFetched = snapshot.docs
-        .map(doc => normalizeUserProfile(doc.data(), doc.id))
-        .filter(u => isEligibleSocialUser(u, uid, targetGender));
-
-      // Shuffle for variety
-      const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
-
-      // Featured (Boosted)
-      const now = new Date().toISOString();
-      const featured = allFetched
-        .filter(u => u.boostExpiresAt && u.boostExpiresAt > now)
-        .slice(0, 10);
-      setFeaturedUsers(featured);
-      
-      // Active Users (First 10)
-      setActiveUsers(allFetched.slice(0, 10));
-      
-      // Section A: Compatible
-      const compatibleIds = compatibilityHistory.map(h => h.targetUserId);
-      const matchedCompatible = shuffled.filter(u => compatibleIds.includes(u.uid));
-      const others = shuffled.filter(u => !compatibleIds.includes(u.uid) && !featured.some(f => f.uid === u.uid));
-      
-      const sectionA = [...matchedCompatible, ...others].slice(0, 6);
-      setCompatibleUsers(sectionA);
-
-      // Section B: Feeling Energy (Next 4)
-      const usedIds = new Set([...featured.map(u => u.uid), ...sectionA.map(u => u.uid)]);
-      const sectionB = others.filter(u => !usedIds.has(u.uid)).slice(0, 4);
-      setFeelingEnergyUsers(sectionB);
-
-      // Section C: New Frequencies (Next 6)
-      const usedIdsFinal = new Set([...usedIds, ...sectionB.map(u => u.uid)]);
-      const sectionC = others.filter(u => !usedIdsFinal.has(u.uid)).slice(0, 6);
-      setNewFrequencyUsers(sectionC);
-
-      setLoading(false);
-    }, (error) => {
-      console.error("Discover onSnapshot error:", error);
-      setLoading(false);
-    });
-
+  useEffect(() => {
     const interval = setInterval(updateTimer, 1000);
-    return () => {
-      unsubscribe();
-      clearInterval(interval);
-    };
-  }, [uid, currentUser?.social?.gender, compatibilityHistory.length]);
+    return () => clearInterval(interval);
+  }, [social?.lastDiscoverRefreshAt]);
 
   const updateTimer = () => {
     if (!social?.lastDiscoverRefreshAt) {
@@ -279,6 +333,9 @@ export default function SocialDiscoverScreen({
     try {
       const result = await walletService.refreshDiscoverFeed();
       if (result.success) {
+        // Clear cache on manual refresh
+        socialCache.isLoaded = false;
+        
         if ((result as any).consumedFrom === 'daily_bonus') {
           toast.success("Günlük ücretsiz yenileme hakkın kullanıldı! ✨");
         } else {

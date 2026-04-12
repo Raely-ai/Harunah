@@ -48,13 +48,13 @@ const TYPE_ICONS: Record<string, any> = {
 };
 
 const STATUS_CONFIG = {
-  searching: { label: 'Yorumcu Aranıyor', color: 'text-purple-600', bg: 'bg-purple-500/10', icon: Search },
-  found: { label: 'Yorumcu Bulundu', color: 'text-indigo-600', bg: 'bg-indigo-500/10', icon: User },
-  interpreting: { label: 'Yorumlanıyor', color: 'text-blue-600', bg: 'bg-blue-500/10', icon: AlertCircle },
-  completed: { label: 'Yorumlandı', color: 'text-emerald-600', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
-  waiting: { label: 'Beklemede', color: 'text-amber-600', bg: 'bg-amber-500/10', icon: Clock },
-  error: { label: 'Hata', color: 'text-red-600', bg: 'bg-red-500/10', icon: AlertCircle },
-  pending: { label: 'Hazırlanıyor', color: 'text-gray-600', bg: 'bg-gray-500/10', icon: Clock },
+  searching: { label: 'Yorumcu Aranıyor', color: 'text-purple-400', bg: 'bg-purple-500/10', icon: Search },
+  found: { label: 'Yorumcu Bulundu', color: 'text-indigo-400', bg: 'bg-indigo-500/10', icon: User },
+  interpreting: { label: 'Yorumlanıyor', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: AlertCircle },
+  completed: { label: 'Yorumlandı', color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+  waiting: { label: 'Beklemede', color: 'text-amber-400', bg: 'bg-amber-500/10', icon: Clock },
+  error: { label: 'Hata', color: 'text-red-400', bg: 'bg-red-500/10', icon: AlertCircle },
+  pending: { label: 'Hazırlanıyor', color: 'text-gray-400', bg: 'bg-gray-500/10', icon: Clock },
 };
 
 export default function FortunesScreen({ 
@@ -94,15 +94,17 @@ export default function FortunesScreen({
   });
 
   const handleShare = (reading: FortuneReading) => {
-    if (navigator.share) {
-      navigator.share({
-        title: reading.title,
-        text: reading.content,
-        url: window.location.href,
-      }).catch(() => toast.error("Paylaşım yapılamadı"));
-    } else {
-      navigator.clipboard.writeText(reading.content);
-      toast.success("Panoya kopyalandı");
+    if (reading.content) {
+      if (navigator.share) {
+        navigator.share({
+          title: reading.title,
+          text: reading.content,
+          url: window.location.href,
+        }).catch(() => toast.error("Paylaşım yapılamadı"));
+      } else {
+        navigator.clipboard.writeText(reading.content);
+        toast.success("Panoya kopyalandı");
+      }
     }
   };
 
@@ -114,7 +116,7 @@ export default function FortunesScreen({
       }
       return <span className="text-sm">{icon}</span>;
     }
-    return type === 'main' ? <Coins className="w-4 h-4 text-amber-600" /> : <Zap className="w-4 h-4 text-indigo-600" />;
+    return type === 'main' ? <Coins className="w-4 h-4 text-amber-500" /> : <Zap className="w-4 h-4 text-indigo-400" />;
   };
 
   const CATEGORIES = [
@@ -123,9 +125,9 @@ export default function FortunesScreen({
       title: 'Kahve Falı', 
       description: 'Fincandaki sembollerin gizemli dünyası.',
       icon: Coffee, 
-      color: 'from-amber-50 to-amber-100/50', 
-      iconColor: 'text-amber-600',
-      glowColor: 'shadow-amber-500/20',
+      color: 'from-amber-500/10 to-amber-600/5', 
+      iconColor: 'text-amber-500',
+      glowColor: 'bg-amber-500/20',
       configIcon: config?.icons?.coffee,
       price: economyConfig?.fortunePricing?.coffee ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.coffee,
       energyEligible: true
@@ -135,9 +137,9 @@ export default function FortunesScreen({
       title: 'Tarot', 
       description: 'Kartların kadim bilgeliği.',
       icon: CreditCard, 
-      color: 'from-purple-50 to-purple-100/50', 
-      iconColor: 'text-purple-600',
-      glowColor: 'shadow-purple-500/20',
+      color: 'from-purple-500/10 to-purple-600/5', 
+      iconColor: 'text-purple-400',
+      glowColor: 'bg-purple-500/20',
       configIcon: config?.icons?.tarot,
       price: economyConfig?.fortunePricing?.tarot ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.tarot,
       energyEligible: true
@@ -147,9 +149,9 @@ export default function FortunesScreen({
       title: 'Su Falı', 
       description: 'Suyun duruluğunda saklı gerçekler.',
       icon: Droplets, 
-      color: 'from-cyan-50 to-cyan-100/50', 
-      iconColor: 'text-cyan-600',
-      glowColor: 'shadow-cyan-500/20',
+      color: 'from-cyan-500/10 to-cyan-600/5', 
+      iconColor: 'text-cyan-400',
+      glowColor: 'bg-cyan-500/20',
       configIcon: config?.icons?.water,
       price: economyConfig?.fortunePricing?.water ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.water,
       energyEligible: false
@@ -159,9 +161,9 @@ export default function FortunesScreen({
       title: 'Ebced Aşk', 
       description: 'İsimlerin ve sayıların aşkı.',
       icon: Heart, 
-      color: 'from-rose-50 to-rose-100/50', 
-      iconColor: 'text-rose-600',
-      glowColor: 'shadow-rose-500/20',
+      color: 'from-rose-500/10 to-rose-600/5', 
+      iconColor: 'text-rose-400',
+      glowColor: 'bg-rose-500/20',
       configIcon: config?.icons?.ebced,
       price: economyConfig?.fortunePricing?.ebced ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.ebced,
       energyEligible: false
@@ -171,9 +173,9 @@ export default function FortunesScreen({
       title: 'Yıldızname', 
       description: 'Yıldızların rehberliği.',
       icon: Star, 
-      color: 'from-indigo-50 to-indigo-100/50', 
-      iconColor: 'text-indigo-600',
-      glowColor: 'shadow-indigo-500/20',
+      color: 'from-indigo-500/10 to-indigo-600/5', 
+      iconColor: 'text-indigo-400',
+      glowColor: 'bg-indigo-500/20',
       configIcon: config?.icons?.yildizname,
       price: economyConfig?.fortunePricing?.yildizname ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.yildizname,
       energyEligible: false
@@ -183,9 +185,9 @@ export default function FortunesScreen({
       title: 'İlmi Havas', 
       description: 'Gizli ilimlerin derinlikleri.',
       icon: Zap, 
-      color: 'from-emerald-50 to-emerald-100/50', 
-      iconColor: 'text-emerald-600',
-      glowColor: 'shadow-emerald-500/20',
+      color: 'from-emerald-500/10 to-emerald-600/5', 
+      iconColor: 'text-emerald-400',
+      glowColor: 'bg-emerald-500/20',
       configIcon: config?.icons?.havas,
       price: economyConfig?.fortunePricing?.havas ?? DEFAULT_ECONOMY_CONFIG.fortunePricing.havas,
       energyEligible: false
@@ -195,12 +197,12 @@ export default function FortunesScreen({
   const renderIcon = (cat: any) => {
     if (cat.configIcon) {
       if (cat.configIcon.startsWith('http')) {
-        return <img src={cat.configIcon} alt={cat.title} className="w-12 h-12 object-contain" />;
+        return <img src={cat.configIcon} alt={cat.title} className="w-10 h-10 object-contain" />;
       }
-      return <span className="text-5xl">{cat.configIcon}</span>;
+      return <span className="text-4xl">{cat.configIcon}</span>;
     }
     const Icon = cat.icon;
-    return <Icon className={`w-12 h-12 ${cat.iconColor}`} />;
+    return <Icon className={`w-8 h-8 ${cat.iconColor}`} />;
   };
 
   const isSubscribed = userProfile?.subscription?.status === 'active';
@@ -208,39 +210,39 @@ export default function FortunesScreen({
   const subUsed = userProfile?.subscription?.dailyLimitUsed ?? 0;
 
   return (
-    <div className="relative min-h-screen pb-32 overflow-hidden flex flex-col bg-[#FDFCFE]">
+    <div className="relative min-h-screen pb-32 overflow-hidden flex flex-col bg-[#0A0510]">
       {/* Celestial Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-purple-600/5 blur-[120px] rounded-full" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-amber-600/5 blur-[120px] rounded-full" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none grayscale" />
-
+      <div className="absolute top-[-10%] left-[-10%] w-[70%] h-[70%] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[70%] h-[70%] bg-amber-900/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.05] pointer-events-none mix-blend-overlay" />
+      
       {/* Top Tabs */}
-      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-2xl px-6 py-4 flex items-center justify-center border-b border-black/5">
-        <div className="flex bg-black/5 p-1 rounded-2xl border border-black/5 w-full max-w-[320px]">
+      <div className="sticky top-0 z-30 bg-black/20 backdrop-blur-2xl px-6 py-4 flex items-center justify-center border-b border-white/5">
+        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 w-full max-w-[320px]">
           <button
             onClick={() => setActiveSubTab('fortunes')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
               activeSubTab === 'fortunes' 
-                ? 'bg-white text-heading shadow-md border border-black/5' 
-                : 'text-muted hover:text-heading'
+                ? 'bg-white/10 text-white shadow-lg border border-white/10' 
+                : 'text-white/40 hover:text-white/60'
             }`}
           >
             Fallarım
           </button>
           <button
             onClick={() => setActiveSubTab('history')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
               activeSubTab === 'history' 
-                ? 'bg-white text-heading shadow-md border border-black/5' 
-                : 'text-muted hover:text-heading'
+                ? 'bg-white/10 text-white shadow-lg border border-white/10' 
+                : 'text-white/40 hover:text-white/60'
             }`}
           >
-            Geçmiş Yorumlarım
+            Geçmiş
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar" style={{ paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' }}>
         <AnimatePresence mode="wait">
           {activeSubTab === 'fortunes' ? (
             <motion.div
@@ -250,119 +252,125 @@ export default function FortunesScreen({
               exit={{ opacity: 0, y: -10 }}
               className="space-y-8 pt-6"
             >
-              {/* Header: Balances & Name */}
+              {/* Header: Balances & Name (Compact & Premium) */}
               {userProfile && (
                 <section className="px-4 relative z-10">
-                  <div className="p-6 rounded-[2.5rem] bg-white border border-black/5 shadow-xl">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-4">
+                  <div className="p-5 rounded-[2rem] bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl relative overflow-hidden group">
+                    {/* Inner Glow */}
+                    <div className="absolute -top-10 -right-10 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full" />
+                    
+                    <div className="flex items-center justify-between relative z-10">
+                      <div className="flex items-center gap-3">
                         <div className="relative">
-                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 p-[1px] shadow-lg relative z-10">
-                            <div className="w-full h-full rounded-2xl bg-white flex items-center justify-center overflow-hidden">
+                          <motion.div 
+                            animate={{ scale: [1, 1.1, 1], opacity: [0.2, 0.4, 0.2] }}
+                            transition={{ duration: 3, repeat: Infinity }}
+                            className="absolute inset-0 bg-amber-500/30 blur-xl rounded-full"
+                          />
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 p-[1px] shadow-2xl relative z-10 border border-white/20">
+                            <div className="w-full h-full rounded-2xl bg-[#1A1525] flex items-center justify-center overflow-hidden">
                               {userProfile.photoURL ? (
                                 <img src={userProfile.photoURL} alt={userProfile.displayName || ""} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               ) : (
-                                <User className="w-8 h-8 text-amber-600/20" />
+                                <User className="w-6 h-6 text-white/20" />
                               )}
                             </div>
                           </div>
-                          {isSubscribed && (
-                            <div className="absolute -top-2 -right-2 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center border-2 border-white z-20 shadow-lg">
-                              <Star className="w-3 h-3 text-white fill-current" />
-                            </div>
-                          )}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-1">Mistik Gezgin</p>
-                          <h2 className="text-2xl font-serif font-bold text-heading leading-tight truncate max-w-[140px]">
+                          <h2 className="text-lg font-serif font-bold text-white leading-tight truncate max-w-[120px]">
                             {userProfile.displayName}
                           </h2>
-                          {isSubscribed && (
-                            <div className="flex items-center gap-1.5 mt-1">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Premium Üye</span>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[9px] font-black text-amber-500/80 uppercase tracking-widest">
+                              {isSubscribed ? "Premium Üye" : "Mistik Gezgin"}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-50 border border-amber-100">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
                           {renderBalanceIcon('main')}
-                          <span className="text-sm font-bold text-amber-600 tracking-tight">{userProfile.mainCoins || 0}</span>
+                          <span className="text-xs font-black text-amber-500 tracking-tight">{userProfile.mainCoins || 0}</span>
                         </div>
-                        <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-50 border border-indigo-100">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
                           {renderBalanceIcon('ad')}
-                          <span className="text-sm font-bold text-indigo-600 tracking-tight">{userProfile.energy || 0}</span>
+                          <span className="text-xs font-black text-indigo-400 tracking-tight">{userProfile.energy || 0}</span>
                         </div>
                       </div>
                     </div>
 
                     {isSubscribed && (
-                      <div className="mt-6 pt-4 border-t border-black/5">
+                      <div className="mt-4 pt-4 border-t border-white/5">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Günlük Fal Hakkı</span>
-                          <span className="text-[10px] font-bold text-amber-600">{subUsed} / {subLimit}</span>
+                          <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Günlük Hak</span>
+                          <span className="text-[9px] font-black text-amber-500">{subUsed} / {subLimit}</span>
                         </div>
-                        <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+                        <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                           <motion.div 
                             initial={{ width: 0 }}
                             animate={{ width: `${(subUsed / subLimit) * 100}%` }}
-                            className="h-full bg-gradient-to-r from-amber-500 to-amber-300"
+                            className="h-full bg-gradient-to-r from-amber-500 to-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.5)]"
                           />
                         </div>
-                        <p className="text-[9px] font-medium text-muted mt-2 text-center italic">"Abonesin, öncelikli sıradasın ve mistik güçlerin daha yoğun."</p>
                       </div>
                     )}
                   </div>
                 </section>
               )}
 
-              <div className="px-8 relative z-10">
-                <h3 className="text-heading text-lg font-serif font-bold">Kaderini Aydınlat</h3>
-                <p className="text-muted text-sm font-medium tracking-wide">Sana en yakın gelen yöntemi seç ve başla.</p>
+              <div className="px-8 relative z-10 space-y-1">
+                <h3 className="text-white text-xl font-serif font-bold tracking-tight">Kaderini Aydınlat</h3>
+                <p className="text-white/40 text-xs font-medium tracking-wide">Sana en yakın gelen yöntemi seç ve başla.</p>
               </div>
 
-              <div className="grid grid-cols-1 gap-6 px-6 relative z-10">
+              <div className="grid grid-cols-1 gap-4 px-4 relative z-10">
                 {CATEGORIES.map((cat, idx) => {
                   return (
                     <motion.button
                       key={cat.id}
-                      whileHover={{ scale: 1.02, y: -4 }}
-                      whileTap={{ scale: 0.97 }}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => onSelectFortune(cat.id)}
-                      className={`relative flex items-center p-6 rounded-[2.5rem] overflow-hidden bg-white border border-black/5 group transition-all duration-300 hover:border-amber-500/20 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-xl ${cat.glowColor}`}
+                      className="group relative flex items-center p-5 rounded-[2rem] overflow-hidden bg-white/5 backdrop-blur-xl border border-white/10 transition-all duration-500 shadow-[0_8px_32px_rgba(0,0,0,0.2)]"
                     >
-                      <div className={`absolute inset-0 bg-gradient-to-r ${cat.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                      {/* Hover Glow Effect */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                      <div className={`absolute -right-20 -top-20 w-40 h-40 blur-[80px] rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-700 ${cat.glowColor}`} />
                       
-                      <div className="relative z-10 flex items-center gap-6 w-full">
-                        <div className="p-5 rounded-3xl bg-white border border-black/5 shadow-sm group-hover:scale-110 transition-transform duration-500 relative overflow-hidden">
-                          <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-50" />
-                          {renderIcon(cat)}
+                      <div className="relative z-10 flex items-center gap-5 w-full">
+                        {/* Icon Container */}
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-white/10 blur-xl rounded-full group-hover:bg-white/20 transition-colors" />
+                          <div className="relative w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform duration-500">
+                            {renderIcon(cat)}
+                          </div>
                         </div>
                         
-                        <div className="flex-1 text-left space-y-1">
-                          <h3 className="text-xl font-serif font-bold text-heading group-hover:text-amber-700 transition-colors">{cat.title}</h3>
-                          <p className="text-xs text-body font-medium leading-relaxed opacity-80">
+                        <div className="flex-1 text-left">
+                          <h3 className="text-lg font-serif font-bold text-white group-hover:text-amber-400 transition-colors leading-tight">{cat.title}</h3>
+                          <p className="text-[11px] text-white/50 font-medium leading-tight mt-1 line-clamp-1">
                             {cat.description}
                           </p>
-                          
-                          <div className="flex items-center gap-3 mt-3">
-                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] font-bold text-amber-600 shadow-sm">
+                        </div>
+
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px] font-black text-amber-500 flex items-center gap-1">
                               {renderBalanceIcon('main')}
-                              <span className="tracking-tighter">{cat.price}</span>
+                              <span>{cat.price}</span>
                             </div>
                             {cat.energyEligible && (
-                              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-[10px] font-bold text-indigo-600 shadow-sm">
+                              <div className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px] font-black text-indigo-400 flex items-center gap-1">
                                 {renderBalanceIcon('ad')}
-                                <span className="tracking-tighter">{cat.price}</span>
+                                <span>{cat.price}</span>
                               </div>
                             )}
                           </div>
-                        </div>
-
-                        <div className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all duration-500 shadow-sm">
-                          <ChevronRight className="w-5 h-5" />
+                          <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center group-hover:bg-white/10 group-hover:text-amber-400 transition-all duration-500">
+                            <ChevronRight className="w-4 h-4" />
+                          </div>
                         </div>
                       </div>
                     </motion.button>
@@ -382,34 +390,34 @@ export default function FortunesScreen({
               {/* History Header: Search & Refresh */}
               <div className="px-6 py-6 space-y-4 relative z-10">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-serif font-bold text-heading">Kehanet Arşivi</h2>
+                  <h2 className="text-xl font-serif font-bold text-white">Kehanet Arşivi</h2>
                   <motion.button
                     whileHover={{ rotate: 180 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className={`w-10 h-10 rounded-xl bg-white border border-black/5 flex items-center justify-center hover:bg-black/5 transition-colors ${isRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
                   >
-                    <RefreshCw className={`w-5 h-5 text-amber-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-5 h-5 text-amber-500 ${isRefreshing ? 'animate-spin' : ''}`} />
                   </motion.button>
                 </div>
 
                 <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                   <input
                     type="text"
                     placeholder="Kehanetlerde ara..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white border border-black/5 rounded-2xl py-3.5 pl-12 pr-4 text-sm focus:outline-none focus:border-amber-600/50 transition-colors text-heading placeholder:text-muted shadow-sm"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 pl-12 pr-4 text-sm focus:outline-none focus:border-amber-500/30 transition-colors text-white placeholder:text-white/20 shadow-2xl"
                   />
                 </div>
                 
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
                   <button
                     onClick={() => setFilter('all')}
-                    className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
-                      filter === 'all' ? 'bg-heading text-white shadow-md' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
+                    className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${
+                      filter === 'all' ? 'bg-white text-black shadow-lg' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
                     }`}
                   >
                     Tümü
@@ -418,8 +426,8 @@ export default function FortunesScreen({
                     <button
                       key={type}
                       onClick={() => setFilter(type as FortuneType)}
-                      className={`px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
-                        filter === type ? 'bg-heading text-white shadow-md' : 'bg-white text-muted border border-black/5 hover:bg-black/5'
+                      className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${
+                        filter === type ? 'bg-white text-black shadow-lg' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
                       }`}
                     >
                       {type === 'coffee' ? 'Kahve' : (type === 'su' || type === 'water') ? 'Su' : type.charAt(0).toUpperCase() + type.slice(1)}
@@ -429,14 +437,11 @@ export default function FortunesScreen({
               </div>
 
               {/* History List */}
-              <div className="flex-1 px-6 space-y-4 pb-32 relative z-10">
+              <div className="flex-1 px-4 space-y-4 relative z-10">
                 {filteredHistory.length > 0 ? (
                   filteredHistory.map((reading) => {
                     const Icon = TYPE_ICONS[reading.type] || History;
-                    const now = new Date();
-                    let currentStatus = reading.status;
-                    
-                    const status = STATUS_CONFIG[currentStatus as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
+                    const status = STATUS_CONFIG[reading.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.waiting;
                     const StatusIcon = status.icon;
 
                     return (
@@ -444,24 +449,22 @@ export default function FortunesScreen({
                         key={reading.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="p-6 rounded-[2.5rem] border border-black/5 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-500 hover:shadow-xl group"
+                        className="p-5 rounded-[2rem] border border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl transition-all duration-500 group"
                       >
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
-                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center relative overflow-hidden shadow-inner ${
-                              reading.type === 'coffee' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-purple-50 text-purple-600 border border-purple-100'
-                            }`}>
-                              <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-40" />
-                              <Icon className="w-7 h-7 relative z-10 group-hover:scale-110 transition-transform duration-500" />
+                            <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center relative overflow-hidden">
+                              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-40" />
+                              <Icon className="w-7 h-7 text-amber-500 relative z-10 group-hover:scale-110 transition-transform duration-500" />
                             </div>
                             <div>
-                              <h3 className="font-serif font-bold text-heading text-lg group-hover:text-amber-700 transition-colors">{reading.title}</h3>
+                              <h3 className="font-serif font-bold text-white text-lg group-hover:text-amber-400 transition-colors leading-tight">{reading.title}</h3>
                               <div className="flex items-center gap-2 mt-1">
-                                <span className="text-[10px] text-muted uppercase tracking-widest font-bold">{(reading.date || reading.createdAt || "").split('T')[0] || "Bilinmiyor"}</span>
-                                <span className="w-1 h-1 rounded-full bg-black/10" />
-                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bg} ${status.color} border border-black/5 shadow-sm`}>
-                                  <StatusIcon className="w-3 h-3" />
-                                  <span className="text-[9px] font-black uppercase tracking-widest">{status.label}</span>
+                                <span className="text-[9px] text-white/30 uppercase tracking-widest font-black">{(reading.date || reading.createdAt || "").split('T')[0] || "Bilinmiyor"}</span>
+                                <span className="w-1 h-1 rounded-full bg-white/10" />
+                                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/5 ${status.color}`}>
+                                  <StatusIcon className="w-2.5 h-2.5" />
+                                  <span className="text-[8px] font-black uppercase tracking-widest">{status.label}</span>
                                 </div>
                               </div>
                             </div>
@@ -473,7 +476,7 @@ export default function FortunesScreen({
                               whileTap={{ scale: 0.9 }}
                               onClick={() => onToggleFavorite(reading.id)}
                               className={`p-2.5 rounded-xl transition-all ${
-                                reading.isFavorite ? 'text-amber-600 bg-amber-50 shadow-sm border border-amber-100' : 'text-muted hover:text-amber-600 hover:bg-black/5'
+                                reading.isFavorite ? 'text-amber-500 bg-white/10 border border-white/10' : 'text-white/20 hover:text-amber-500 hover:bg-white/5'
                               }`}
                             >
                               <Star className={`w-4 h-4 ${reading.isFavorite ? 'fill-current' : ''}`} />
@@ -482,56 +485,42 @@ export default function FortunesScreen({
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
                               onClick={() => onDeleteHistory(reading.id)}
-                              className="p-2.5 rounded-xl text-muted hover:text-red-600 hover:bg-red-50 transition-all"
+                              className="p-2.5 rounded-xl text-white/20 hover:text-red-500 hover:bg-red-500/10 transition-all"
                             >
                               <Trash2 className="w-4 h-4" />
                             </motion.button>
                           </div>
                         </div>
 
-                        {currentStatus === 'completed' && reading.content ? (
+                        {reading.status === 'completed' && reading.content ? (
                           <div className="space-y-4">
-                            <div className="p-4 rounded-2xl bg-black/[0.02] border border-black/5 relative overflow-hidden">
-                              <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
-                                <Icon className="w-16 h-16" />
-                              </div>
-                              <p className="text-sm text-body line-clamp-2 leading-relaxed italic relative z-10">
-                                "{reading.content || 'Kehanetin hazırlanıyor...'}"
+                            <div className="p-4 rounded-2xl bg-black/20 border border-white/5 relative overflow-hidden">
+                              <p className="text-xs text-white/60 line-clamp-2 leading-relaxed italic relative z-10">
+                                "{reading.content}"
                               </p>
                             </div>
-                            <div className="flex items-center justify-between pt-4 border-t border-black/5">
+                            <div className="flex items-center justify-between pt-4 border-t border-white/5">
                               <button
                                 onClick={() => handleShare(reading)}
-                                className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted hover:text-amber-600 transition-colors"
+                                className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors"
                               >
-                                <Share2 className="w-3.5 h-3.5" />
+                                <Share2 className="w-3 h-3" />
                                 Paylaş
                               </button>
                               <button
                                 onClick={() => setSelectedReading(reading)}
-                                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:translate-x-1 transition-transform"
+                                className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-amber-500 hover:translate-x-1 transition-transform"
                               >
                                 Detayları Gör
-                                <ChevronRight className="w-3.5 h-3.5" />
+                                <ChevronRight className="w-3 h-3" />
                               </button>
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-4">
-                            <div className="p-5 rounded-2xl bg-black/[0.02] border border-dashed border-black/10 text-center relative overflow-hidden">
-                              <motion.div 
-                                animate={{ opacity: [0.3, 0.6, 0.3] }}
-                                transition={{ duration: 2, repeat: Infinity }}
-                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                              />
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted relative z-10">
-                                {currentStatus === 'interpreting' ? 'Yorumcu kehanetini hazırlıyor...' : 'Kehanetin yorumlanmayı bekliyor.'}
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-center gap-2">
-                              <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-muted/60">İşlem Devam Ediyor</span>
-                            </div>
+                          <div className="p-4 rounded-2xl bg-white/5 border border-dashed border-white/10 text-center">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-white/30">
+                              {reading.status === 'interpreting' ? 'Yorumlanıyor...' : 'Beklemede...'}
+                            </p>
                           </div>
                         )}
                       </motion.div>
@@ -539,11 +528,10 @@ export default function FortunesScreen({
                   })
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <div className="w-20 h-20 rounded-full bg-black/5 flex items-center justify-center mb-6">
-                      <History className="w-10 h-10 text-black/10" />
+                    <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                      <History className="w-10 h-10 text-white/10" />
                     </div>
-                    <h3 className="text-lg font-serif font-bold text-muted mb-2">Henüz Bir Kehanet Yok</h3>
-                    <p className="text-sm text-muted max-w-[200px]">Geçmiş kehanetlerini burada görebilirsin.</p>
+                    <h3 className="text-lg font-serif font-bold text-white/40 mb-2">Henüz Bir Kehanet Yok</h3>
                   </div>
                 )}
               </div>
@@ -559,43 +547,43 @@ export default function FortunesScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 backdrop-blur-sm p-4"
             onClick={() => setSelectedReading(null)}
           >
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              className="w-full max-w-lg bg-white rounded-t-[3rem] p-8 max-h-[90vh] overflow-y-auto no-scrollbar shadow-2xl"
+              className="w-full max-w-lg bg-[#1A1525] rounded-t-[3rem] p-8 max-h-[90vh] overflow-y-auto no-scrollbar shadow-2xl border-t border-white/10"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-12 h-1.5 bg-black/5 rounded-full mx-auto mb-8" />
+              <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-8" />
               
               <div className="flex items-center gap-4 mb-8">
-                <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center shadow-sm">
+                <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-sm">
                   {(() => {
                     const Icon = TYPE_ICONS[selectedReading.type] || History;
-                    return <Icon className="w-8 h-8 text-amber-600" />;
+                    return <Icon className="w-8 h-8 text-amber-500" />;
                   })()}
                 </div>
                 <div>
-                  <h2 className="text-2xl font-serif font-bold text-heading">{selectedReading.title}</h2>
-                  <p className="text-xs text-muted uppercase tracking-widest font-bold">{(selectedReading.date || selectedReading.createdAt || "").split('T')[0] || "Bilinmiyor"}</p>
+                  <h2 className="text-2xl font-serif font-bold text-white">{selectedReading.title}</h2>
+                  <p className="text-xs text-white/30 uppercase tracking-widest font-black">{(selectedReading.date || selectedReading.createdAt || "").split('T')[0] || "Bilinmiyor"}</p>
                 </div>
               </div>
 
-              <div className="prose prose-slate max-w-none">
-                <p className="text-lg text-body leading-relaxed font-serif italic whitespace-pre-wrap">
+              <div className="prose prose-invert max-w-none">
+                <p className="text-lg text-white/80 leading-relaxed font-serif italic whitespace-pre-wrap">
                   {selectedReading.content}
                 </p>
               </div>
 
               {selectedReading.cards && selectedReading.cards.length > 0 && (
                 <div className="mt-8">
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted mb-4">Seçilen Kartlar</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-4">Seçilen Kartlar</h4>
                   <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
                     {selectedReading.cards.map((card, idx) => (
-                      <div key={idx} className="flex-shrink-0 w-24 aspect-[2/3] rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-2xl shadow-sm">
+                      <div key={idx} className="flex-shrink-0 w-24 aspect-[2/3] rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl shadow-sm">
                         🎴
                       </div>
                     ))}
@@ -606,14 +594,14 @@ export default function FortunesScreen({
               <div className="mt-12 grid grid-cols-2 gap-4">
                 <button
                   onClick={() => handleShare(selectedReading)}
-                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-black/5 border border-black/5 text-sm font-bold uppercase tracking-widest hover:bg-black/10 transition-colors text-heading"
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-white/5 border border-white/10 text-sm font-black uppercase tracking-widest hover:bg-white/10 transition-colors text-white"
                 >
                   <Share2 className="w-4 h-4" />
                   Paylaş
                 </button>
                 <button
                   onClick={() => setSelectedReading(null)}
-                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-600 text-white text-sm font-bold uppercase tracking-widest hover:bg-amber-700 transition-colors shadow-lg"
+                  className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-amber-600 text-white text-sm font-black uppercase tracking-widest hover:bg-amber-700 transition-colors shadow-lg"
                 >
                   Kapat
                 </button>

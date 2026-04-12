@@ -333,7 +333,7 @@ export default function SocialMessagesScreen({
         </header>
 
         {/* Blurred Mock Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar blur-[20px] opacity-30 pointer-events-none">
+        <div className="flex-1 overflow-y-auto no-scrollbar blur-[25px] opacity-40 pointer-events-none">
           {/* Tabs Mock */}
           <div className="px-4 py-3 bg-black/5 border-b border-black/5">
             <div className="flex bg-black/[0.03] p-1 rounded-2xl border border-black/5">

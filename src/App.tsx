@@ -4,7 +4,8 @@ import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, Histo
 import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
 import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
-import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment } from "firebase/firestore";
+import { cacheManager } from "./lib/cacheManager";
+import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment, startAfter } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
 
@@ -65,7 +66,10 @@ function AppContent() {
   const [previewUser, setPreviewUser] = useState<UserProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [horoscopes, setHoroscopes] = useState<Record<string, Horoscope>>({});
+  const [isHoroscopesLoading, setIsHoroscopesLoading] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
   
   // Presence Management
   useEffect(() => {
@@ -109,69 +113,73 @@ function AppContent() {
     }
   }, [isAdmin, user?.uid]);
 
-  // Fetch Global Config
+  // Fetch Global Config (One-time fetch with fallback and cache)
   useEffect(() => {
-    const configRef = doc(db, "config", "global");
-    const unsubscribe = onSnapshot(configRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setAppConfig(snapshot.data() as AppConfig);
-      } else {
-        // Provide a default config if not found in Firestore yet
-        const defaultConfig: AppConfig = {
-          prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
-          icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
-          dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-          adRewardEnergy: 5,
-          maxDailyAds: 5,
-          subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
-          packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
-        };
-        setAppConfig(defaultConfig);
+    const fetchConfig = async () => {
+      // Check Cache First
+      const cached = cacheManager.get<AppConfig>("appConfig");
+      if (cached) {
+        setAppConfig(cached);
+        return;
       }
-    }, (err) => {
-      console.error("Config fetch error:", err);
-      // Fallback on error too
-      setAppConfig({
-        prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
-        icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
-        dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-        adRewardEnergy: 5,
-        maxDailyAds: 5,
-        subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
-        packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
-      });
-    });
-    return () => unsubscribe();
+
+      try {
+        const configRef = doc(db, "config", "global");
+        const snapshot = await getDoc(configRef);
+        
+        if (snapshot.exists()) {
+          const data = snapshot.data() as AppConfig;
+          setAppConfig(data);
+          cacheManager.set("appConfig", data, 3600); // Cache for 1 hour
+        } else {
+          const fallback = {
+            prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
+            icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
+            dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
+            adRewardEnergy: 5,
+            maxDailyAds: 5,
+            subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
+            packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
+          };
+          setAppConfig(fallback);
+          cacheManager.set("appConfig", fallback, 3600);
+        }
+      } catch (err: any) {
+        if (err.message?.includes("quota")) setQuotaExceeded(true);
+        console.error("Config fetch error:", err);
+      }
+    };
+    fetchConfig();
   }, []);
 
-  // Fetch Economy Config
+  // Fetch Economy Config (Lazy load with cache)
   useEffect(() => {
-    if (!user) return;
-    const economyRef = doc(db, "adminSettings", "economy");
-    const unsubscribe = onSnapshot(economyRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setEconomyConfig({
-          ...DEFAULT_ECONOMY_CONFIG,
-          ...data,
-          fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
-          interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
-          subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
-          aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
-          rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
-          socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
-          boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
-          fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
-        } as EconomyConfig);
-      } else {
+    if (!user || economyConfig) return;
+    
+    const fetchEconomy = async () => {
+      const cached = cacheManager.get<EconomyConfig>("economyConfig");
+      if (cached) {
+        setEconomyConfig(cached);
+        return;
+      }
+
+      try {
+        const economyRef = doc(db, "adminSettings", "economy");
+        const snapshot = await getDoc(economyRef);
+        if (snapshot.exists()) {
+          const data = snapshot.data() as EconomyConfig;
+          setEconomyConfig(data);
+          cacheManager.set("economyConfig", data, 1800); // Cache for 30 mins
+        } else {
+          setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
+        }
+      } catch (err: any) {
+        if (err.message?.includes("quota")) setQuotaExceeded(true);
         setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
       }
-    }, (err) => {
-      handleFirestoreError(err, OperationType.GET, "adminSettings/economy");
-      setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
-    });
-    return () => unsubscribe();
-  }, []);
+    };
+    fetchEconomy();
+  }, [user]);
 
   // Listen for global notifications
   useEffect(() => {
@@ -215,83 +223,7 @@ function AppContent() {
       setIsProfileLoading(true);
       const userRef = doc(db, "users", user.uid);
 
-      // CRITICAL FIX: Ensure document exists before listening, and only create if missing.
-      // This prevents race conditions and accidental overwrites on page refresh.
-      const initializeUser = async () => {
-        try {
-          const snap = await getDoc(userRef);
-          if (!snap.exists()) {
-            console.log("Creating initial profile for new user:", user.uid);
-            const initialProfile: UserProfile = {
-              uid: user.uid,
-              email: user.email || "",
-              displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-              photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
-              horoscope: 'Koç',
-              dailyAdReadingsUsed: {
-                coffee: 0,
-                tarot: 0,
-                lastResetDate: new Date().toISOString().split('T')[0]
-              },
-              createdAt: new Date().toISOString(),
-              isBanned: false,
-              role: 'user',
-              mainCoins: 0,
-              energy: 0,
-              superLikes: 0,
-              refreshCount: 0,
-              compatibilityCount: 0,
-              dailyAdWatchCount: 0,
-              lastAdReset: new Date().toISOString(),
-              social: {
-                enabled: false,
-                profileCompleted: false,
-                nickname: user.displayName || "Gezgin",
-                gender: 'erkek' as const,
-                lookingFor: 'arkadaş',
-                bio: '',
-                photos: [] as string[],
-                interests: [] as string[],
-                visible: true,
-                banned: false,
-                settings: {
-                  whoCanMessage: 'everyone' as const,
-                  whoCanAddFriend: 'everyone' as const,
-                  notifications: {
-                    messages: true,
-                    friendRequests: true,
-                    roomInvites: true,
-                    gifts: true
-                  }
-                }
-              },
-              subscription: {
-                status: 'none',
-                type: 'none',
-                dailyLimitUsed: 0,
-                dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
-              }
-            };
-            try {
-              await setDoc(userRef, initialProfile);
-            } catch (setErr) {
-              console.error("Error creating initial profile:", setErr);
-              handleFirestoreError(setErr, OperationType.CREATE, `users/${user.uid}`);
-            }
-          }
-        } catch (err) {
-          console.error("User initialization error:", err);
-          if (err instanceof Error && err.message.includes('authInfo')) {
-            // Already handled and formatted
-            throw err;
-          }
-          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
-        }
-      };
-
-      initializeUser();
-
-      const unsubscribe = onSnapshot(userRef, (snapshot) => {
+      const unsubscribe = onSnapshot(userRef, async (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
           let profile = normalizeUserProfile(data, snapshot.id);
@@ -301,51 +233,160 @@ function AppContent() {
             setIsProfileLoading(false);
             return;
           }
-          
+
           setUserProfile(profile);
           setIsProfileLoading(false);
+        } else {
+          // Document doesn't exist, create it
+          console.log("Creating initial profile for new user:", user.uid);
+          const initialProfile: UserProfile = {
+            uid: user.uid,
+            email: user.email || "",
+            displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
+            photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
+            horoscope: 'Koç',
+            dailyAdReadingsUsed: {
+              coffee: 0,
+              tarot: 0,
+              lastResetDate: new Date().toISOString().split('T')[0]
+            },
+            createdAt: new Date().toISOString(),
+            isBanned: false,
+            role: 'user',
+            mainCoins: 0,
+            energy: 0,
+            superLikes: 0,
+            refreshCount: 0,
+            compatibilityCount: 0,
+            dailyAdWatchCount: 0,
+            lastAdReset: new Date().toISOString(),
+            social: {
+              enabled: false,
+              profileCompleted: false,
+              nickname: user.displayName || "Gezgin",
+              gender: 'erkek' as const,
+              lookingFor: 'arkadaş',
+              bio: '',
+              photos: [] as string[],
+              interests: [] as string[],
+              visible: true,
+              banned: false,
+              settings: {
+                whoCanMessage: 'everyone' as const,
+                whoCanAddFriend: 'everyone' as const,
+                notifications: {
+                  messages: true,
+                  friendRequests: true,
+                  roomInvites: true,
+                  gifts: true
+                }
+              }
+            },
+            subscription: {
+              status: 'none',
+              type: 'none',
+              dailyLimitUsed: 0,
+              dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
+            }
+          };
+          try {
+            await setDoc(userRef, initialProfile);
+          } catch (setErr: any) {
+            if (setErr.message?.includes("quota")) setQuotaExceeded(true);
+            console.error("Error creating initial profile:", setErr);
+          }
         }
-      }, (err) => {
-        handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+      }, (err: any) => {
+        if (err.message?.includes("quota")) setQuotaExceeded(true);
+        console.error("Profile sync error:", err);
         setIsProfileLoading(false);
       });
 
       return () => unsubscribe();
     }, [user]);
 
-  // Fetch Horoscopes
+  // Fetch Horoscopes (Lazy load only when needed)
   useEffect(() => {
-    const q = query(collection(db, "horoscopes"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: Record<string, Horoscope> = {};
-      snapshot.forEach(doc => {
-        data[doc.id] = doc.data() as Horoscope;
-      });
-      setHoroscopes(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, "horoscopes"));
+    if (activeTab !== 'home' || Object.keys(horoscopes).length > 0 || isHoroscopesLoading) return;
+    
+    setIsHoroscopesLoading(true);
+    const fetchHoroscopes = async () => {
+      try {
+        const q = query(collection(db, "horoscopes"));
+        const snapshot = await getDocs(q);
+        const data: Record<string, Horoscope> = {};
+        snapshot.forEach(doc => {
+          data[doc.id] = doc.data() as Horoscope;
+        });
+        setHoroscopes(data);
+      } catch (err: any) {
+        if (err.message?.includes("quota")) setQuotaExceeded(true);
+        console.error("Horoscopes fetch error:", err);
+      } finally {
+        setIsHoroscopesLoading(false);
+      }
+    };
+    fetchHoroscopes();
+  }, [activeTab]);
 
-    return () => unsubscribe();
-  }, []);
-
-  // Real History Sync
+  // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
+  const [lastHistoryDoc, setLastHistoryDoc] = useState<any>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
 
   useEffect(() => {
-    if (!user) {
-      setHistory([]);
-      return;
-    }
-    const q = query(collection(db, "readings"), where("userId", "==", user.uid), orderBy("createdAt", "desc"));
+    if (!user || (activeTab !== 'fortunes' && activeTab !== 'history')) return;
+    
+    // Initial fetch
+    const q = query(
+      collection(db, "readings"), 
+      where("userId", "==", user.uid), 
+      orderBy("createdAt", "desc"),
+      limit(20)
+    );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedHistory: FortuneReading[] = [];
       snapshot.forEach((doc) => {
         fetchedHistory.push({ id: doc.id, ...doc.data() } as FortuneReading);
       });
       setHistory(fetchedHistory);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, "readings"));
+      setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
+      setHasMoreHistory(snapshot.docs.length === 20);
+    }, (err: any) => {
+      if (err.message?.includes("quota")) setQuotaExceeded(true);
+      handleFirestoreError(err, OperationType.LIST, "readings");
+    });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, activeTab]);
+
+  const loadMoreHistory = async () => {
+    if (!user || !lastHistoryDoc || !hasMoreHistory) return;
+    
+    try {
+      const q = query(
+        collection(db, "readings"),
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc"),
+        startAfter(lastHistoryDoc),
+        limit(20)
+      );
+      
+      const snapshot = await getDocs(q);
+      const moreHistory: FortuneReading[] = [];
+      snapshot.forEach((doc) => {
+        moreHistory.push({ id: doc.id, ...doc.data() } as FortuneReading);
+      });
+      
+      setHistory(prev => [...prev, ...moreHistory]);
+      setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
+      setHasMoreHistory(snapshot.docs.length === 20);
+    } catch (err: any) {
+      if (err.message?.includes("quota")) setQuotaExceeded(true);
+      console.error("Load more history error:", err);
+    }
+  };
 
   // Sound Effects
   const playSound = (type: 'click' | 'success' | 'splash' | 'notification') => {
@@ -448,22 +489,16 @@ function AppContent() {
   const isSyncingRef = useRef(false);
 
   const syncReadings = async () => {
-    if (!user || !userProfile || isSyncingRef.current) return;
+    if (!user || !userProfile || isSyncingRef.current || history.length === 0) return;
     isSyncingRef.current = true;
 
     try {
-      const q = query(
-        collection(db, "readings"),
-        where("userId", "==", user.uid),
-        where("status", "in", ["searching", "found", "interpreting", "waiting"])
-      );
-      
-      const snapshot = await getDocs(q);
       const now = new Date();
+      const pendingReadings = history.filter(r => 
+        ["searching", "found", "interpreting", "waiting"].includes(r.status)
+      );
 
-      for (const docSnap of snapshot.docs) {
-        const reading = docSnap.data() as FortuneReading;
-        
+      for (const reading of pendingReadings) {
         // New Status Flow Logic
         const expectedReaderFoundAt = reading.expectedReaderFoundAt ? new Date(reading.expectedReaderFoundAt) : null;
         const interpretationStartedAt = reading.interpretationStartedAt ? new Date(reading.interpretationStartedAt) : null;
@@ -521,9 +556,9 @@ function AppContent() {
     if (!user || !userProfile) return;
     
     syncReadings();
-    const interval = setInterval(syncReadings, 30000); // Every 30 seconds
+    const interval = setInterval(syncReadings, 60000); // Every 60 seconds (optimized from 30)
     return () => clearInterval(interval);
-  }, [user, userProfile]);
+  }, [user, userProfile, history]);
 
   const handleFortuneComplete = async (data: any) => {
     if (!user || !userProfile || !appConfig || isSubmitting) return;
@@ -554,10 +589,6 @@ function AppContent() {
 
       const { readingId } = result.data;
 
-      // Fetch the full reading document to get timing info
-      const readingSnap = await getDoc(doc(db, "readings", readingId));
-      const readingData = { id: readingId, ...readingSnap.data() };
-
       // Trigger AI immediately (Fake processing will handle the delay in UI)
       const processAI = httpsCallable(functions, 'processFortuneAI');
       processAI({ readingId }).catch(err => console.error("Immediate AI trigger failed:", err));
@@ -573,7 +604,7 @@ function AppContent() {
       // Navigate to history to show the new reading status
       setActiveTab('fortunes');
       
-      return readingData;
+      return { id: readingId };
     } catch (error: any) {
       console.error("Fortune creation error:", error);
       toast.dismiss(loadingToast);
@@ -638,6 +669,28 @@ function AppContent() {
   };
 
   const activeProfile = previewUser || userProfile;
+
+  if (quotaExceeded) {
+    return (
+      <div className="min-h-screen bg-[#FDFCFE] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border border-black/5">
+          <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="w-10 h-10 text-amber-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-heading mb-4">Sistem Yoğun</h1>
+          <p className="text-body mb-8">
+            Şu an çok fazla istek alıyoruz. Yıldızlar biraz dinleniyor, lütfen kısa bir süre sonra tekrar deneyin. ✨
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full py-4 bg-primary text-white rounded-2xl font-semibold hover:opacity-90 transition-all active:scale-95"
+          >
+            Tekrar Dene
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading while checking auth or fetching profile for logged in user
   if (loading || (user && isProfileLoading && !activeProfile)) {

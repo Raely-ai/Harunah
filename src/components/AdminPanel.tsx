@@ -56,80 +56,61 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  useEffect(() => {
-    const unsubscribes: (() => void)[] = [];
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // 1. Fetch Users
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const fetchedUsers = usersSnap.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
+      setUsers(fetchedUsers);
 
-    const setupListeners = () => {
-      setLoading(true);
+      // 2. Fetch Reports
+      const reportsSnap = await getDocs(query(collection(db, 'reports'), orderBy('createdAt', 'desc'), limit(50)));
+      const fetchedReports = reportsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CentralizedReport));
+      setReports(fetchedReports);
 
-      // Users Listener
-      const usersUnsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-        const fetchedUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
-        setUsers(fetchedUsers);
-        setLoading(false);
-      });
-      unsubscribes.push(usersUnsub);
+      // 3. Fetch Configs (One-time)
+      const configSnap = await getDoc(doc(db, 'config', 'global'));
+      if (configSnap.exists()) setConfig(configSnap.data() as AppConfig);
 
-      // Reports Listener
-      const reportsUnsub = onSnapshot(query(collection(db, 'reports'), orderBy('createdAt', 'desc')), (snapshot) => {
-        const fetchedReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CentralizedReport));
-        setReports(fetchedReports);
-      });
-      unsubscribes.push(reportsUnsub);
+      const walletSnap = await getDoc(doc(db, 'adminSettings', 'wallet'));
+      if (walletSnap.exists()) setWalletConfig(walletSnap.data() as AdminWalletConfig);
 
-      // Config Listener
-      const configUnsub = onSnapshot(doc(db, 'config', 'global'), (docSnap) => {
-        if (docSnap.exists()) setConfig(docSnap.data() as AppConfig);
-      });
-      unsubscribes.push(configUnsub);
+      const commerceSnap = await getDoc(doc(db, 'config', 'socialCommerce'));
+      if (commerceSnap.exists()) setSocialCommerce(commerceSnap.data() as SocialCommerceConfig);
 
-      // Wallet Config Listener
-      const walletUnsub = onSnapshot(doc(db, 'adminSettings', 'wallet'), (docSnap) => {
-        if (docSnap.exists()) setWalletConfig(docSnap.data() as AdminWalletConfig);
-      });
-      unsubscribes.push(walletUnsub);
-
-      // Social Commerce Listener
-      const commerceUnsub = onSnapshot(doc(db, 'config', 'socialCommerce'), (docSnap) => {
-        if (docSnap.exists()) setSocialCommerce(docSnap.data() as SocialCommerceConfig);
-      });
-      unsubscribes.push(commerceUnsub);
-
-      // Economy Config Listener
-      const economyUnsub = onSnapshot(doc(db, 'adminSettings', 'economy'), (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setEconomyConfig({
-            ...DEFAULT_ECONOMY_CONFIG,
-            ...data,
-            fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
-            interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
-            subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
-            aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
-            rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
-            socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
-            boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
-            fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
-          } as EconomyConfig);
-        } else {
-          setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
-        }
-      }, (err) => {
-        handleFirestoreError(err, OperationType.GET, "adminSettings/economy");
+      const economySnap = await getDoc(doc(db, 'adminSettings', 'economy'));
+      if (economySnap.exists()) {
+        const data = economySnap.data();
+        setEconomyConfig({
+          ...DEFAULT_ECONOMY_CONFIG,
+          ...data,
+          fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
+          interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
+          subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
+          aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
+          rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
+          socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
+          boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
+          fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
+        } as EconomyConfig);
+      } else {
         setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
-      });
-      unsubscribes.push(economyUnsub);
+      }
 
-      // Promo Codes Listener
-      const promoUnsub = onSnapshot(query(collection(db, 'promoCodes'), orderBy('createdAt', 'desc')), (snapshot) => {
-        const fetchedCodes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setPromoCodes(fetchedCodes);
-      });
-      unsubscribes.push(promoUnsub);
-    };
+      const promoSnap = await getDocs(query(collection(db, 'promoCodes'), orderBy('createdAt', 'desc')));
+      const fetchedCodes = promoSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPromoCodes(fetchedCodes);
 
-    setupListeners();
-    return () => unsubscribes.forEach(unsub => unsub());
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.LIST, "admin_data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   // Keep selectedUser in sync with real-time updates
@@ -322,6 +303,14 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       {/* Header */}
       <header className="flex-shrink-0 bg-black/40 backdrop-blur-xl border-b border-white/5 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={fetchData}
+            className="p-2.5 rounded-xl bg-white/5 text-white/60 hover:text-white transition-all border border-white/5"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </motion.button>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
