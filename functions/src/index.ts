@@ -12,6 +12,7 @@ admin.initializeApp({
 
 const db = getFirestore("ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 const messaging = getMessaging();
+const FieldValue = admin.firestore.FieldValue;
 
 // Define OpenAI Secret
 const openAiKey = defineSecret("OPENAI_API_KEY");
@@ -2761,7 +2762,7 @@ export const unmuteUser = functions.https.onCall(async (data, context) => {
 // 20. Send Message Request (Secure Backend)
 // 19. Send Like (Secure)
 export const sendLike = functions.https.onCall(async (data, context) => {
-  console.log("[sendLike] Function invoked");
+  console.log("[sendLike] function start");
   
   try {
     // 1. Auth Check
@@ -2772,8 +2773,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
     
     const fromUserId = context.auth.uid;
     const { targetUserId, type } = data || {};
-
-    console.log(`[sendLike] PARAMS - from: ${fromUserId}, to: ${targetUserId}, type: ${type}`);
+    console.log(`[sendLike] auth uid: ${fromUserId}, targetUserId: ${targetUserId}, type: ${type}`);
 
     // 2. Input Validation
     if (!targetUserId || typeof targetUserId !== 'string') {
@@ -2789,11 +2789,12 @@ export const sendLike = functions.https.onCall(async (data, context) => {
       return { status: 'SELF_ACTION' };
     }
 
+    const fromUserRef = db.collection("users").doc(fromUserId);
+    const toUserRef = db.collection("users").doc(targetUserId);
+    
     // 3. Transaction
     const result = await db.runTransaction(async (transaction) => {
       console.log("[sendLike] Transaction started");
-      const fromUserRef = db.collection("users").doc(fromUserId);
-      const toUserRef = db.collection("users").doc(targetUserId);
       
       const [fromUserSnap, toUserSnap] = await Promise.all([
         transaction.get(fromUserRef),
@@ -2832,22 +2833,29 @@ export const sendLike = functions.https.onCall(async (data, context) => {
       }
 
       const now = admin.firestore.FieldValue.serverTimestamp();
+      
+      // Defensive handling for existing createdAt (ensure it's a Timestamp or null)
+      let existingCreatedAt = swipeSnap.exists ? swipeSnap.data()?.createdAt : null;
+      if (existingCreatedAt && typeof existingCreatedAt === 'string') {
+        try {
+          existingCreatedAt = admin.firestore.Timestamp.fromDate(new Date(existingCreatedAt));
+        } catch (e) {
+          existingCreatedAt = now;
+        }
+      }
 
       // A. Record Swipe
-      console.log("[sendLike] Setting swipe record");
       transaction.set(swipeRef, {
         id: swipeId,
         fromUserId,
         toUserId: targetUserId,
         type,
-        createdAt: swipeSnap.exists ? swipeSnap.data()?.createdAt : now,
+        createdAt: existingCreatedAt || now,
         updatedAt: now
       }, { merge: true });
 
       // B. Handle Like / Super Like
       if (type === 'like' || type === 'super_like') {
-        console.log(`[sendLike] Processing ${type} notifications`);
-        
         // Create in-app notification
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
@@ -2866,7 +2874,6 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
         // If super_like, also create an interaction request
         if (type === 'super_like') {
-          console.log("[sendLike] Creating interaction request for super_like");
           const requestId = `request_${fromUserId}_${targetUserId}`;
           const requestRef = db.collection("interactionRequests").doc(requestId);
           transaction.set(requestRef, {
@@ -2885,22 +2892,19 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         }
       }
 
-      console.log("[sendLike] Transaction callback finished");
       return { status: 'SUCCESS' };
     });
 
-    console.log("[sendLike] Transaction committed successfully");
     return result;
 
   } catch (error: any) {
     console.error("[sendLike] FATAL ERROR:", error);
+    console.error("[sendLike] Stack:", error.stack);
     
-    // If it's already an HttpsError, rethrow it
     if (error instanceof functions.https.HttpsError) {
       throw error;
     }
-
-    // Otherwise return a technical error status
+    
     return { 
       status: 'TECHNICAL_ERROR', 
       message: error.message || 'Bilinmeyen bir hata oluştu.' 
@@ -2909,16 +2913,29 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 });
 
 export const sendMessageRequest = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  console.log("[sendMessageRequest] function start");
   
-  const fromUserId = context.auth.uid;
-  const { targetUserId } = data;
-
-  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-  if (fromUserId === targetUserId) return { status: 'SELF_ACTION' };
-
   try {
-    return await db.runTransaction(async (transaction) => {
+    if (!context.auth) {
+      console.error("[sendMessageRequest] Unauthenticated call");
+      throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    }
+    
+    const fromUserId = context.auth.uid;
+    const { targetUserId } = data || {};
+    console.log(`[sendMessageRequest] auth uid: ${fromUserId}, targetUserId: ${targetUserId}`);
+
+    if (!targetUserId) {
+      console.warn("[sendMessageRequest] Missing targetUserId");
+      throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+    }
+    if (fromUserId === targetUserId) {
+      console.warn("[sendMessageRequest] Self action detected");
+      return { status: 'SELF_ACTION' };
+    }
+
+    const result = await db.runTransaction(async (transaction) => {
+      console.log("[sendMessageRequest] Transaction started");
       const fromUserRef = db.collection("users").doc(fromUserId);
       const toUserRef = db.collection("users").doc(targetUserId);
       
@@ -2928,6 +2945,7 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       ]);
 
       if (!fromUserSnap.exists || !toUserSnap.exists) {
+        console.warn("[sendMessageRequest] User not found");
         throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
       }
 
@@ -2937,13 +2955,19 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       // Block check
       const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
                         (toUserData.social?.blockedUserIds || []).includes(fromUserId);
-      if (isBlocked) return { status: 'BLOCKED' };
+      if (isBlocked) {
+        console.warn("[sendMessageRequest] Action blocked");
+        return { status: 'BLOCKED' };
+      }
 
       // Existing chat check
       const chatId = `chat_${[fromUserId, targetUserId].sort().join('_')}`;
       const chatRef = db.collection("chats").doc(chatId);
       const chatSnap = await transaction.get(chatRef);
-      if (chatSnap.exists) return { status: 'ALREADY_CHATTING' };
+      if (chatSnap.exists) {
+        console.log("[sendMessageRequest] Already chatting");
+        return { status: 'ALREADY_CHATTING' };
+      }
 
       // Existing request check
       const requestId = `request_${fromUserId}_${targetUserId}`;
@@ -2951,12 +2975,18 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       const requestSnap = await transaction.get(requestRef);
       if (requestSnap.exists) {
         const reqData = requestSnap.data();
-        if (reqData?.status === 'pending') return { status: 'ALREADY_REQUESTED' };
-        if (reqData?.status === 'accepted') return { status: 'ALREADY_CHATTING' };
+        if (reqData?.status === 'pending') {
+          console.log("[sendMessageRequest] Already requested");
+          return { status: 'ALREADY_REQUESTED' };
+        }
+        if (reqData?.status === 'accepted') {
+          console.log("[sendMessageRequest] Already accepted");
+          return { status: 'ALREADY_CHATTING' };
+        }
       }
 
       // Create request
-      const now = FieldValue.serverTimestamp();
+      const now = admin.firestore.FieldValue.serverTimestamp();
       transaction.set(requestRef, {
         id: requestId,
         fromUserId,
@@ -2990,8 +3020,481 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
 
       return { status: 'SUCCESS' };
     });
+
+    return result;
+
   } catch (error: any) {
-    console.error("sendMessageRequest error:", error);
+    console.error("[sendMessageRequest] FATAL ERROR:", error);
+    console.error("[sendMessageRequest] Stack:", error.stack);
+    
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    return { 
+      status: 'TECHNICAL_ERROR', 
+      message: error.message || 'İşlem sırasında bir hata oluştu.' 
+    };
+  }
+});
+
+/**
+ * MESSAGING & SOCIAL INTERACTION FUNCTIONS
+ */
+
+// 1. Accept Request
+export const acceptRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { requestId } = data;
+  if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
+
+  const requestRef = db.collection("interactionRequests").doc(requestId);
+  
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists) throw new functions.https.HttpsError('not-found', 'İstek bulunamadı.');
+      const request = requestSnap.data() as any;
+
+      if (request.toUserId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+      if (request.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'İstek zaten işlenmiş.');
+
+      const fromUserId = request.fromUserId;
+      const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
+      const chatRef = db.collection("chats").doc(chatId);
+      
+      const now = admin.firestore.FieldValue.serverTimestamp();
+
+      // Update Request
+      transaction.update(requestRef, {
+        status: 'accepted',
+        updatedAt: now
+      });
+
+      // Create/Update Chat
+      transaction.set(chatRef, {
+        id: chatId,
+        participants: [fromUserId, userId],
+        createdAt: now,
+        lastMessage: "Sohbet başladı! 👋",
+        lastMessageAt: now,
+        lastMessageSenderId: "system",
+        lastMessageStatus: 'sent',
+        status: 'active',
+        unreadCount: {
+          [fromUserId]: 0,
+          [userId]: 0
+        },
+        typing: {
+          [fromUserId]: false,
+          [userId]: false
+        }
+      }, { merge: true });
+
+      // Initial Message
+      const msgRef = db.collection("messages").doc();
+      transaction.set(msgRef, {
+        id: msgRef.id,
+        chatId,
+        participants: [fromUserId, userId],
+        senderId: "system",
+        text: "Sohbet başlayabilir.",
+        createdAt: now,
+        seen: false,
+        status: 'sent',
+        type: 'system'
+      });
+
+      // Notification for sender
+      const notifRef = db.collection("notifications").doc();
+      transaction.set(notifRef, {
+        userId: fromUserId,
+        type: "request_accepted",
+        title: "İstek Kabul Edildi!",
+        message: "Mesaj isteğin kabul edildi, sohbete başlayabilirsin! 🎉",
+        data: { chatId },
+        read: false,
+        createdAt: now
+      });
+
+      return { success: true, chatId };
+    });
+  } catch (error: any) {
+    console.error("acceptRequest error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 2. Reject Request
+export const rejectRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { requestId } = data;
+  if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
+
+  const requestRef = db.collection("interactionRequests").doc(requestId);
+  
+  try {
+    const requestSnap = await requestRef.get();
+    if (!requestSnap.exists) throw new functions.https.HttpsError('not-found', 'İstek bulunamadı.');
+    const request = requestSnap.data() as any;
+
+    if (request.toUserId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+
+    await requestRef.update({
+      status: 'rejected',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("rejectRequest error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 3. Send Message
+export const sendMessage = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const senderId = context.auth.uid;
+  const { chatId, text, mediaUrl, mediaType } = data;
+
+  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+  const chatRef = db.collection("chats").doc(chatId);
+  
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const chatSnap = await transaction.get(chatRef);
+      if (!chatSnap.exists) throw new functions.https.HttpsError('not-found', 'Sohbet bulunamadı.');
+      const chat = chatSnap.data() as any;
+
+      if (!chat.participants.includes(senderId)) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+
+      const receiverId = chat.participants.find((id: string) => id !== senderId);
+      
+      // Block Check
+      const [senderSnap, receiverSnap] = await Promise.all([
+        db.collection("users").doc(senderId).get(),
+        db.collection("users").doc(receiverId).get()
+      ]);
+      
+      const senderData = senderSnap.data() || {};
+      const receiverData = receiverSnap.data() || {};
+      
+      if ((senderData.social?.blockedUserIds || []).includes(receiverId) || 
+          (receiverData.social?.blockedUserIds || []).includes(senderId)) {
+        throw new functions.https.HttpsError('failed-precondition', 'Bu kullanıcıyla iletişim kuramazsınız.');
+      }
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const msgRef = db.collection("messages").doc();
+      
+      const type = mediaType || 'text';
+      const lastMessageText = type === 'text' ? text : (type === 'image' ? "📷 Görsel" : "🎥 Video");
+
+      const messageData = {
+        id: msgRef.id,
+        chatId,
+        participants: [senderId, receiverId],
+        senderId,
+        receiverId,
+        text: text || "",
+        mediaUrl: mediaUrl || null,
+        mediaType: mediaType || null,
+        createdAt: now,
+        status: 'sent',
+        seen: false,
+        type
+      };
+
+      transaction.set(msgRef, messageData);
+
+      transaction.update(chatRef, {
+        lastMessage: lastMessageText,
+        lastMessageAt: now,
+        lastMessageSenderId: senderId,
+        lastMessageStatus: 'sent',
+        [`unreadCount.${receiverId}`]: admin.firestore.FieldValue.increment(1)
+      });
+
+      // Send Push Notification
+      await sendPushToUser(receiverId, {
+        title: senderData.social?.nickname || senderData.displayName || "Yeni Mesaj",
+        body: lastMessageText,
+        data: { screen: 'chat', chatId },
+        category: 'messages',
+        senderId
+      });
+
+      return { success: true, messageId: msgRef.id };
+    });
+  } catch (error: any) {
+    console.error("sendMessage error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 4. Mark As Seen
+export const markAsSeen = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { chatId } = data;
+
+  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+  const chatRef = db.collection("chats").doc(chatId);
+  const messagesRef = db.collection("messages");
+
+  try {
+    const unreadMessages = await messagesRef
+      .where("chatId", "==", chatId)
+      .where("receiverId", "==", userId)
+      .where("status", "!=", "seen")
+      .limit(100)
+      .get();
+
+    if (unreadMessages.empty) {
+      await chatRef.update({ [`unreadCount.${userId}`]: 0 });
+      return { success: true };
+    }
+
+    const batch = db.batch();
+    unreadMessages.docs.forEach(doc => {
+      batch.update(doc.ref, { status: 'seen', seen: true });
+    });
+
+    batch.update(chatRef, { [`unreadCount.${userId}`]: 0 });
+
+    // Update lastMessageStatus if it was from the other user
+    const chatSnap = await chatRef.get();
+    if (chatSnap.exists() && chatSnap.data()?.lastMessageSenderId !== userId) {
+      batch.update(chatRef, { lastMessageStatus: 'seen' });
+    }
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    console.error("markAsSeen error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 5. Mark As Delivered
+export const markAsDelivered = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { chatId } = data;
+
+  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+  const messagesRef = db.collection("messages");
+
+  try {
+    const sentMessages = await messagesRef
+      .where("chatId", "==", chatId)
+      .where("receiverId", "==", userId)
+      .where("status", "==", "sent")
+      .limit(100)
+      .get();
+
+    if (sentMessages.empty) return { success: true };
+
+    const batch = db.batch();
+    sentMessages.docs.forEach(doc => {
+      batch.update(doc.ref, { status: 'delivered' });
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    console.error("markAsDelivered error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 6. Delete Chat
+export const deleteChat = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { chatId } = data;
+  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+  try {
+    const chatRef = db.collection("chats").doc(chatId);
+    await chatRef.update({
+      deletedFor: admin.firestore.FieldValue.arrayUnion(userId)
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("deleteChat error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 7. Delete Message
+export const deleteMessage = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { messageId, forEveryone } = data;
+  if (!messageId) throw new functions.https.HttpsError('invalid-argument', 'Message ID gerekli.');
+
+  try {
+    const msgRef = db.collection("messages").doc(messageId);
+    const msgSnap = await msgRef.get();
+    if (!msgSnap.exists) throw new functions.https.HttpsError('not-found', 'Mesaj bulunamadı.');
+    const msg = msgSnap.data() as any;
+
+    if (msg.senderId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+
+    if (forEveryone) {
+      await msgRef.update({
+        isDeleted: true,
+        deletedForEveryone: true,
+        text: "Bu mesaj silindi.",
+        mediaUrl: null,
+        mediaType: null
+      });
+    } else {
+      await msgRef.update({ isDeleted: true });
+    }
+    return { success: true };
+  } catch (error: any) {
+    console.error("deleteMessage error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 8. Edit Message
+export const editMessage = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { messageId, newText } = data;
+  if (!messageId || !newText) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  try {
+    const msgRef = db.collection("messages").doc(messageId);
+    const msgSnap = await msgRef.get();
+    if (!msgSnap.exists) throw new functions.https.HttpsError('not-found', 'Mesaj bulunamadı.');
+    const msg = msgSnap.data() as any;
+
+    if (msg.senderId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+
+    await msgRef.update({
+      text: newText,
+      editedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("editMessage error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 9. Set Typing Status
+export const setTypingStatus = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { chatId, isTyping } = data;
+  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+  try {
+    const chatRef = db.collection("chats").doc(chatId);
+    await chatRef.update({
+      [`typing.${userId}`]: !!isTyping
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("setTypingStatus error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 10. Create Chat
+export const createChat = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { targetUserId } = data;
+  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+
+  const chatId = `chat_${[userId, targetUserId].sort().join('_')}`;
+  const chatRef = db.collection("chats").doc(chatId);
+  
+  try {
+    const chatSnap = await chatRef.get();
+    if (chatSnap.exists) return { success: true, chatId };
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await chatRef.set({
+      id: chatId,
+      participants: [userId, targetUserId],
+      createdAt: now,
+      lastMessage: "Sohbet başladı! 👋",
+      lastMessageAt: now,
+      lastMessageSenderId: "system",
+      lastMessageStatus: 'sent',
+      status: 'active',
+      unreadCount: {
+        [userId]: 0,
+        [targetUserId]: 0
+      },
+      typing: {
+        [userId]: false,
+        [targetUserId]: false
+      }
+    });
+
+    const msgRef = db.collection("messages").doc();
+    await msgRef.set({
+      id: msgRef.id,
+      chatId,
+      participants: [userId, targetUserId],
+      senderId: "system",
+      text: "Sohbet başlayabilir.",
+      createdAt: now,
+      seen: false,
+      status: 'sent',
+      type: 'system'
+    });
+
+    return { success: true, chatId };
+  } catch (error: any) {
+    console.error("createChat error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+// 11. Create Report
+export const createReport = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const reporterId = context.auth.uid;
+  const { reportedUserId, source, reason, description, metadata } = data;
+
+  if (!reportedUserId || !source || !reason) {
+    throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+  }
+
+  if (reporterId === reportedUserId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Kendinizi raporlayamazsınız.');
+  }
+
+  try {
+    const reportRef = db.collection("reports").doc();
+    await reportRef.set({
+      id: reportRef.id,
+      reporterId,
+      reportedUserId,
+      source,
+      reason,
+      description: description || "",
+      metadata: metadata || {},
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: 'pending'
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("createReport error:", error);
     throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
   }
 });

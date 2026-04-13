@@ -121,11 +121,7 @@ export const adminService = {
 
   async createReport(report: Omit<CentralizedReport, 'id' | 'createdAt' | 'status'>): Promise<void> {
     try {
-      await addDoc(collection(db, "reports"), {
-        ...report,
-        createdAt: serverTimestamp(),
-        status: 'pending'
-      });
+      await callFunction('createReport', report);
       toast.success("Rapor gönderildi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, "reports");

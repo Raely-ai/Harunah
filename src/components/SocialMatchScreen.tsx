@@ -209,10 +209,34 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
       const result = await socialService.sendLike(currentUser, targetUser.uid, type);
       console.log(`[DEBUG] sendLike result for ${targetUser.uid}:`, result);
       
-      if (type === 'super_like' && result === 'SUCCESS') {
-        toast.success("Süper Like gönderildi! ✨");
-      } else if (type === 'like' && result === 'SUCCESS') {
-        toast.success("Beğeni gönderildi! ❤️");
+      switch (result) {
+        case 'SUCCESS':
+          if (type === 'super_like') {
+            toast.success("Süper Like gönderildi! ✨");
+          } else if (type === 'like') {
+            toast.success("Beğeni gönderildi! ❤️");
+          }
+          break;
+        case 'ALREADY_LIKED':
+          toast.info("Bu kullanıcıyı zaten beğenmiştin.");
+          break;
+        case 'BLOCKED':
+          toast.error("Bu kullanıcıyla iletişim kuramazsınız.");
+          break;
+        case 'SELF_ACTION':
+          toast.error("Kendinizi beğenemezsiniz.");
+          break;
+        case 'TARGET_NOT_FOUND':
+          toast.error("Kullanıcı bulunamadı.");
+          break;
+        case 'TECHNICAL_ERROR':
+          toast.error("Bir teknik hata oluştu. Lütfen sonra tekrar deneyin.");
+          break;
+        default:
+          if (type !== 'pass') {
+            toast.error("İşlem sırasında bir hata oluştu.");
+          }
+          break;
       }
     } catch (error: any) {
       console.error("Swipe error:", error);

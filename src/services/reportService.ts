@@ -1,5 +1,5 @@
-import { collection, addDoc } from "firebase/firestore";
-import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { auth, functions } from "../lib/firebase";
 import { CentralizedReport } from "../types";
 import { toast } from "sonner";
 
@@ -23,19 +23,18 @@ export const reportService = {
     }
 
     try {
-      await addDoc(collection(db, "reports"), {
-        reporterId,
+      const createReportFunc = httpsCallable(functions, 'createReport');
+      await createReportFunc({
         reportedUserId: params.reportedUserId,
         source: params.source,
         reason: params.reason,
         description: params.description || "",
-        metadata: params.metadata || {},
-        createdAt: new Date().toISOString(),
-        status: 'pending'
+        metadata: params.metadata || {}
       });
       toast.success("Raporunuz iletildi. Teşekkür ederiz.");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, "reports");
+    } catch (error: any) {
+      console.error("Error reporting user:", error);
+      toast.error(error.message || "Şikayet gönderilirken bir hata oluştu.");
     }
   }
 };

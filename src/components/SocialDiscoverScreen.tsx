@@ -320,9 +320,17 @@ export default function SocialDiscoverScreen({
           toast.error("Kendinize istek gönderemezsiniz.");
           setSelectedUser(null);
           break;
+        case 'TARGET_NOT_FOUND':
+          toast.error("Kullanıcı bulunamadı.");
+          setSelectedUser(null);
+          break;
+        case 'TECHNICAL_ERROR':
+          toast.error("Bir teknik hata oluştu. Lütfen sonra tekrar deneyin.");
+          setSelectedUser(null);
+          break;
         default:
           console.error("SocialDiscoverScreen: Unexpected result from sendMessageRequest:", result);
-          toast.error("İstek gönderilirken bir hata oluştu.");
+          toast.error("İşlem sırasında beklenmedik bir hata oluştu.");
           setSelectedUser(null);
           break;
       }
