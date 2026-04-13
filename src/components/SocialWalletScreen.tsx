@@ -121,18 +121,20 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
       onConfirm: async () => {
         setProcessing(true);
         try {
-          // Note: The current walletService.purchaseSocialRight doesn't take pkg.id or count, 
-          // but we'll call it as it is. If the backend supports multiple packages, 
-          // we might need to update the service call here.
-          const result = await walletService.purchaseSocialRight(currentUser.uid, type);
+          const result = await walletService.purchaseSocialRight(currentUser.uid, type, pkg.count);
           if (result.success) {
-            toast.success("Satın alma başarılı!");
+            toast.success("Satın alma başarılı! ✨");
             refreshData();
           } else {
-            toast.error(result.message);
+            if (result.status === 'INSUFFICIENT_FUNDS') {
+              toast.error("Yetersiz bakiye. Lütfen jeton yükleyin.");
+            } else {
+              toast.error(result.message || "İşlem başarısız oldu.");
+            }
           }
-        } catch (error) {
-          toast.error("İşlem başarısız oldu.");
+        } catch (error: any) {
+          console.error("Purchase error:", error);
+          toast.error(error.message || "İşlem başarısız oldu.");
         } finally {
           setProcessing(false);
           setPendingPurchase(null);

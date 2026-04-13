@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions, handleFirestoreError, OperationType } from "./firebase";
-import { AdminWalletConfig, WalletTransaction, EconomyConfig } from "../types";
+import { AdminWalletConfig, WalletTransaction, EconomyConfig, RefreshActionResult, PurchaseActionResult } from "../types";
 
 // Helper to call Firebase Functions
 export const callFunction = async (name: string, data?: any) => {
@@ -139,9 +139,9 @@ export const walletService = {
     return await callFunction('spendBalance', { balanceType, amount, source, description });
   },
 
-  async purchaseSocialRight(_userId: string, type: 'superLike' | 'refresh' | 'compatibility'): Promise<{ success: boolean; message?: string }> {
+  async purchaseSocialRight(_userId: string, type: 'superLike' | 'refresh' | 'compatibility', quantity: number = 1): Promise<{ success: boolean; status: PurchaseActionResult; message?: string }> {
     const description = type === 'superLike' ? 'Süper Like' : type === 'refresh' ? 'Keşfet Yenileme' : 'Uyum Analizi';
-    return await callFunction('purchaseSocialItem', { type, description });
+    return await callFunction('purchaseSocialItem', { type, description, quantity });
   },
 
   async purchaseSocialBundle(_userId: string, bundleId: string): Promise<{ success: boolean; message?: string }> {
@@ -185,7 +185,7 @@ export const walletService = {
     return await callFunction('sendSuperLikeAndCreateChat', { targetUserId });
   },
 
-  async refreshDiscoverFeed(): Promise<{ success: boolean; users: any[] }> {
+  async refreshDiscoverFeed(): Promise<{ success: boolean; status: RefreshActionResult; users: any[] }> {
     return await callFunction('refreshDiscoverFeed');
   },
 
@@ -197,9 +197,8 @@ export const walletService = {
     return await callFunction('runManualCompatibilityAnalysis', data);
   },
 
-  async refreshDiscover(): Promise<{ success: boolean; consumedFrom: string; lastRefreshAt: string }> {
-    const config = await this.getAdminConfig();
-    return await callFunction('refreshDiscover', { config });
+  async refreshDiscover(): Promise<{ success: boolean; status: RefreshActionResult; lastRefreshAt: string }> {
+    return await callFunction('refreshDiscover');
   },
 
   async updateSocialSettings(settings: any): Promise<{ success: boolean }> {

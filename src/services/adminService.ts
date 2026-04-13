@@ -9,7 +9,6 @@ import {
   orderBy, 
   limit, 
   addDoc,
-  onSnapshot,
   deleteDoc,
   setDoc,
   increment,
@@ -18,35 +17,59 @@ import {
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile, CentralizedReport, AppConfig, AdminWalletConfig, EconomyConfig, normalizeUserProfile } from "../types";
+import { UserProfile, CentralizedReport, AppConfig, AdminWalletConfig, EconomyConfig, normalizeUserProfile, SocialCommerceConfig } from "../types";
 import { callFunction } from "../lib/walletService";
 import { toast } from "sonner";
 
+const cache: Record<string, { data: any, timestamp: number }> = {};
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function getCachedData(key: string) {
+  const cached = cache[key];
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedData(key: string, data: any) {
+  cache[key] = { data, timestamp: Date.now() };
+}
+
 export const adminService = {
   // User Management
-  async getUsers(): Promise<UserProfile[]> {
+  async getUsers(forceRefresh = false): Promise<UserProfile[]> {
+    if (!forceRefresh) {
+      const cached = getCachedData('users');
+      if (cached) return cached;
+    }
     try {
       const snap = await getDocs(collection(db, "users"));
-      return snap.docs.map(d => normalizeUserProfile(d.data(), d.id));
+      const users = snap.docs.map(d => normalizeUserProfile(d.data(), d.id));
+      setCachedData('users', users);
+      return users;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "users");
       return [];
     }
   },
 
-  async updateUser(uid: string, updates: any): Promise<void> {
+  async updateUser(targetUserId: string, updates: any, reason?: string): Promise<void> {
     try {
-      await updateDoc(doc(db, "users", uid), updates);
+      await callFunction('adminUpdateUser', { targetUserId, updates, reason });
       toast.success("Kullanıcı güncellendi.");
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${targetUserId}`);
     }
   },
 
   async banUser(uid: string, reason: string): Promise<void> {
     try {
-      await updateDoc(doc(db, "users", uid), { isBanned: true });
-      await this.logModerationAction(uid, 'ban', reason);
+      await callFunction('adminUpdateUser', { 
+        targetUserId: uid, 
+        updates: { isBanned: true },
+        reason: `Ban: ${reason}`
+      });
       toast.success("Kullanıcı yasaklandı.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
@@ -55,8 +78,11 @@ export const adminService = {
 
   async unbanUser(uid: string): Promise<void> {
     try {
-      await updateDoc(doc(db, "users", uid), { isBanned: false });
-      await this.logModerationAction(uid, 'unban', "Yasak kaldırıldı.");
+      await callFunction('adminUpdateUser', { 
+        targetUserId: uid, 
+        updates: { isBanned: false },
+        reason: "Yasak kaldırıldı."
+      });
       toast.success("Kullanıcı yasağı kaldırıldı.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
@@ -65,8 +91,11 @@ export const adminService = {
 
   async toggleSocialBan(uid: string, banned: boolean): Promise<void> {
     try {
-      await updateDoc(doc(db, "users", uid), { 'social.banned': banned });
-      await this.logModerationAction(uid, banned ? 'ban' : 'unban', "Sosyal ban durumu değiştirildi.");
+      await callFunction('adminUpdateUser', { 
+        targetUserId: uid, 
+        updates: { 'social.banned': banned },
+        reason: banned ? "Sosyal ban aktif edildi." : "Sosyal ban kaldırıldı."
+      });
       toast.success(`Sosyal ban ${banned ? 'aktif' : 'pasif'} hale getirildi.`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
@@ -74,6 +103,22 @@ export const adminService = {
   },
 
   // Report Management
+  async getReports(forceRefresh = false): Promise<CentralizedReport[]> {
+    if (!forceRefresh) {
+      const cached = getCachedData('reports');
+      if (cached) return cached;
+    }
+    try {
+      const snap = await getDocs(query(collection(db, "reports"), orderBy("createdAt", "desc"), limit(100)));
+      const reports = snap.docs.map(d => ({ id: d.id, ...d.data() } as CentralizedReport));
+      setCachedData('reports', reports);
+      return reports;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, "reports");
+      return [];
+    }
+  },
+
   async createReport(report: Omit<CentralizedReport, 'id' | 'createdAt' | 'status'>): Promise<void> {
     try {
       await addDoc(collection(db, "reports"), {
@@ -89,10 +134,7 @@ export const adminService = {
 
   async updateReportStatus(reportId: string, status: CentralizedReport['status'], adminNotes?: string): Promise<void> {
     try {
-      await updateDoc(doc(db, "reports", reportId), { 
-        status, 
-        adminNotes: adminNotes || "" 
-      });
+      await callFunction('adminUpdateReport', { reportId, status, adminNotes });
       toast.success("Rapor durumu güncellendi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `reports/${reportId}`);
@@ -100,10 +142,16 @@ export const adminService = {
   },
 
   // Config Management
-  async getGlobalConfig(): Promise<AppConfig | null> {
+  async getGlobalConfig(forceRefresh = false): Promise<AppConfig | null> {
+    if (!forceRefresh) {
+      const cached = getCachedData('globalConfig');
+      if (cached) return cached;
+    }
     try {
       const snap = await getDoc(doc(db, "config", "global"));
-      return snap.exists() ? snap.data() as AppConfig : null;
+      const data = snap.exists() ? snap.data() as AppConfig : null;
+      if (data) setCachedData('globalConfig', data);
+      return data;
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, "config/global");
       return null;
@@ -112,17 +160,23 @@ export const adminService = {
 
   async updateGlobalConfig(config: AppConfig): Promise<void> {
     try {
-      await setDoc(doc(db, "config", "global"), config);
+      await callFunction('adminUpdateConfig', { configType: 'global', configData: config });
       toast.success("Global ayarlar güncellendi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, "config/global");
     }
   },
 
-  async getWalletConfig(): Promise<AdminWalletConfig | null> {
+  async getWalletConfig(forceRefresh = false): Promise<AdminWalletConfig | null> {
+    if (!forceRefresh) {
+      const cached = getCachedData('walletConfig');
+      if (cached) return cached;
+    }
     try {
       const snap = await getDoc(doc(db, "adminSettings", "wallet"));
-      return snap.exists() ? snap.data() as AdminWalletConfig : null;
+      const data = snap.exists() ? snap.data() as AdminWalletConfig : null;
+      if (data) setCachedData('walletConfig', data);
+      return data;
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, "adminSettings/wallet");
       return null;
@@ -131,17 +185,23 @@ export const adminService = {
 
   async updateWalletConfig(config: AdminWalletConfig): Promise<void> {
     try {
-      await setDoc(doc(db, "adminSettings", "wallet"), config);
+      await callFunction('adminUpdateConfig', { configType: 'wallet', configData: config });
       toast.success("Cüzdan ayarları güncellendi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, "adminSettings/wallet");
     }
   },
 
-  async getEconomyConfig(): Promise<EconomyConfig | null> {
+  async getEconomyConfig(forceRefresh = false): Promise<EconomyConfig | null> {
+    if (!forceRefresh) {
+      const cached = getCachedData('economyConfig');
+      if (cached) return cached;
+    }
     try {
       const snap = await getDoc(doc(db, "adminSettings", "economy"));
-      return snap.exists() ? snap.data() as EconomyConfig : null;
+      const data = snap.exists() ? snap.data() as EconomyConfig : null;
+      if (data) setCachedData('economyConfig', data);
+      return data;
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, "adminSettings/economy");
       return null;
@@ -150,30 +210,50 @@ export const adminService = {
 
   async updateEconomyConfig(config: EconomyConfig): Promise<void> {
     try {
-      await setDoc(doc(db, "adminSettings", "economy"), config);
+      await callFunction('adminUpdateConfig', { configType: 'economy', configData: config });
       toast.success("Ekonomi ayarları güncellendi.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, "adminSettings/economy");
     }
   },
 
-  // Logging
-  async logModerationAction(targetUid: string, action: string, reason: string): Promise<void> {
+  async updateSocialCommerceConfig(config: SocialCommerceConfig): Promise<void> {
     try {
-      const adminId = auth.currentUser?.uid;
-      if (!adminId) return;
-      await addDoc(collection(db, "moderationLogs"), {
-        adminId,
-        adminEmail: auth.currentUser?.email || "",
-        targetUid,
-        action,
-        reason,
-        timestamp: new Date().toISOString()
-      });
+      await callFunction('adminUpdateConfig', { configType: 'socialCommerce', configData: config });
+      toast.success("Sosyal market ayarları güncellendi.");
     } catch (error) {
-      console.error("Moderation log error:", error);
+      handleFirestoreError(error, OperationType.WRITE, "config/socialCommerce");
     }
   },
+
+  // Promo Code Management
+  async getPromoCodes(forceRefresh = false): Promise<any[]> {
+    if (!forceRefresh) {
+      const cached = getCachedData('promoCodes');
+      if (cached) return cached;
+    }
+    try {
+      const snap = await getDocs(collection(db, "promoCodes"));
+      const codes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCachedData('promoCodes', codes);
+      return codes;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, "promoCodes");
+      return [];
+    }
+  },
+
+  async managePromoCode(action: 'create' | 'update' | 'delete', promoId?: string, promoData?: any): Promise<void> {
+    try {
+      await callFunction('adminManagePromoCode', { action, promoId, promoData });
+      toast.success(`Promosyon kodu ${action === 'create' ? 'oluşturuldu' : action === 'update' ? 'güncellendi' : 'silindi'}.`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "promoCodes");
+    }
+  },
+
+  // Logging
+  // Redundant: Logging is now handled server-side in admin Cloud Functions
 
   // Moderation Chat View Methods
   async getAdminUserChats(targetUserId: string): Promise<any[]> {

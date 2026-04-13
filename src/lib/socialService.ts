@@ -21,6 +21,8 @@ import { UserProfile, InteractionRequest, SocialActionResult, Message } from "..
 import { walletService } from "./walletService";
 import { httpsCallable } from "firebase/functions";
 
+import { toast } from "sonner";
+
 export const socialService = {
   // 1. Create or Get Chat
   async createChat(userAId: string, userBId: string, existingBatch?: any): Promise<string> {
@@ -142,125 +144,20 @@ export const socialService = {
 
   // 2. Send Like (Encounter Module)
   async sendLike(fromUser: UserProfile, toUserId: string, type: 'like' | 'super_like' | 'pass'): Promise<SocialActionResult> {
-    console.log("socialService: sendLike called", { fromUserId: fromUser.uid, toUserId, type });
-    if (!toUserId) {
-      console.warn("socialService: sendLike INVALID_TARGET (toUserId missing)");
-      return 'INVALID_TARGET';
-    }
-    if (fromUser.uid === toUserId) {
-      console.warn("socialService: sendLike SELF_ACTION");
-      return 'SELF_ACTION';
-    }
+    console.log("socialService: sendLike (Backend) called", { fromUserId: fromUser.uid, toUserId, type });
+    if (!toUserId) return 'INVALID_TARGET';
+    if (fromUser.uid === toUserId) return 'SELF_ACTION';
 
     try {
-      // 0. Check Block
-      const blocked = await this.isBlocked(fromUser.uid, toUserId);
-      if (blocked) return 'TECHNICAL_ERROR';
-
-      if (type === 'super_like') {
-        const consumed = await walletService.consumeSocialFeature(fromUser.uid, 'superLike');
-        if (!consumed) return 'TECHNICAL_ERROR'; // Or a custom 'NOT_ENOUGH_CREDITS' if I had one
-      }
-
-      const swipeId = `swipe_${fromUser.uid}_${toUserId}`;
-      let swipeRef = doc(db, "swipes", swipeId);
-      console.log("socialService: Checking swipe existence:", swipeId);
-      let swipeSnap = await getDoc(swipeRef);
-
-      // Backward Compatibility: Check for legacy swipe with random ID
-      if (!swipeSnap.exists()) {
-        console.log("socialService: Swipe not found by ID, checking legacy query...");
-        const q = query(
-          collection(db, "swipes"),
-          where("fromUserId", "==", fromUser.uid),
-          where("toUserId", "==", toUserId),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          console.log("socialService: Legacy swipe found:", snap.docs[0].id);
-          swipeRef = doc(db, "swipes", snap.docs[0].id);
-          swipeSnap = snap.docs[0];
-        }
-      }
-
-      if (swipeSnap.exists()) {
-        const existingData = swipeSnap.data();
-        console.log("socialService: Existing swipe data:", existingData);
-        // If it's the same type, ignore
-        if (existingData.type === type) {
-          console.log("socialService: Same swipe type, ignoring.");
-          return 'SUCCESS';
-        }
-        
-        // If changing from 'pass' to 'like'/'super_like', we allow it
-        if (existingData.type === 'pass' && (type === 'like' || type === 'super_like')) {
-          console.log("socialService: Changing pass to like/super_like");
-          // Continue to update
-        } else {
-          console.log("socialService: Already swiped, treating as success");
-          return 'SUCCESS'; // Already swiped, treat as success
-        }
-      }
-
-      console.log("socialService: Committing swipe batch...");
-      const batch = writeBatch(db);
-
-      batch.set(swipeRef, {
-        id: swipeRef.id,
-        fromUserId: fromUser.uid,
-        toUserId,
-        type,
-        createdAt: swipeSnap.exists() ? swipeSnap.data().createdAt : serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      if (type !== 'pass') {
-        // Create notification
-        const notifRef = doc(collection(db, "notifications"));
-        batch.set(notifRef, {
-          userId: toUserId,
-          type: type === 'super_like' ? "super_like" : "like",
-          title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
-          message: `${fromUser.social?.nickname || fromUser.displayName} seni beğendi! ❤️`,
-          data: { fromUserId: fromUser.uid },
-          senderSnapshot: {
-            nickname: fromUser.social?.nickname || fromUser.displayName || "İsimsiz",
-            photoURL: fromUser.social?.photos?.[0] || fromUser.photoURL || ""
-          },
-          read: false,
-          createdAt: serverTimestamp()
-        });
-
-        // If super_like, also create an interactionRequest
-        if (type === 'super_like') {
-          const requestId = `request_${fromUser.uid}_${toUserId}`;
-          const requestRef = doc(db, "interactionRequests", requestId);
-          batch.set(requestRef, {
-            id: requestId,
-            fromUserId: fromUser.uid,
-            toUserId: toUserId,
-            status: "pending",
-            type: "super_like",
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            senderSnapshot: {
-              nickname: fromUser.social?.nickname || fromUser.displayName || "İsimsiz",
-              photoURL: fromUser.social?.photos?.[0] || fromUser.photoURL || ""
-            },
-            receiverSnapshot: {
-              nickname: "Kullanıcı", // We don't have full toUser profile here, but we can update it later or use a generic name
-              photoURL: ""
-            }
-          });
-        }
-      }
-
-      await batch.commit();
-      console.log("socialService: Swipe batch committed successfully.");
-      return 'SUCCESS';
-    } catch (error) {
-      console.error("socialService: Error in sendLike:", error);
+      const func = httpsCallable(functions, 'sendLike');
+      const result = await func({ targetUserId: toUserId, type });
+      const data = result.data as { status: SocialActionResult };
+      
+      console.log("socialService: sendLike result:", data.status);
+      return data.status;
+    } catch (error: any) {
+      console.error("socialService: Error in sendLike (Backend):", error);
+      toast.error(error.message || "İşlem sırasında bir hata oluştu.");
       return 'TECHNICAL_ERROR';
     }
   },
@@ -290,132 +187,24 @@ export const socialService = {
   async sendMessageRequest(fromUser: UserProfile, toUser: UserProfile): Promise<SocialActionResult> {
     const currentUid = auth.currentUser?.uid;
     
-    console.log("socialService: sendMessageRequest called", { 
-      passedFromUserId: fromUser?.uid, 
-      authCurrentUserId: currentUid,
+    console.log("socialService: sendMessageRequest (Backend) called", { 
       toUserId: toUser?.uid,
-      fromUserNickname: fromUser?.social?.nickname || fromUser?.displayName,
-      toUserNickname: toUser?.social?.nickname || toUser?.displayName
     });
 
-    if (!toUser?.uid) {
-      console.warn("socialService: sendMessageRequest INVALID_TARGET (toUser.uid missing)");
-      return 'INVALID_TARGET';
-    }
-    
-    // CRITICAL: Use auth.currentUser.uid as the ONLY source of truth for the sender ID
-    if (!currentUid) {
-      console.error("socialService: sendMessageRequest TECHNICAL_ERROR (auth.currentUser.uid is missing)");
-      return 'TECHNICAL_ERROR';
-    }
-    
-    const fromUserId = currentUid;
-    
-    if (fromUserId === toUser.uid) {
-      console.warn("socialService: sendMessageRequest SELF_ACTION");
-      return 'SELF_ACTION';
-    }
+    if (!toUser?.uid) return 'INVALID_TARGET';
+    if (!currentUid) return 'TECHNICAL_ERROR';
+    if (currentUid === toUser.uid) return 'SELF_ACTION';
 
     try {
-      // 0. Check Block
-      console.log("socialService: Checking block status...");
-      const blocked = await this.isBlocked(fromUserId, toUser.uid);
-      if (blocked) {
-        console.warn("socialService: sendMessageRequest BLOCKED");
-        return 'TECHNICAL_ERROR';
-      }
-
-      // 1. Check if chat already exists (Deterministic Chat ID)
-      const chatId = `chat_${[fromUserId, toUser.uid].sort().join('_')}`;
-      console.log("socialService: Checking chat existence:", chatId);
+      const func = httpsCallable(functions, 'sendMessageRequest');
+      const result = await func({ targetUserId: toUser.uid });
+      const data = result.data as { status: SocialActionResult };
       
-      let chatSnap;
-      try {
-        chatSnap = await getDoc(doc(db, "chats", chatId));
-      } catch (err) {
-        console.error("socialService: Error checking chat existence:", err);
-      }
-
-      if (chatSnap?.exists()) {
-        console.log("socialService: Chat already exists.");
-        return 'ALREADY_CHATTING';
-      }
-
-      // 2. Check if request already exists (Deterministic Request ID)
-      const requestId = `request_${fromUserId}_${toUser.uid}`;
-      console.log("socialService: Checking request existence:", requestId);
-      let requestRef = doc(db, "interactionRequests", requestId);
-      let requestSnap;
-      
-      try {
-        requestSnap = await getDoc(requestRef);
-      } catch (err) {
-        console.error("socialService: Error checking request existence:", err);
-      }
-      
-      if (requestSnap?.exists()) {
-        const existingData = requestSnap.data();
-        console.log("socialService: Existing request data found:", existingData);
-        if (existingData.status === 'pending') {
-          console.log("socialService: Request already pending.");
-          return 'ALREADY_REQUESTED';
-        }
-        if (existingData.status === 'accepted') {
-          console.log("socialService: Request already accepted.");
-          return 'ALREADY_CHATTING';
-        }
-      }
-
-      // 3. Create request with deterministic ID
-      console.log("socialService: Committing request batch...");
-      const batch = writeBatch(db);
-      
-      const requestData = {
-        id: requestId,
-        fromUserId: fromUserId,
-        toUserId: toUser.uid,
-        status: "pending",
-        type: "message_request",
-        message: "", // Satisfy rule checks
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        senderSnapshot: {
-          nickname: fromUser?.social?.nickname || fromUser?.displayName || "İsimsiz",
-          photoURL: fromUser?.social?.photos?.[0] || fromUser?.photoURL || ""
-        },
-        receiverSnapshot: {
-          nickname: toUser?.social?.nickname || toUser?.displayName || "İsimsiz",
-          photoURL: toUser?.social?.photos?.[0] || toUser?.photoURL || ""
-        }
-      };
-      
-      console.log("socialService: Request data to be set:", requestData);
-      batch.set(requestRef, requestData);
-
-      // 4. Create notification
-      const notifRef = doc(collection(db, "notifications"));
-      const notifData = {
-        userId: toUser.uid,
-        type: "message_request",
-        title: "Yeni Mesaj İsteği",
-        message: `${fromUser?.social?.nickname || fromUser?.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
-        data: { fromUserId: fromUserId },
-        read: false,
-        createdAt: serverTimestamp()
-      };
-      console.log("socialService: Notification data to be set:", notifData);
-      batch.set(notifRef, notifData);
-
-      await batch.commit();
-      console.log("socialService: Request batch committed successfully.");
-      return 'SUCCESS';
+      console.log("socialService: sendMessageRequest result:", data.status);
+      return data.status;
     } catch (error) {
-      console.error("socialService: CRITICAL ERROR in sendMessageRequest:", error);
-      if (error && typeof error === 'object' && 'code' in error) {
-        console.error("socialService: Firebase Error Code:", (error as any).code);
-        console.error("socialService: Firebase Error Message:", (error as any).message);
-      }
-      throw error; // Throwing here so handleSendMessage catch block can log it
+      console.error("socialService: Error in sendMessageRequest (Backend):", error);
+      return 'TECHNICAL_ERROR';
     }
   },
 

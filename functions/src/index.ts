@@ -1297,50 +1297,82 @@ export const purchaseSocialItem = functions.https.onCall(async (data, context) =
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const userId = context.auth.uid;
-  const { type, description } = data;
+  const { type, description, quantity } = data;
 
-  // HARDENING: Fetch config from Firestore
-  const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-  const economy = configSnap.data() as any;
-  
-  // Map type to price field
-  const priceKey = type === 'superLike' ? 'superLike' : type === 'refresh' ? 'refresh' : 'compatibility';
-  const price = (economy.socialPricing && economy.socialPricing[priceKey] && economy.socialPricing[priceKey][0]?.priceCoins) || 20;
-  
-  const userRef = db.collection("users").doc(userId);
-  
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-    const userData = userSnap.data() as any;
+  console.log(`[purchaseSocialItem] User: ${userId}, Type: ${type}, Qty: ${quantity}`);
+
+  try {
+    // 1. Fetch config
+    const configSnap = await db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists) throw new Error("CONFIG_NOT_FOUND");
+    const economy = configSnap.data() as any;
     
-    if ((userData.mainCoins || 0) < price) throw new Error("Yetersiz bakiye.");
-
-    const updates: any = {
-      mainCoins: FieldValue.increment(-price)
-    };
-    if (type === 'superLike') updates.superLikes = FieldValue.increment(1);
-    if (type === 'refresh') updates.refreshCount = FieldValue.increment(1);
-    if (type === 'compatibility') updates.compatibilityCount = FieldValue.increment(1);
+    // 2. Determine Price (Try to find matching package, fallback to unit price)
+    const priceKey = type === 'superLike' ? 'superLike' : type === 'refresh' ? 'refresh' : 'compatibility';
+    if (!economy.socialPricing || !economy.socialPricing[priceKey]) throw new Error("INVALID_ITEM");
     
-    transaction.update(userRef, updates);
+    const pricingArray = economy.socialPricing[priceKey] || [];
+    const qty = Math.max(1, parseInt(quantity) || 1);
+    
+    const matchingPkg = pricingArray.find((p: any) => p.count === qty);
+    let totalPrice: number;
+    
+    if (matchingPkg) {
+      totalPrice = matchingPkg.priceCoins;
+    } else {
+      const unitPrice = pricingArray[0]?.priceCoins || 20;
+      totalPrice = unitPrice * qty;
+    }
 
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'spend',
-      source: 'social_action',
-      amount: -price,
-      balanceType: 'main',
-      createdAt: new Date().toISOString(),
-      status: 'spent',
-      description: `${description} satın alımı`
+    console.log(`[purchaseSocialItem] Qty: ${qty}, TotalPrice: ${totalPrice} (Matched: ${!!matchingPkg})`);
+
+    // 3. Run Transaction
+    const userRef = db.collection("users").doc(userId);
+    const result = await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("USER_NOT_FOUND");
+      const userData = userSnap.data() as any;
+      
+      if ((userData.mainCoins || 0) < totalPrice) {
+        return { success: false, status: 'INSUFFICIENT_FUNDS' };
+      }
+
+      const updates: any = {
+        mainCoins: FieldValue.increment(-totalPrice)
+      };
+      
+      if (type === 'superLike') updates.superLikes = FieldValue.increment(qty);
+      else if (type === 'refresh') updates.refreshCount = FieldValue.increment(qty);
+      else if (type === 'compatibility') updates.compatibilityCount = FieldValue.increment(qty);
+      else return { success: false, status: 'INVALID_ITEM' };
+      
+      transaction.update(userRef, updates);
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'spend',
+        source: 'social_action',
+        amount: -totalPrice,
+        balanceType: 'main',
+        createdAt: new Date().toISOString(),
+        status: 'spent',
+        description: `${description || type} (${qty} adet) satın alımı`
+      });
+
+      return { success: true, status: 'SUCCESS' };
     });
 
-    return { success: true };
-  });
+    return result;
+  } catch (error: any) {
+    console.error("[purchaseSocialItem] Error:", error);
+    if (error.message === "CONFIG_NOT_FOUND") return { success: false, status: 'ERROR', message: 'Sistem yapılandırması bulunamadı.' };
+    if (error.message === "INVALID_ITEM") return { success: false, status: 'INVALID_ITEM' };
+    if (error.message === "USER_NOT_FOUND") return { success: false, status: 'ERROR', message: 'Kullanıcı bulunamadı.' };
+    
+    return { success: false, status: 'ERROR', message: error.message };
+  }
 });
 
 // 12. Purchase Social Bundle
@@ -1516,45 +1548,54 @@ export const refreshDiscover = functions.https.onCall(async (data, context) => {
 
   const userRef = db.collection("users").doc(userId);
   const now = new Date();
+  const nowIso = now.toISOString();
 
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-    const userData = userSnap.data() as any;
-    const lastFreeRefreshAt = userData.social?.lastFreeRefreshAt;
-    const isFreeAvailable = !lastFreeRefreshAt || (now.getTime() - new Date(lastFreeRefreshAt).getTime() >= 24 * 60 * 60 * 1000);
+  console.log(`[refreshDiscover] Starting for user: ${userId}`);
 
-    let consumedFrom = 'paid';
-    
-    // Check for Free Daily Bonus
-    if (isFreeAvailable) {
-      consumedFrom = 'daily_bonus';
-      transaction.update(userRef, { 
-        "social.lastFreeRefreshAt": now.toISOString(),
-        "social.lastDiscoverRefreshAt": now.toISOString()
-      });
-    } else {
-      if ((userData.refreshCount || 0) <= 0) throw new Error("Yetersiz yenileme hakkı.");
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
+
+      const lastFreeRefreshAt = userData.social?.lastFreeRefreshAt;
+      const isFreeAvailable = !lastFreeRefreshAt || (now.getTime() - new Date(lastFreeRefreshAt).getTime() >= 24 * 60 * 60 * 1000);
       
-      transaction.update(userRef, { 
-        refreshCount: FieldValue.increment(-1),
-        "social.lastDiscoverRefreshAt": now.toISOString()
+      let status = 'SUCCESS';
+      let updates: any = {
+        "social.lastDiscoverRefreshAt": nowIso
+      };
+
+      if (isFreeAvailable) {
+        status = 'FREE_REFRESH_USED';
+        updates["social.lastFreeRefreshAt"] = nowIso;
+      } else {
+        if ((userData.refreshCount || 0) <= 0) {
+          return { success: false, status: 'INSUFFICIENT_FUNDS' };
+        }
+        status = 'PAID_REFRESH_USED';
+        updates["refreshCount"] = FieldValue.increment(-1);
+      }
+
+      transaction.update(userRef, updates);
+
+      // Log Usage
+      const logRef = db.collection("usageLogs").doc();
+      transaction.set(logRef, {
+        id: logRef.id,
+        userId,
+        type: 'social_feature',
+        feature: 'refresh',
+        status,
+        createdAt: nowIso
       });
-    }
 
-    // 3. Log Usage
-    const logRef = db.collection("usageLogs").doc();
-    transaction.set(logRef, {
-      id: logRef.id,
-      userId,
-      type: 'social_feature',
-      feature: 'refresh',
-      consumedFrom,
-      createdAt: now.toISOString()
+      return { success: true, status, lastRefreshAt: nowIso };
     });
-
-    return { success: true, consumedFrom, lastRefreshAt: now.toISOString() };
-  });
+  } catch (error: any) {
+    console.error("[refreshDiscover] Error:", error);
+    return { success: false, status: 'ERROR', message: error.message };
+  }
 });
 
 // 8. Admin Grant Wallet Reward
@@ -2001,6 +2042,146 @@ export const adminAdjustWallet = functions.https.onCall(async (data, context) =>
   }
 });
 
+// 14.1 Admin Update User
+export const adminUpdateUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { targetUserId, updates, reason } = data;
+  if (!targetUserId || !updates) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  try {
+    await db.collection("users").doc(targetUserId).update(updates);
+    
+    // Log action
+    await db.collection("moderationLogs").add({
+      adminId: context.auth.uid,
+      adminEmail: context.auth.token.email || "",
+      targetUid: targetUserId,
+      action: "update_user",
+      updates: JSON.stringify(updates),
+      reason: reason || "Admin panel güncellemesi",
+      timestamp: new Date().toISOString()
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminUpdateUser error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Kullanıcı güncellenirken hata oluştu.');
+  }
+});
+
+// 14.2 Admin Update Config
+export const adminUpdateConfig = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { configType, configData } = data;
+  if (!configType || !configData) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  try {
+    let collectionName = "config";
+    let docName = "global";
+
+    if (configType === 'wallet') {
+      collectionName = "adminSettings";
+      docName = "wallet";
+    } else if (configType === 'economy') {
+      collectionName = "adminSettings";
+      docName = "economy";
+    } else if (configType === 'socialCommerce') {
+      collectionName = "config";
+      docName = "socialCommerce";
+    }
+
+    await db.collection(collectionName).doc(docName).set(configData);
+    
+    // Log action
+    await db.collection("moderationLogs").add({
+      adminId: context.auth.uid,
+      adminEmail: context.auth.token.email || "",
+      action: `update_config_${configType}`,
+      timestamp: new Date().toISOString()
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminUpdateConfig error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Ayarlar güncellenirken hata oluştu.');
+  }
+});
+
+// 14.3 Admin Update Report
+export const adminUpdateReport = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { reportId, status, adminNotes } = data;
+  if (!reportId || !status) throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
+
+  try {
+    await db.collection("reports").doc(reportId).update({
+      status,
+      adminNotes: adminNotes || "",
+      updatedAt: new Date().toISOString()
+    });
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminUpdateReport error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Rapor güncellenirken hata oluştu.');
+  }
+});
+
+// 14.4 Admin Manage Promo Code
+export const adminManagePromoCode = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+  
+  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
+
+  const { action, promoId, promoData } = data;
+
+  try {
+    if (action === 'create') {
+      const ref = db.collection("promoCodes").doc();
+      await ref.set({
+        ...promoData,
+        id: ref.id,
+        createdAt: new Date().toISOString(),
+        currentUses: 0
+      });
+    } else if (action === 'update' && promoId) {
+      await db.collection("promoCodes").doc(promoId).update(promoData);
+    } else if (action === 'delete' && promoId) {
+      await db.collection("promoCodes").doc(promoId).delete();
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminManagePromoCode error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'Promosyon kodu işlemi sırasında hata oluştu.');
+  }
+});
+
 // 15. Complete Social Onboarding
 export const completeSocialOnboarding = functions.https.onCall(async (data, context) => {
   console.log("completeSocialOnboarding called");
@@ -2240,71 +2421,94 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
   const now = new Date();
   const nowIso = now.toISOString();
   
+  console.log(`[refreshDiscoverFeed] Starting for user: ${userId}`);
+
   try {
-    return await db.runTransaction(async (transaction) => {
-      const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-      const userData = userSnap.data() as any;
-      
-      const lastFreeRefreshAt = userData.social?.lastFreeRefreshAt;
+    // 1. Fetch user data first to determine target gender and recent IDs
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+    const userData = userSnap.data() as any;
+
+    const gender = userData.social?.gender || userData.gender || "";
+    const targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
+    const recentIds = userData.social?.recentDiscoverIds || [];
+
+    console.log(`[refreshDiscoverFeed] User gender: ${gender}, Target: ${targetGender}`);
+
+    // 2. Query for potential users (outside transaction)
+    let usersQuery = db.collection("users")
+      .where("social.enabled", "==", true)
+      .where("social.visible", "==", true);
+    
+    if (targetGender) {
+      usersQuery = usersQuery.where("social.gender", "==", targetGender);
+    }
+
+    const usersSnap = await usersQuery.limit(100).get();
+    console.log(`[refreshDiscoverFeed] Found ${usersSnap.size} potential users`);
+
+    // 3. Run Transaction for balance and recent IDs update
+    const result = await db.runTransaction(async (transaction) => {
+      const tUserSnap = await transaction.get(userRef);
+      if (!tUserSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const tUserData = tUserSnap.data() as any;
+
+      const lastFreeRefreshAt = tUserData.social?.lastFreeRefreshAt;
       const isFreeAvailable = !lastFreeRefreshAt || (now.getTime() - new Date(lastFreeRefreshAt).getTime() >= 24 * 60 * 60 * 1000);
       
+      let status = 'SUCCESS';
+      let updates: any = {
+        "social.lastDiscoverRefreshAt": nowIso
+      };
+
       if (isFreeAvailable) {
-        transaction.update(userRef, { 
-          "social.lastFreeRefreshAt": nowIso,
-          "social.lastDiscoverRefreshAt": nowIso
-        });
+        status = 'FREE_REFRESH_USED';
+        updates["social.lastFreeRefreshAt"] = nowIso;
       } else {
-        // Fallback to existing refreshCount
-        if ((userData.refreshCount || 0) <= 0) {
-          throw new Error("Yetersiz yenileme hakkı.");
+        if ((tUserData.refreshCount || 0) <= 0) {
+          return { success: false, status: 'INSUFFICIENT_FUNDS' };
         }
-        transaction.update(userRef, { 
-          refreshCount: FieldValue.increment(-1),
-          "social.lastDiscoverRefreshAt": nowIso
-        });
+        status = 'PAID_REFRESH_USED';
+        updates["refreshCount"] = FieldValue.increment(-1);
       }
-      
-      // Get new users
-      const recentIds = userData.social?.recentDiscoverIds || [];
-      
-      // Query for users
-      const usersSnap = await db.collection("users")
-        .where("social.enabled", "==", true)
-        .where("social.visible", "==", true)
-        .limit(100)
-        .get();
-        
+
+      // Filter users
       let availableUsers = usersSnap.docs
         .filter(doc => doc.id !== userId && !recentIds.includes(doc.id))
         .map(doc => ({ id: doc.id, ...doc.data() }));
         
       if (availableUsers.length < 10) {
+        // If too few, allow some recent ones but still exclude self
         availableUsers = usersSnap.docs
           .filter(doc => doc.id !== userId)
           .map(doc => ({ id: doc.id, ...doc.data() }));
       }
       
       availableUsers = availableUsers.sort(() => Math.random() - 0.5).slice(0, 20);
-      
       const newRecentIds = Array.from(new Set([...recentIds, ...availableUsers.map(u => u.id)])).slice(-100);
-      transaction.update(userRef, { "social.recentDiscoverIds": newRecentIds });
       
+      updates["social.recentDiscoverIds"] = newRecentIds;
+      
+      transaction.update(userRef, updates);
+
+      // Log Usage
       const logRef = db.collection("usageLogs").doc();
       transaction.set(logRef, {
         id: logRef.id,
         userId,
         type: 'social_feature',
         feature: 'refresh_discover',
-        isFree: isFreeAvailable,
+        status,
         createdAt: nowIso
       });
-      
-      return { success: true, users: availableUsers };
+
+      return { success: true, status, users: availableUsers };
     });
+
+    return result;
   } catch (error: any) {
-    console.error("refreshDiscoverFeed error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'Keşfet yenilenirken hata oluştu.');
+    console.error("[refreshDiscoverFeed] Error:", error);
+    return { success: false, status: 'ERROR', message: error.message };
   }
 });
 
@@ -2540,5 +2744,187 @@ export const unmuteUser = functions.https.onCall(async (data, context) => {
     return { success: true };
   } catch (error: any) {
     throw new functions.https.HttpsError('internal', 'Susturma kaldırma işlemi başarısız oldu.');
+  }
+});
+
+// 20. Send Message Request (Secure Backend)
+// 19. Send Like (Secure)
+export const sendLike = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const fromUserId = context.auth.uid;
+  const { targetUserId, type } = data; // type: 'like' | 'super_like' | 'pass'
+
+  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+  if (fromUserId === targetUserId) return { status: 'SELF_ACTION' };
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const fromUserRef = db.collection("users").doc(fromUserId);
+      const toUserRef = db.collection("users").doc(targetUserId);
+      
+      const [fromUserSnap, toUserSnap] = await Promise.all([
+        transaction.get(fromUserRef),
+        transaction.get(toUserRef)
+      ]);
+
+      if (!fromUserSnap.exists || !toUserSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      }
+
+      const fromUserData = fromUserSnap.data() as any;
+      const toUserData = toUserSnap.data() as any;
+
+      // Block check
+      const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
+                        (toUserData.social?.blockedUserIds || []).includes(fromUserId);
+      if (isBlocked) return { status: 'BLOCKED' };
+
+      const swipeId = `swipe_${fromUserId}_${targetUserId}`;
+      const swipeRef = db.collection("swipes").doc(swipeId);
+      const swipeSnap = await transaction.get(swipeRef);
+
+      const now = FieldValue.serverTimestamp();
+
+      // Record Swipe
+      transaction.set(swipeRef, {
+        id: swipeId,
+        fromUserId,
+        toUserId: targetUserId,
+        type,
+        createdAt: swipeSnap.exists ? swipeSnap.data()?.createdAt : now,
+        updatedAt: now
+      }, { merge: true });
+
+      if (type !== 'pass') {
+        // Create notification
+        const notifRef = db.collection("notifications").doc();
+        transaction.set(notifRef, {
+          userId: targetUserId,
+          type: type === 'super_like' ? "super_like" : "like",
+          title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
+          message: `${fromUserData.social?.nickname || fromUserData.displayName || "Biri"} seni beğendi! ❤️`,
+          data: { fromUserId },
+          senderSnapshot: {
+            nickname: fromUserData.social?.nickname || fromUserData.displayName || "İsimsiz",
+            photoURL: fromUserData.social?.photos?.[0] || fromUserData.photoURL || ""
+          },
+          read: false,
+          createdAt: now
+        });
+
+        // If super_like, also create an interaction request
+        if (type === 'super_like') {
+          const requestId = `request_${fromUserId}_${targetUserId}`;
+          const requestRef = db.collection("interactionRequests").doc(requestId);
+          transaction.set(requestRef, {
+            id: requestId,
+            fromUserId,
+            toUserId: targetUserId,
+            status: "pending",
+            type: "super_like",
+            createdAt: now,
+            updatedAt: now,
+            senderSnapshot: {
+              nickname: fromUserData.social?.nickname || fromUserData.displayName || "İsimsiz",
+              photoURL: fromUserData.social?.photos?.[0] || fromUserData.photoURL || ""
+            }
+          }, { merge: true });
+        }
+      }
+
+      return { status: 'SUCCESS' };
+    });
+  } catch (error: any) {
+    console.error("sendLike error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+  }
+});
+
+export const sendMessageRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const fromUserId = context.auth.uid;
+  const { targetUserId } = data;
+
+  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+  if (fromUserId === targetUserId) return { status: 'SELF_ACTION' };
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const fromUserRef = db.collection("users").doc(fromUserId);
+      const toUserRef = db.collection("users").doc(targetUserId);
+      
+      const [fromUserSnap, toUserSnap] = await Promise.all([
+        transaction.get(fromUserRef),
+        transaction.get(toUserRef)
+      ]);
+
+      if (!fromUserSnap.exists || !toUserSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      }
+
+      const fromUserData = fromUserSnap.data() as any;
+      const toUserData = toUserSnap.data() as any;
+
+      // Block check
+      const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
+                        (toUserData.social?.blockedUserIds || []).includes(fromUserId);
+      if (isBlocked) return { status: 'BLOCKED' };
+
+      // Existing chat check
+      const chatId = `chat_${[fromUserId, targetUserId].sort().join('_')}`;
+      const chatRef = db.collection("chats").doc(chatId);
+      const chatSnap = await transaction.get(chatRef);
+      if (chatSnap.exists) return { status: 'ALREADY_CHATTING' };
+
+      // Existing request check
+      const requestId = `request_${fromUserId}_${targetUserId}`;
+      const requestRef = db.collection("interactionRequests").doc(requestId);
+      const requestSnap = await transaction.get(requestRef);
+      if (requestSnap.exists) {
+        const reqData = requestSnap.data();
+        if (reqData?.status === 'pending') return { status: 'ALREADY_REQUESTED' };
+        if (reqData?.status === 'accepted') return { status: 'ALREADY_CHATTING' };
+      }
+
+      // Create request
+      const now = FieldValue.serverTimestamp();
+      transaction.set(requestRef, {
+        id: requestId,
+        fromUserId,
+        toUserId: targetUserId,
+        status: "pending",
+        type: "message_request",
+        message: "",
+        createdAt: now,
+        updatedAt: now,
+        senderSnapshot: {
+          nickname: fromUserData.social?.nickname || fromUserData.displayName || "İsimsiz",
+          photoURL: fromUserData.social?.photos?.[0] || fromUserData.photoURL || ""
+        },
+        receiverSnapshot: {
+          nickname: toUserData.social?.nickname || toUserData.displayName || "İsimsiz",
+          photoURL: toUserData.social?.photos?.[0] || toUserData.photoURL || ""
+        }
+      });
+
+      // Create notification
+      const notifRef = db.collection("notifications").doc();
+      transaction.set(notifRef, {
+        userId: targetUserId,
+        type: "message_request",
+        title: "Yeni Mesaj İsteği",
+        message: `${fromUserData.social?.nickname || fromUserData.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
+        data: { fromUserId },
+        read: false,
+        createdAt: now
+      });
+
+      return { status: 'SUCCESS' };
+    });
+  } catch (error: any) {
+    console.error("sendMessageRequest error:", error);
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
   }
 });

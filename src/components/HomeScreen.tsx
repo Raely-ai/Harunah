@@ -50,9 +50,18 @@ export default function HomeScreen({
       const result = await walletService.refreshDiscover();
       if (result.success) {
         setRefreshKey(prev => prev + 1);
-        import("sonner").then(({ toast }) => toast.success("Keşfet listesi yenilendi!"));
+        if (result.status === 'FREE_REFRESH_USED') {
+          import("sonner").then(({ toast }) => toast.success("Günlük ücretsiz yenileme hakkın kullanıldı! ✨"));
+        } else {
+          import("sonner").then(({ toast }) => toast.success("Keşfet listesi yenilendi! ✨"));
+        }
       } else {
-        import("sonner").then(({ toast }) => toast.error("Yenileme hakkınız bitti."));
+        if (result.status === 'INSUFFICIENT_FUNDS') {
+          import("sonner").then(({ toast }) => toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin."));
+          onNavigate('wallet');
+        } else {
+          import("sonner").then(({ toast }) => toast.error("Yenileme sırasında bir hata oluştu."));
+        }
       }
     } catch (error: any) {
       console.error("Refresh error:", error);

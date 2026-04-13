@@ -87,95 +87,93 @@ export default function SocialMessagesScreen({
     }
   }, [selectedChat, onChatOpenChange, currentUser.uid]);
 
-  const fetchData = async (tab: 'chats' | 'requests' | 'likers', force = false) => {
+  // Real-time data fetching based on active tab
+  useEffect(() => {
     if (!currentUser.uid) return;
 
-    const cacheKey = tab === 'chats' ? CHAT_LIST_CACHE_KEY : (tab === 'requests' ? REQUESTS_CACHE_KEY : LIKERS_CACHE_KEY);
-    
-    if (!force) {
-      const cached = cacheManager.get<any>(cacheKey);
-      if (cached) {
-        if (tab === 'chats') setChats(cached);
-        else if (tab === 'requests') setRequests(cached);
-        else if (tab === 'likers') setLikers(cached);
-        return;
-      }
-    }
+    let unsubscribe: () => void = () => {};
 
-    if (tab === 'chats') setLoading(true);
-
-    try {
-      if (tab === 'chats') {
+    const handleFetch = async () => {
+      if (activeTab === 'chats') {
+        setLoading(true);
         const q = query(
           collection(db, "chats"),
           where("participants", "array-contains", currentUser.uid)
         );
-        const snapshot = await getDocs(q);
-        const chatDocs = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
-          .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
-        
-        const chatList = await Promise.all(chatDocs.map(async (chatData) => {
-          const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
-          let otherUser = profilesCache.current[otherUserId!];
-          if (!otherUser) {
-            const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
-            otherUser = normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id);
-            profilesCache.current[otherUserId!] = otherUser;
-          }
-          return { ...chatData, otherUser };
-        }));
-        
-        chatList.sort((a, b) => {
-          const timeA = a.lastMessageAt?.toMillis?.() || Date.now();
-          const timeB = b.lastMessageAt?.toMillis?.() || Date.now();
-          return timeB - timeA;
-        });
+        unsubscribe = onSnapshot(q, async (snapshot) => {
+          const chatDocs = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
+            .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
+          
+          const chatList = await Promise.all(chatDocs.map(async (chatData) => {
+            const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
+            let otherUser = profilesCache.current[otherUserId!];
+            if (!otherUser) {
+              const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
+              otherUser = normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id);
+              profilesCache.current[otherUserId!] = otherUser;
+            }
+            return { ...chatData, otherUser };
+          }));
+          
+          chatList.sort((a, b) => {
+            const timeA = a.lastMessageAt?.toMillis?.() || Date.now();
+            const timeB = b.lastMessageAt?.toMillis?.() || Date.now();
+            return timeB - timeA;
+          });
 
-        setChats(chatList);
-        cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 300); // 5 min cache
-      } else if (tab === 'requests') {
+          setChats(chatList);
+          cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 300);
+          setLoading(false);
+        }, (error) => {
+          console.error("Error in chats snapshot:", error);
+          setLoading(false);
+        });
+      } else if (activeTab === 'requests') {
         const q = query(
           collection(db, "interactionRequests"),
           where("toUserId", "==", currentUser.uid),
           where("status", "==", "pending")
         );
-        const snapshot = await getDocs(q);
-        const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
-        requestList.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-        setRequests(requestList);
-        cacheManager.set(REQUESTS_CACHE_KEY, requestList, 300);
-      } else if (tab === 'likers') {
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
+          requestList.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+          setRequests(requestList);
+          cacheManager.set(REQUESTS_CACHE_KEY, requestList, 300);
+        });
+      } else if (activeTab === 'likers') {
         const q = query(
           collection(db, "swipes"),
           where("toUserId", "==", currentUser.uid),
           where("type", "in", ["like", "super_like"])
         );
-        const snapshot = await getDocs(q);
-        const likerList = await Promise.all(snapshot.docs.map(async (swipeDoc) => {
-          const swipeData = swipeDoc.data();
-          const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
-          if (!senderSnap.exists()) return null;
-          return {
-            id: swipeDoc.id,
-            user: normalizeUserProfile(senderSnap.data(), senderSnap.id),
-            createdAt: swipeData.createdAt
-          };
-        }));
-        const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
-        validLikers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-        setLikers(validLikers);
-        cacheManager.set(LIKERS_CACHE_KEY, validLikers, 300);
+        unsubscribe = onSnapshot(q, async (snapshot) => {
+          console.log(`[DEBUG] Likers snapshot received. Count: ${snapshot.docs.length}`);
+          const likerList = await Promise.all(snapshot.docs.map(async (swipeDoc) => {
+            const swipeData = swipeDoc.data();
+            console.log(`[DEBUG] Processing swipe: ${swipeDoc.id}`, swipeData);
+            const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
+            if (!senderSnap.exists()) {
+              console.warn(`[DEBUG] Liker user doc not found: ${swipeData.fromUserId}`);
+              return null;
+            }
+            return {
+              id: swipeDoc.id,
+              user: normalizeUserProfile(senderSnap.data(), senderSnap.id),
+              createdAt: swipeData.createdAt
+            };
+          }));
+          const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
+          validLikers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+          setLikers(validLikers);
+          cacheManager.set(LIKERS_CACHE_KEY, validLikers, 300);
+          console.log(`[DEBUG] Likers updated. Valid count: ${validLikers.length}`);
+        });
       }
-    } catch (error) {
-      console.error(`Error fetching ${tab}:`, error);
-    } finally {
-      if (tab === 'chats') setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
-    fetchData(activeTab);
+    handleFetch();
+    return () => unsubscribe();
   }, [activeTab, currentUser.uid]);
 
   const filteredChats = useMemo(() => {
@@ -226,7 +224,6 @@ export default function SocialMessagesScreen({
       await socialService.rejectRequest(requestId);
       toast.info("İstek reddedildi.");
       cacheManager.clear(REQUESTS_CACHE_KEY);
-      fetchData('requests', true);
     } catch (error) {
       console.error("Error rejecting request:", error);
     } finally {

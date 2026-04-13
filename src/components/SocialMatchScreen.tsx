@@ -155,7 +155,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
       return;
     }
 
-    if (type !== 'pass' && !canSwipe(currentUser)) {
+    if (type !== 'super_like' && !canSwipe(currentUser)) {
       toast.error("Günlük swipe hakkın bitti!");
       onNavigate('wallet');
       return;
@@ -188,7 +188,8 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         if (res.consumedFrom === 'daily_bonus') {
           toast.success("Günlük ücretsiz Süper Like hakkın kullanıldı! ✨");
         }
-      } else if (type === 'like') {
+      } else {
+        // Both 'like' and 'pass' consume a swipe credit
         const res = await walletService.consumeSocialFeature(uid, 'swipe');
         if (!res.success) {
           toast.error("Günlük kaydırma hakkın bitti!");
@@ -197,10 +198,14 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         }
       }
       
-      await socialService.sendLike(currentUser, targetUser.uid, type);
+      console.log(`[DEBUG] Initiating sendLike for ${targetUser.uid} with type ${type}`);
+      const result = await socialService.sendLike(currentUser, targetUser.uid, type);
+      console.log(`[DEBUG] sendLike result for ${targetUser.uid}:`, result);
       
-      if (type === 'super_like') {
+      if (type === 'super_like' && result === 'SUCCESS') {
         toast.success("Süper Like gönderildi! ✨");
+      } else if (type === 'like' && result === 'SUCCESS') {
+        toast.success("Beğeni gönderildi! ❤️");
       }
     } catch (error: any) {
       console.error("Swipe error:", error);

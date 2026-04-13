@@ -758,7 +758,23 @@ export type SocialActionResult =
   | 'ALREADY_CHATTING' 
   | 'SELF_ACTION' 
   | 'INVALID_TARGET' 
+  | 'BLOCKED'
   | 'TECHNICAL_ERROR';
+
+export type RefreshActionResult = 
+  | 'SUCCESS'
+  | 'FREE_REFRESH_USED'
+  | 'PAID_REFRESH_USED'
+  | 'INSUFFICIENT_FUNDS'
+  | 'COOLDOWN_ACTIVE'
+  | 'ERROR';
+
+export type PurchaseActionResult = 
+  | 'SUCCESS'
+  | 'INSUFFICIENT_FUNDS'
+  | 'INVALID_ITEM'
+  | 'INVALID_QUANTITY'
+  | 'ERROR';
 
 export interface InteractionRequest {
   id: string;

@@ -60,54 +60,52 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = async (forceRefresh = false) => {
     setLoading(true);
     try {
       // 1. Fetch Users
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const fetchedUsers = usersSnap.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
+      const fetchedUsers = await adminService.getUsers(forceRefresh);
       setUsers(fetchedUsers);
 
       // 2. Fetch Reports
-      const reportsSnap = await getDocs(query(collection(db, 'reports'), orderBy('createdAt', 'desc'), limit(50)));
-      const fetchedReports = reportsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CentralizedReport));
+      const fetchedReports = await adminService.getReports(forceRefresh);
       setReports(fetchedReports);
 
-      // 3. Fetch Configs (One-time)
-      const configSnap = await getDoc(doc(db, 'config', 'global'));
-      if (configSnap.exists()) setConfig(configSnap.data() as AppConfig);
+      // 3. Fetch Configs
+      const globalConfig = await adminService.getGlobalConfig(forceRefresh);
+      if (globalConfig) setConfig(globalConfig);
 
-      const walletSnap = await getDoc(doc(db, 'adminSettings', 'wallet'));
-      if (walletSnap.exists()) setWalletConfig(walletSnap.data() as AdminWalletConfig);
+      const walletConfig = await adminService.getWalletConfig(forceRefresh);
+      if (walletConfig) setWalletConfig(walletConfig);
 
-      const commerceSnap = await getDoc(doc(db, 'config', 'socialCommerce'));
-      if (commerceSnap.exists()) setSocialCommerce(commerceSnap.data() as SocialCommerceConfig);
-
-      const economySnap = await getDoc(doc(db, 'adminSettings', 'economy'));
-      if (economySnap.exists()) {
-        const data = economySnap.data();
+      const economyConfig = await adminService.getEconomyConfig(forceRefresh);
+      if (economyConfig) {
         setEconomyConfig({
           ...DEFAULT_ECONOMY_CONFIG,
-          ...data,
-          fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(data.fortunePricing || {}) },
-          interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(data.interpretationTimes || {}) },
-          subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(data.subscriptionLimits || {}) },
-          aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(data.aiSettings || {}) },
-          rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(data.rewards || {}) },
-          socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(data.socialPricing || {}) },
-          boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(data.boostPackages || {}) },
-          fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(data.fortuneSubscriptions || {}) }
+          ...economyConfig,
+          fortunePricing: { ...DEFAULT_ECONOMY_CONFIG.fortunePricing, ...(economyConfig.fortunePricing || {}) },
+          interpretationTimes: { ...DEFAULT_ECONOMY_CONFIG.interpretationTimes, ...(economyConfig.interpretationTimes || {}) },
+          subscriptionLimits: { ...DEFAULT_ECONOMY_CONFIG.subscriptionLimits, ...(economyConfig.subscriptionLimits || {}) },
+          aiSettings: { ...DEFAULT_ECONOMY_CONFIG.aiSettings, ...(economyConfig.aiSettings || {}) },
+          rewards: { ...DEFAULT_ECONOMY_CONFIG.rewards, ...(economyConfig.rewards || {}) },
+          socialPricing: { ...DEFAULT_ECONOMY_CONFIG.socialPricing, ...(economyConfig.socialPricing || {}) },
+          boostPackages: { ...DEFAULT_ECONOMY_CONFIG.boostPackages, ...(economyConfig.boostPackages || {}) },
+          fortuneSubscriptions: { ...DEFAULT_ECONOMY_CONFIG.fortuneSubscriptions, ...(economyConfig.fortuneSubscriptions || {}) }
         } as EconomyConfig);
       } else {
         setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
       }
 
-      const promoSnap = await getDocs(query(collection(db, 'promoCodes'), orderBy('createdAt', 'desc')));
-      const fetchedCodes = promoSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const fetchedCodes = await adminService.getPromoCodes(forceRefresh);
       setPromoCodes(fetchedCodes);
 
+      // Social Commerce (One-time or cached)
+      const commerceSnap = await getDoc(doc(db, 'config', 'socialCommerce'));
+      if (commerceSnap.exists()) setSocialCommerce(commerceSnap.data() as SocialCommerceConfig);
+
     } catch (err: any) {
-      handleFirestoreError(err, OperationType.LIST, "admin_data");
+      console.error("fetchData error:", err);
+      toast.error("Veriler yüklenirken hata oluştu.");
     } finally {
       setLoading(false);
     }
@@ -154,7 +152,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     try {
       if (config) await adminService.updateGlobalConfig(config);
       if (walletConfig) await adminService.updateWalletConfig(walletConfig);
-      if (socialCommerce) await setDoc(doc(db, 'config', 'socialCommerce'), socialCommerce);
+      if (socialCommerce) await adminService.updateSocialCommerceConfig(socialCommerce);
       if (economyConfig) {
         const finalEconomy = {
           ...economyConfig,
@@ -168,6 +166,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }
       toast.success("Tüm ayarlar kaydedildi.");
     } catch (error) {
+      console.error("Error saving settings:", error);
       toast.error("Ayarlar kaydedilirken hata oluştu.");
     } finally {
       setSaving(null);
@@ -179,20 +178,18 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     try {
       if (promoData.id) {
         const { id, ...rest } = promoData;
-        await updateDoc(doc(db, 'promoCodes', id), rest);
-        toast.success("Promo kod güncellendi.");
+        await adminService.managePromoCode('update', id, rest);
       } else {
-        await addDoc(collection(db, 'promoCodes'), {
+        await adminService.managePromoCode('create', undefined, {
           ...promoData,
-          createdAt: new Date().toISOString(),
-          createdBy: auth.currentUser?.email || 'admin',
-          currentUses: 0
+          createdBy: auth.currentUser?.email || 'admin'
         });
-        toast.success("Yeni promo kod oluşturuldu.");
       }
       setIsEditingPromoCode(false);
       setSelectedPromoCode(null);
+      fetchData(); // Refresh list
     } catch (error) {
+      console.error("Error saving promo code:", error);
       toast.error("Hata oluştu.");
     } finally {
       setSaving(null);
@@ -201,9 +198,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const handleDeletePromoCode = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'promoCodes', id));
-      toast.success("Kod silindi.");
+      await adminService.managePromoCode('delete', id);
+      fetchData(); // Refresh list
     } catch (error) {
+      console.error("Error deleting promo code:", error);
       toast.error("Silme hatası.");
     }
   };
@@ -310,7 +308,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={fetchData}
+            onClick={() => fetchData(true)}
             className="p-2.5 rounded-xl bg-white/5 text-white/60 hover:text-white transition-all border border-white/5"
           >
             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />

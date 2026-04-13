@@ -309,6 +309,14 @@ export default function SocialDiscoverScreen({
           toast.info("Zaten istek gönderdin.");
           setSelectedUser(null);
           break;
+        case 'BLOCKED':
+          toast.error("Bu kullanıcıyla iletişim kuramazsınız.");
+          setSelectedUser(null);
+          break;
+        case 'SELF_ACTION':
+          toast.error("Kendinize istek gönderemezsiniz.");
+          setSelectedUser(null);
+          break;
         default:
           console.error("SocialDiscoverScreen: Unexpected result from sendMessageRequest:", result);
           toast.error("İstek gönderilirken bir hata oluştu.");
@@ -334,21 +342,27 @@ export default function SocialDiscoverScreen({
         cacheManager.clear(DISCOVER_CACHE_KEY);
         await fetchData(true);
         
-        if ((result as any).consumedFrom === 'daily_bonus') {
+        if (result.status === 'FREE_REFRESH_USED') {
           toast.success("Günlük ücretsiz yenileme hakkın kullanıldı! ✨");
-        } else {
+        } else if (result.status === 'PAID_REFRESH_USED') {
           toast.success("Keşfet yenilendi! ✨");
+        } else {
+          toast.success("Keşfet güncellendi! ✨");
         }
         if (onRefresh) onRefresh();
+      } else {
+        if (result.status === 'INSUFFICIENT_FUNDS') {
+          toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
+          onNavigate('wallet');
+        } else if (result.status === 'COOLDOWN_ACTIVE') {
+          toast.info("Lütfen biraz bekleyin.");
+        } else {
+          toast.error("Yenileme sırasında bir hata oluştu.");
+        }
       }
     } catch (error: any) {
       console.error("Refresh error:", error);
-      if (error.message?.includes("Yetersiz")) {
-        toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
-        onNavigate('wallet');
-      } else {
-        toast.error(error.message || "Yenileme sırasında bir hata oluştu.");
-      }
+      toast.error(error.message || "Yenileme işlemi başarısız oldu.");
     } finally {
       setIsProcessing(false);
     }

@@ -83,22 +83,20 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.auth.uid == userId && isValidUserCreate(request.resource.data);
-      allow update: if isAdmin() || (
-        isOwner(userId) && 
+      allow update: if isOwner(userId) && 
         isValidUser(request.resource.data) &&
         (resource.data.get('isBanned', false) == false) &&
         // Prevent self-promotion or unbanning
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isBanned']) &&
-        // Wallet & Subscription Protection (STRICT: Only Backend/Admin can change these)
+        // Wallet & Subscription Protection (STRICT: Only Backend can change these)
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'mainCoins', 'energy', 'superLikes', 'refreshCount', 'compatibilityCount',
           'subscription', 'socialSubscription', 'dailyAdWatchCount', 'lastAdReset',
           'boostExpiresAt', 'isManagedProfile', 'operatorId', 'lastAdDate', 'credits', 'adCredits',
           'social.profileCompleted', 'social.enabled', 'social.banned', 'social.lastFreeRefreshAt', 'social.recentDiscoverIds',
           'social.blockedUserIds', 'social.mutedUserIds'
-        ])
-      );
-      allow delete: if isAdmin();
+        ]);
+      allow delete: if false; // Only via backend/admin SDK
     }
 
     // Usage Logs
@@ -139,14 +137,7 @@ service cloud.firestore {
         resource.data.toUserId == request.auth.uid || 
         hasElevatedAccess()
       );
-      allow create: if isAuthenticated() && isNotBanned() && 
-                      request.resource.data.fromUserId == request.auth.uid &&
-                      // Block Check
-                      !get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('social', {}).get('blockedUserIds', []).contains(request.resource.data.toUserId) &&
-                      !get(/databases/$(database)/documents/users/$(request.resource.data.toUserId)).data.get('social', {}).get('blockedUserIds', []).contains(request.auth.uid) &&
-                      request.resource.data.get('type', '') in ['like', 'message', 'super_like', 'message_request'] &&
-                      request.resource.data.get('message', '').size() <= 500 &&
-                      isTimestampOrString(request.resource.data.get('createdAt', ''));
+      allow create: if isAdmin(); // Only via backend function or admin
       allow update: if isAuthenticated() && isNotBanned() && (
         (request.auth.uid in [resource.data.fromUserId, resource.data.toUserId] || hasElevatedAccess()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'updatedAt']) &&
@@ -223,9 +214,8 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow read: if hasElevatedAccess();
       allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if hasElevatedAccess() && 
-                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
-      allow delete: if isAdmin();
+      allow update: if false; // Only via backend function
+      allow delete: if false; // Only via backend function
     }
 
     // Social Transactions
@@ -300,7 +290,7 @@ service cloud.firestore {
     // Notifications
     match /notifications/{notificationId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated();
+      allow create: if isAdmin(); // Only via backend function or admin
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
@@ -314,19 +304,19 @@ service cloud.firestore {
     // Global Config
     match /config/{configId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false; // Only via backend function
     }
 
     // Admin Settings
     match /adminSettings/{settingId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false; // Only via backend function
     }
 
     // Promo Codes
     match /promoCodes/{promoCodeId} {
       allow read: if isAdmin(); // Only admin can see the list/details of codes
-      allow write: if isAdmin();
+      allow write: if false; // Only via backend function
     }
 
     // Promo Code Redemptions
