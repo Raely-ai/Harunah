@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin, Zap } from 'lucide-react';
+import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin, Zap, Clock } from 'lucide-react';
 import { UserProfile, CompatibilityHistory } from '../types';
 import { walletService } from '../lib/walletService';
 import { toast } from 'sonner';
@@ -39,12 +39,15 @@ export default function SocialProfilePopup({
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<CompatibilityHistory | null>(null);
 
   useEffect(() => {
     if (!currentUid || !uid) return;
     const checkExistingAnalysis = async () => {
       try {
+        // Check history first
         const q = query(
           collection(db, "compatibilityHistory"),
           where("userId", "==", currentUid),
@@ -54,24 +57,72 @@ export default function SocialProfilePopup({
         const snap = await getDocs(q);
         if (!snap.empty) {
           setAnalysisResult({ id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory);
+          return;
+        }
+
+        // Check for pending requests
+        const qPending = query(
+          collection(db, "compatibilityRequests"),
+          where("userId", "==", currentUid),
+          where("targetUserId", "==", uid),
+          where("status", "==", "pending"),
+          limit(1)
+        );
+        const snapPending = await getDocs(qPending);
+        if (!snapPending.empty) {
+          setIsPending(true);
+          setPendingRequestId(snapPending.docs[0].id);
         }
       } catch (error) {
         console.error("Error checking analysis:", error);
       }
     };
     checkExistingAnalysis();
-  }, [currentUser.uid, user.uid]);
+  }, [currentUid, uid]);
+
+  // Polling for pending analysis
+  useEffect(() => {
+    if (!pendingRequestId || !currentUid) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const q = query(
+          collection(db, "compatibilityHistory"),
+          where("userId", "==", currentUid),
+          where("requestId", "==", pendingRequestId),
+          limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const latest = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
+          setAnalysisResult(latest);
+          setIsPending(false);
+          setPendingRequestId(null);
+          clearInterval(interval);
+          toast.success("Uyum analiziniz hazır! ✨");
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [pendingRequestId, currentUid]);
 
   const handleCompatibilityCheck = async () => {
-    if (isProcessing || !uid) return;
+    if (isProcessing || isPending || !uid) return;
     
     setIsProcessing(true);
     try {
       const result = await walletService.runCompatibilityAnalysis(uid, 'ask');
       if (result.success) {
-        setAnalysisResult(result.analysis);
-        if (!result.cached) {
-          toast.success("Uyum analizi tamamlandı! ✨");
+        if (result.cached) {
+          setAnalysisResult(result.analysis);
+          toast.success("Uyum analizi yüklendi! ✨");
+        } else {
+          setIsPending(true);
+          setPendingRequestId(result.requestId);
+          toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
         }
       }
     } catch (error: any) {
@@ -259,6 +310,35 @@ export default function SocialProfilePopup({
 
             {/* Compatibility Result Display */}
             <AnimatePresence>
+              {isPending && !analysisResult && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-5 bg-purple-500/5 border border-purple-500/10 rounded-3xl space-y-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+                      <Clock className="w-4 h-4 text-purple-600 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-heading">Analiz Hazırlanıyor...</h4>
+                      <p className="text-[10px] text-muted font-medium">Yıldızlar hizalanıyor, yaklaşık 5 dakika sürer.</p>
+                    </div>
+                  </div>
+                  <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ x: "-100%" }}
+                      animate={{ x: "100%" }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                      className="h-full w-1/2 bg-gradient-to-r from-transparent via-purple-500 to-transparent"
+                    />
+                  </div>
+                  <p className="text-[10px] text-center text-muted/60 font-medium italic">
+                    "Hazır olduğunda sana bildirim göndereceğiz."
+                  </p>
+                </motion.div>
+              )}
+
               {analysisResult && (
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
@@ -304,11 +384,18 @@ export default function SocialProfilePopup({
         <div className="max-w-md mx-auto flex flex-col gap-3">
           <button 
             onClick={handleCompatibilityCheck}
-            disabled={isProcessing}
-            className={`flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-900/10 border border-rose-400/20 active:scale-[0.98] transition-all ${isProcessing ? 'opacity-50' : ''}`}
+            disabled={isProcessing || isPending}
+            className={`flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-900/10 border border-rose-400/20 active:scale-[0.98] transition-all ${isProcessing || isPending ? 'opacity-50' : ''}`}
           >
             <Heart className="w-4 h-4 fill-white" />
-            <span>{analysisResult ? 'Tekrar Analiz Et' : `Uyumunu Gör (${credits})`}</span>
+            <span>
+              {analysisResult 
+                ? 'Tekrar Analiz Et' 
+                : isPending 
+                  ? 'Analiz Hazırlanıyor...' 
+                  : `Uyumunu Gör (${credits})`
+              }
+            </span>
           </button>
           
           <button 

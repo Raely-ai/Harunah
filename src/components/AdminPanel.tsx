@@ -27,7 +27,7 @@ import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
 import { DEFAULT_AI_CONFIG, DEFAULT_ECONOMY_CONFIG } from '../constants';
 
 const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions' | 'promoCodes'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'reports' | 'settings' | 'economy' | 'socialMarket' | 'subscriptions' | 'promoCodes' | 'notifications'>('users');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   
@@ -41,6 +41,10 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState<any | null>(null);
   const [isEditingPromoCode, setIsEditingPromoCode] = useState(false);
+
+  // Notification Broadcast State
+  const [broadcastData, setBroadcastData] = useState({ title: '', body: '', screen: 'home' });
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
 
   // UI States
   const [searchQuery, setSearchQuery] = useState('');
@@ -333,6 +337,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             { id: 'socialMarket', icon: ShoppingBag, label: 'Sosyal Market' },
             { id: 'subscriptions', icon: Crown, label: 'Abonelikler' },
             { id: 'promoCodes', icon: Ticket, label: 'Promo Kodlar' },
+            { id: 'notifications', icon: Bell, label: 'Bildirimler' },
             { id: 'settings', icon: Settings, label: 'Ayarlar' }
           ].map(tab => (
             <button
@@ -1034,6 +1039,26 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         </button>
                       </div>
                     ))}
+
+                    {/* Manual Compatibility Prompt */}
+                    <div className="p-6 bg-black/20 rounded-3xl border border-white/5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-black text-rose-400 uppercase tracking-widest">Manuel Uyum Analizi Promptu</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-white/20 uppercase px-1">ChatGPT Prompt</label>
+                        <textarea
+                          value={economyConfig.manualCompatibilityPrompt || ""}
+                          onChange={(e) => setEconomyConfig({ ...economyConfig, manualCompatibilityPrompt: e.target.value })}
+                          rows={6}
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-xs text-white/80 focus:outline-none focus:border-rose-500/50"
+                          placeholder="Uyum analizi için prompt girin..."
+                        />
+                        <p className="text-[9px] text-white/20 italic">
+                          Değişkenler: {`{person1_name}, {person1_birthDate}, {person1_status}, {person2_name}, {person2_birthDate}, {person2_status}, {relationshipType}`}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </section>
               ))}
@@ -1257,6 +1282,114 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'notifications' && (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10 shadow-2xl">
+              <div className="flex items-center gap-4 mb-8">
+                <div className="w-16 h-16 rounded-3xl bg-amber-500/10 flex items-center justify-center">
+                  <Bell className="w-8 h-8 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-white">Toplu Bildirim Gönder</h3>
+                  <p className="text-sm text-white/40">Tüm kullanıcılara anlık push notification gönderin.</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Bildirim Başlığı</label>
+                  <input 
+                    type="text" 
+                    value={broadcastData.title}
+                    onChange={(e) => setBroadcastData(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Örn: Günlük Falın Hazır! ✨"
+                    className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-amber-500/20 transition-all outline-none"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Bildirim Mesajı</label>
+                  <textarea 
+                    value={broadcastData.body}
+                    onChange={(e) => setBroadcastData(prev => ({ ...prev, body: e.target.value }))}
+                    placeholder="Örn: Yıldızlar bugün senin için neler söylüyor merak ediyor musun?"
+                    rows={4}
+                    className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-amber-500/20 transition-all resize-none outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Yönlendirme Ekranı</label>
+                    <select 
+                      value={broadcastData.screen}
+                      onChange={(e) => setBroadcastData(prev => ({ ...prev, screen: e.target.value }))}
+                      className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-amber-500/20 transition-all outline-none appearance-none"
+                    >
+                      <option value="home">Ana Sayfa</option>
+                      <option value="fortunes">Fallar</option>
+                      <option value="discover">Keşfet</option>
+                      <option value="messages">Mesajlar</option>
+                      <option value="wallet">Cüzdan</option>
+                      <option value="profile">Profil</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-6">
+                  <motion.button 
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={async () => {
+                      if (!broadcastData.title || !broadcastData.body) {
+                        toast.error("Başlık ve mesaj zorunludur.");
+                        return;
+                      }
+                      if (!window.confirm("Bu bildirimi TÜM kullanıcılara göndermek istediğinize emin misiniz?")) return;
+                      
+                      setIsBroadcasting(true);
+                      try {
+                        await adminService.broadcastNotification(broadcastData);
+                        setBroadcastData({ title: '', body: '', screen: 'home' });
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsBroadcasting(false);
+                      }
+                    }}
+                    disabled={isBroadcasting}
+                    className="w-full py-5 bg-amber-500 text-black rounded-2xl font-bold text-sm shadow-xl shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-3 transition-all"
+                  >
+                    {isBroadcasting ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        Gönderiliyor...
+                      </>
+                    ) : (
+                      <>
+                        <Bell className="w-5 h-5" />
+                        Bildirimi Yayınla
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-amber-500/5 rounded-3xl p-6 border border-amber-500/20">
+              <div className="flex items-start gap-4">
+                <AlertCircle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-bold text-amber-500">Dikkat: Spam Politikası</h4>
+                  <p className="text-xs text-white/60 mt-1 leading-relaxed">
+                    Toplu bildirimler tüm aktif kullanıcılara anında ulaşır. Gereksiz veya çok sık bildirim göndermek kullanıcıların uygulamayı silmesine veya bildirimleri kapatmasına neden olabilir. Lütfen sadece gerçekten önemli duyurular için kullanın.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}

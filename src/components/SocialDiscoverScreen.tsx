@@ -159,6 +159,8 @@ export default function SocialDiscoverScreen({
 
       // 2. Fetch Discover Users
       const targetGender = getTargetGender(currentUser);
+      console.log(`[SocialDiscover] Fetching users for target gender: ${targetGender}. Current user gender: ${currentUser.social?.gender}`);
+      
       const usersRef = collection(db, "users");
       const discoverQ = query(
         usersRef,
@@ -170,9 +172,19 @@ export default function SocialDiscoverScreen({
       );
 
       const snapshot = await getDocs(discoverQ);
+      console.log(`[SocialDiscover] Firestore returned ${snapshot.docs.length} users from query.`);
+      
       const allFetched = snapshot.docs
         .map(doc => normalizeUserProfile(doc.data(), doc.id))
-        .filter(u => isEligibleSocialUser(u, uid, targetGender));
+        .filter(u => {
+          const eligible = isEligibleSocialUser(u, uid, targetGender);
+          if (!eligible) {
+            console.log(`[SocialDiscover] User ${u.uid} (${u.social?.nickname}) filtered out by isEligibleSocialUser.`);
+          }
+          return eligible;
+        });
+
+      console.log(`[SocialDiscover] Total eligible users after filtering: ${allFetched.length}`);
 
       // Shuffle for variety
       const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
@@ -277,11 +289,16 @@ export default function SocialDiscoverScreen({
   const handleSendMessage = async (targetUser: UserProfile) => {
     if (isProcessing) return;
     setIsProcessing(true);
+    console.log("SocialDiscoverScreen: handleSendMessage starting", { 
+      currentUserId: currentUser?.uid, 
+      targetUserId: targetUser?.uid 
+    });
     try {
       const result = await socialService.sendMessageRequest(currentUser, targetUser);
+      console.log("SocialDiscoverScreen: sendMessageRequest result:", result);
       switch (result) {
         case 'SUCCESS':
-          toast.success("Mesaj isteğin gönderildi");
+          toast.success("İstek gönderildi");
           setSelectedUser(null);
           break;
         case 'ALREADY_CHATTING':
@@ -293,12 +310,13 @@ export default function SocialDiscoverScreen({
           setSelectedUser(null);
           break;
         default:
+          console.error("SocialDiscoverScreen: Unexpected result from sendMessageRequest:", result);
           toast.error("İstek gönderilirken bir hata oluştu.");
           setSelectedUser(null);
           break;
       }
     } catch (error) {
-      console.error(error);
+      console.error("SocialDiscoverScreen: Error in handleSendMessage:", error);
       toast.error("İstek gönderilirken bir hata oluştu.");
     } finally {
       setIsProcessing(false);

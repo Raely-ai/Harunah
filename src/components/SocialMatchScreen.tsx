@@ -26,7 +26,7 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { UserProfile } from "../types";
+import { UserProfile, normalizeUserProfile } from "../types";
 import { toast } from "sonner";
 import { calculateCompatibility } from "../lib/compatibilityEngine";
 import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
@@ -94,6 +94,8 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
         // 2. Fetch Potential Matches
         const targetGender = getTargetGender(currentUser);
+        console.log(`[SocialMatch] Fetching users for target gender: ${targetGender}. Current user gender: ${currentUser.social?.gender}`);
+        
         const usersRef = collection(db, "users");
         const matchQ = query(
           usersRef,
@@ -105,9 +107,19 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         );
 
         const snapshot = await getDocs(matchQ);
+        console.log(`[SocialMatch] Firestore returned ${snapshot.docs.length} users from query.`);
+        
         const fetchedUsers = snapshot.docs
-          .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
-          .filter(u => isEligibleSocialUser(u, uid, targetGender));
+          .map(doc => normalizeUserProfile(doc.data(), doc.id))
+          .filter(u => {
+            const eligible = isEligibleSocialUser(u, uid, targetGender);
+            if (!eligible) {
+              console.log(`[SocialMatch] User ${u.uid} (${u.social?.nickname}) filtered out by isEligibleSocialUser.`);
+            }
+            return eligible;
+          });
+
+        console.log(`[SocialMatch] Total eligible users after filtering: ${fetchedUsers.length}`);
 
         // Sort by compatibility score
         fetchedUsers.sort((a, b) => {

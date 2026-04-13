@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import { 
   createUserWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  sendEmailVerification
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
+import { toast } from "sonner";
 
 interface RegisterScreenProps {
   onNavigate: (screen: 'login' | 'welcome') => void;
@@ -34,6 +36,10 @@ export default function RegisterScreen({ onNavigate }: RegisterScreenProps) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
+      
+      // Send verification email
+      await sendEmailVerification(userCredential.user);
+      toast.success("Doğrulama bağlantısı email adresine gönderildi.");
     } catch (err: any) {
       let errorMessage = "Kayıt oluşturulamadı.";
       

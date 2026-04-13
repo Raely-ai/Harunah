@@ -24,7 +24,8 @@ import {
   orderBy, 
   getDocs, 
   deleteDoc, 
-  doc 
+  doc,
+  limit 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, CompatibilityHistory } from '../types';
@@ -47,6 +48,8 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAnalysis, setSelectedAnalysis] = useState<CompatibilityHistory | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [readyAt, setReadyAt] = useState<string | null>(null);
 
   // Mock data for background
   useEffect(() => {
@@ -106,10 +109,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       });
 
       if (result.success) {
-        toast.success("Uyum analizi tamamlandı! ✨");
-        setSelectedAnalysis(result.analysis);
-        // Refresh history
-        fetchHistory(true);
+        toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+        setPendingRequestId(result.requestId);
+        setReadyAt(result.readyAt);
+        
         // Reset form
         setPerson1({ name: '', birthDate: '', status: 'Bekar', photo: '' });
         setPerson2({ name: '', birthDate: '', status: 'Bekar', photo: '' });
@@ -121,10 +124,53 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       } else {
         toast.error(error.message || "Analiz sırasında bir hata oluştu.");
       }
-    } finally {
       setIsAnalyzing(false);
     }
   };
+
+  // Polling for pending analysis
+  useEffect(() => {
+    if (!pendingRequestId || !uid) return;
+
+    let pollCount = 0;
+    const maxPolls = 60; // 5 minutes (poll every 5s)
+    
+    const interval = setInterval(async () => {
+      pollCount++;
+      if (pollCount > maxPolls) {
+        clearInterval(interval);
+        setPendingRequestId(null);
+        setIsAnalyzing(false);
+        toast.error("Analiz zaman aşımına uğradı. Lütfen bildirimlerinizi kontrol edin.");
+        return;
+      }
+
+      try {
+        // Check if a new history item appeared for this specific request
+        const q = query(
+          collection(db, "compatibilityHistory"),
+          where("userId", "==", uid),
+          where("requestId", "==", pendingRequestId),
+          limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const latest = snap.docs[0].data() as CompatibilityHistory;
+          // Found it!
+          setHistory(prev => [latest, ...prev.filter(h => h.id !== latest.id)]);
+          setSelectedAnalysis(latest);
+          setPendingRequestId(null);
+          setIsAnalyzing(false);
+          clearInterval(interval);
+          toast.success("Uyum analiziniz hazır! ✨");
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [pendingRequestId, uid, relationshipType]);
 
   const handlePhotoUpload = (person: 1 | 2) => {
     if (person === 1) fileInput1Ref.current?.click();
@@ -410,14 +456,22 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                     className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12"
                   />
                   {isAnalyzing ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <div className="flex flex-col items-start">
+                        <span className="text-[10px] font-bold text-white leading-none">Analiz Hazırlanıyor...</span>
+                        <span className="text-[7px] font-medium text-white/70">Yıldızlar hizalanıyor (Yaklaşık 5dk)</span>
+                      </div>
+                    </div>
                   ) : (
-                    <Sparkles className="w-4 h-4" />
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span className="relative z-10">Uyumu Hesapla ({currentUser.compatibilityCount || 0})</span>
+                    </>
                   )}
-                  <span className="relative z-10">Uyumu Hesapla ({currentUser.compatibilityCount || 0})</span>
                 </motion.button>
                 <p className="text-center text-[7px] font-bold text-muted/40 mt-3 uppercase tracking-widest">
-                  ✨ Karşılaştığın için uyumunu ücretsiz görüyorsun
+                  ✨ Analiziniz hazır olduğunda bildirim alacaksınız
                 </p>
               </div>
             </div>
@@ -561,9 +615,9 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                 </button>
               </div>
 
-              <div className="px-8 pb-10 space-y-8">
+              <div className="px-8 pb-10 space-y-8 overflow-y-auto max-h-[60vh] no-scrollbar">
                 {/* Names & Title */}
-                <div className="text-center space-y-2">
+                <div className="text-center space-y-2 mt-4">
                   <motion.h3 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -575,9 +629,9 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                       : selectedAnalysis.targetName
                     }
                   </motion.h3>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 text-purple-600">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-purple-500/10 to-rose-500/10 text-purple-600 border border-purple-500/20">
                     <Sparkles className="w-3 h-3" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Frekans Analizi</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest">Premium Frekans Analizi</span>
                   </div>
                 </div>
 
@@ -586,14 +640,14 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                   {[
                     { label: 'Aşk', value: selectedAnalysis.loveScore, color: '#f43f5e', icon: Heart },
                     { label: 'Dostluk', value: selectedAnalysis.friendshipScore, color: '#3b82f6', icon: Users },
-                    { label: 'Uyum', value: selectedAnalysis.energyScore, color: '#f59e0b', icon: Sparkles }
+                    { label: 'Enerji', value: selectedAnalysis.energyScore, color: '#f59e0b', icon: Sparkles }
                   ].map((item, idx) => (
                     <div key={idx} className="flex flex-col items-center gap-3">
                       <div className="relative w-20 h-20 flex items-center justify-center">
                         {/* Glow Effect */}
                         <motion.div 
                           initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: [0.1, 0.2, 0.1], scale: [1, 1.1, 1] }}
+                          animate={{ opacity: [0.1, 0.3, 0.1], scale: [1, 1.2, 1] }}
                           transition={{ duration: 3, repeat: Infinity }}
                           className="absolute inset-0 blur-xl rounded-full"
                           style={{ backgroundColor: item.color }}
@@ -605,14 +659,14 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                             strokeDasharray="213.6"
                             initial={{ strokeDashoffset: 213.6 }}
                             animate={{ strokeDashoffset: 213.6 - (213.6 * item.value) / 100 }}
-                            transition={{ duration: 2, ease: "easeOut", delay: 0.5 + idx * 0.2 }}
+                            transition={{ duration: 2.5, ease: "circOut", delay: 0.8 + idx * 0.3 }}
                             strokeLinecap="round"
                           />
                         </svg>
                         <motion.div 
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: 1.5 }}
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 2 + idx * 0.3 }}
                           className="absolute inset-0 flex flex-col items-center justify-center z-20"
                         >
                           <span className="text-sm font-black text-heading">%{item.value}</span>
@@ -627,7 +681,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 1.8 }}
+                  transition={{ delay: 2.5 }}
                   className="relative space-y-4 bg-slate-50 p-6 rounded-[2.5rem] border border-black/5 overflow-hidden"
                 >
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 via-rose-500 to-amber-500 opacity-30" />
@@ -636,13 +690,14 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                       <Sparkles className="w-5 h-5 text-purple-500/40" />
                     </div>
                     <p className="text-sm font-black text-heading leading-tight italic">"{selectedAnalysis.summaryShort}"</p>
-                    <p className="text-[11px] text-body leading-relaxed opacity-70 font-medium">{selectedAnalysis.summaryLong}</p>
+                    <div className="h-px w-12 bg-black/5 mx-auto" />
+                    <p className="text-[11px] text-body leading-relaxed opacity-80 font-medium whitespace-pre-wrap">{selectedAnalysis.summaryLong}</p>
                   </div>
                 </motion.div>
 
                 <button 
                   onClick={() => setSelectedAnalysis(null)}
-                  className="w-full py-5 bg-heading text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] active:scale-[0.98] transition-transform shadow-xl"
+                  className="w-full py-5 bg-heading text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] active:scale-[0.98] transition-transform shadow-xl shadow-black/10"
                 >
                   Kapat
                 </button>

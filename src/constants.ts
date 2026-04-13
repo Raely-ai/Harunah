@@ -93,5 +93,6 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     daily: { priceTRY: 19.99, dailyLimit: 10, description: "Günlük" },
     weekly: { priceTRY: 59.99, dailyLimit: 10, description: "Haftalık" },
     monthly: { priceTRY: 149.99, dailyLimit: 10, description: "Aylık" }
-  }
+  },
+  manualCompatibilityPrompt: "Sen uzman bir ilişki danışmanı ve astroloğusun. {person1_name} ({person1_birthDate}, {person1_status}) ve {person2_name} ({person2_birthDate}, {person2_status}) arasındaki {relationshipType} uyumunu analiz et. Yıldız haritalarını, numerolojiyi ve enerji frekanslarını kullanarak derinlemesine bir yorum yap. \n\nKurallar:\n1. Kesinlikle fotoğraflardan bahsetme (fotoğrafları görmüyorsun).\n2. Yorumun mistik, etkileyici ve profesyonel olsun.\n3. Toplam 3-4 paragraf olsun.\n4. Sonuçta mutlaka bir tavsiye ver.\n5. Yanıtın sadece analiz metni olsun."
 };

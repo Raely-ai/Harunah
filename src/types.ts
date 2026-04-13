@@ -34,6 +34,7 @@ export interface FortuneReading {
   priorityMode?: boolean;
   updatedAt?: string;
   createdAt?: string;
+  isSeenByUser?: boolean;
   
   // AI Metadata
   promptSource?: 'admin' | 'default';
@@ -116,6 +117,7 @@ export interface CompatibilityHistory {
   energyScore: number;
   summaryShort: string;
   summaryLong: string;
+  aiComment?: string;
   createdAt: string;
   cacheKey: string;
   person1?: {
@@ -225,7 +227,29 @@ export interface UserProfile {
     discoverRefreshCredits?: number;
     lastFreeRefreshAt?: string;
     recentDiscoverIds?: string[];
+    blockedUserIds?: string[];
+    mutedUserIds?: string[];
   };
+
+  // Notification & FCM
+  fcmToken?: string;
+  notificationSettings?: {
+    messages: boolean;
+    likes: boolean;
+    superLikes: boolean;
+    fortunes: boolean;
+    compatibility: boolean;
+    rewards: boolean;
+    broadcasts: boolean;
+    reminders: boolean;
+    system: boolean;
+  };
+  
+  // Reminder Timestamps
+  lastFreeDiscoverReminderAt?: string;
+  lastDailyEnergyReminderAt?: string;
+  lastCompatibilityRewardReminderAt?: string;
+  lastAdRewardReminderAt?: string;
 
   zodiacSign?: string;
   element?: string;
@@ -298,13 +322,17 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
       enabled: data.socialEnabled || false,
       profileCompleted: data.socialProfileCompleted || false,
       nickname: data.nickname || data.displayName || "Gezgin",
-      gender: (data.gender as any) || 'erkek',
+      gender: (data.gender as any) || (data.social?.gender as any) || 'erkek',
       lookingFor: data.lookingFor || 'arkadaş',
       bio: data.bio || '',
       photos: data.photos || [],
       interests: data.interests || [],
       visible: data.socialVisible !== undefined ? data.socialVisible : true,
       banned: data.socialBan || false,
+      lastFreeRefreshAt: data.social?.lastFreeRefreshAt || "",
+      recentDiscoverIds: data.social?.recentDiscoverIds || [],
+      blockedUserIds: data.social?.blockedUserIds || [],
+      mutedUserIds: data.social?.mutedUserIds || [],
       settings: {
         whoCanMessage: 'everyone',
         whoCanAddFriend: 'everyone',
@@ -315,6 +343,23 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
           gifts: true
         }
       }
+    };
+  } else if (!profile.social.gender) {
+    // Ensure gender exists even if social object was partially present
+    profile.social.gender = (data.gender as any) || (data.social?.gender as any) || 'erkek';
+  }
+
+  if (!profile.notificationSettings) {
+    profile.notificationSettings = {
+      messages: true,
+      likes: true,
+      superLikes: true,
+      fortunes: true,
+      compatibility: true,
+      rewards: true,
+      broadcasts: true,
+      reminders: true,
+      system: true
     };
   }
 
@@ -463,6 +508,7 @@ export interface EconomyConfig {
     weekly: { priceTRY: number; dailyLimit: number; description: string };
     monthly: { priceTRY: number; dailyLimit: number; description: string };
   };
+  manualCompatibilityPrompt?: string;
 }
 
 export interface FortuneAIConfig {
@@ -677,6 +723,23 @@ export interface CompatibilityResult {
   logicScore: number;
   dominantType?: 'love' | 'friendship' | 'balanced';
   comment?: string;
+}
+
+export interface CompatibilityRequest {
+  id: string;
+  userId: string;
+  person1: any;
+  person2: any;
+  relationshipType: string;
+  status: 'pending' | 'completed' | 'error';
+  createdAt: string;
+  readyAt: string;
+  loveScore?: number;
+  friendshipScore?: number;
+  energyScore?: number;
+  summaryShort?: string;
+  summaryLong?: string;
+  aiComment?: string;
 }
 
 export interface Transaction {

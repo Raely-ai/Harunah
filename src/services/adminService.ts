@@ -233,6 +233,17 @@ export const adminService = {
       console.error(`[ADMIN SERVICE] Error adjusting wallet for ${targetUserId}:`, error);
       handleFirestoreError(error, OperationType.UPDATE, `users/${targetUserId}/wallet`);
     }
+  },
+
+  async broadcastNotification(data: { title: string, body: string, screen?: string, data?: any }): Promise<any> {
+    try {
+      const result = await callFunction('adminBroadcastNotification', data);
+      toast.success("Bildirim yayını başlatıldı.");
+      return result;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "admin/broadcast");
+      throw error;
+    }
   }
 };
 

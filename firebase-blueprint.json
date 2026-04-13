@@ -34,7 +34,9 @@
             "visible": { "type": "boolean" },
             "banned": { "type": "boolean" },
             "lastDiscoverRefreshAt": { "type": "string", "format": "date-time" },
-            "lastFreeRefreshAt": { "type": "string", "format": "date-time" }
+            "lastFreeRefreshAt": { "type": "string", "format": "date-time" },
+            "blockedUserIds": { "type": "array", "items": { "type": "string" } },
+            "mutedUserIds": { "type": "array", "items": { "type": "string" } }
           }
         },
         "subscription": {
@@ -313,6 +315,22 @@
         "cacheKey": { "type": "string" }
       },
       "required": ["id", "userId", "targetUserId", "relationshipType", "createdAt", "cacheKey"]
+    },
+    "CompatibilityRequest": {
+      "title": "Compatibility Request",
+      "description": "Stores pending compatibility analysis requests for delayed processing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "person1": { "type": "object" },
+        "person2": { "type": "object" },
+        "relationshipType": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "error"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "readyAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "status", "createdAt", "readyAt"]
     }
   },
   "firestore": {
@@ -375,6 +393,10 @@
     "/compatibilityHistory/{id}": {
       "schema": "CompatibilityHistory",
       "description": "History of compatibility analyses"
+    },
+    "/compatibilityRequests/{id}": {
+      "schema": "CompatibilityRequest",
+      "description": "Pending compatibility analysis requests"
     }
   }
 }

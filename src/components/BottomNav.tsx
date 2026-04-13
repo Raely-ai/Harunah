@@ -8,6 +8,7 @@ import {
   Users
 } from "lucide-react";
 import { AppTab } from "../types";
+import { useBadges } from "../lib/BadgeContext";
 
 interface BottomNavProps {
   activeTab: AppTab;
@@ -17,10 +18,12 @@ interface BottomNavProps {
 }
 
 export default function BottomNav({ activeTab, onTabChange, className = "", userRole }: BottomNavProps) {
+  const { unreadMessagesCount, unseenReadingsCount } = useBadges();
+
   const tabs = [
     { id: 'home' as AppTab, icon: Users, label: 'Sosyal' },
-    { id: 'fortunes' as AppTab, icon: Coffee, label: 'Fallar' },
-    { id: 'messages' as AppTab, icon: MessageCircle, label: 'Mesajlar' },
+    { id: 'fortunes' as AppTab, icon: Coffee, label: 'Fallar', badge: unseenReadingsCount },
+    { id: 'messages' as AppTab, icon: MessageCircle, label: 'Mesajlar', badge: unreadMessagesCount },
     { id: 'profile' as AppTab, icon: User, label: 'Profil' },
     { id: 'wallet' as AppTab, icon: Wallet, label: 'Cüzdan' },
   ];
@@ -36,6 +39,7 @@ export default function BottomNav({ activeTab, onTabChange, className = "", user
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
+            const badgeCount = tab.badge || 0;
             
             return (
               <button
@@ -51,14 +55,27 @@ export default function BottomNav({ activeTab, onTabChange, className = "", user
                   />
                 )}
                 <div className="relative z-10 flex flex-col items-center">
-                  <Icon 
-                    className={`w-5 h-5 mb-0.5 transition-all duration-300 ${
-                      isActive 
-                        ? "text-amber-600 scale-110" 
-                        : "text-gray-400 group-hover:text-gray-600"
-                    }`} 
-                    strokeWidth={isActive ? 2.5 : 2}
-                  />
+                  <div className="relative">
+                    <Icon 
+                      className={`w-5 h-5 mb-0.5 transition-all duration-300 ${
+                        isActive 
+                          ? "text-amber-600 scale-110" 
+                          : "text-gray-400 group-hover:text-gray-600"
+                      }`} 
+                      strokeWidth={isActive ? 2.5 : 2}
+                    />
+                    {badgeCount > 0 && (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-1 bg-red-500 rounded-full flex items-center justify-center border border-white shadow-sm"
+                      >
+                        <span className="text-[8px] font-bold text-white leading-none">
+                          {badgeCount > 99 ? '99+' : badgeCount}
+                        </span>
+                      </motion.div>
+                    )}
+                  </div>
                   <span className={`text-[9px] font-bold uppercase tracking-wider transition-all duration-300 ${
                     isActive ? "text-amber-700 opacity-100" : "text-gray-400 opacity-80"
                   }`}>

@@ -16,9 +16,10 @@ import {
   arrayUnion
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, auth, storage, handleFirestoreError, OperationType } from "./firebase";
+import { db, auth, storage, functions, handleFirestoreError, OperationType } from "./firebase";
 import { UserProfile, InteractionRequest, SocialActionResult, Message } from "../types";
 import { walletService } from "./walletService";
+import { httpsCallable } from "firebase/functions";
 
 export const socialService = {
   // 1. Create or Get Chat
@@ -152,6 +153,10 @@ export const socialService = {
     }
 
     try {
+      // 0. Check Block
+      const blocked = await this.isBlocked(fromUser.uid, toUserId);
+      if (blocked) return 'TECHNICAL_ERROR';
+
       if (type === 'super_like') {
         const consumed = await walletService.consumeSocialFeature(fromUser.uid, 'superLike');
         if (!consumed) return 'TECHNICAL_ERROR'; // Or a custom 'NOT_ENOUGH_CREDITS' if I had one
@@ -260,6 +265,27 @@ export const socialService = {
     }
   },
 
+  // 2.1 Check Block Status
+  async isBlocked(userAId: string, userBId: string): Promise<boolean> {
+    try {
+      const [userASnap, userBSnap] = await Promise.all([
+        getDoc(doc(db, "users", userAId)),
+        getDoc(doc(db, "users", userBId))
+      ]);
+
+      const userA = userASnap.data() as UserProfile;
+      const userB = userBSnap.data() as UserProfile;
+
+      return !!(
+        userA?.social?.blockedUserIds?.includes(userBId) || 
+        userB?.social?.blockedUserIds?.includes(userAId)
+      );
+    } catch (error) {
+      console.error("Error checking block status:", error);
+      return false;
+    }
+  },
+
   // 3. Send Message Request (Discover Module)
   async sendMessageRequest(fromUser: UserProfile, toUser: UserProfile): Promise<SocialActionResult> {
     const currentUid = auth.currentUser?.uid;
@@ -278,7 +304,6 @@ export const socialService = {
     }
     
     // CRITICAL: Use auth.currentUser.uid as the ONLY source of truth for the sender ID
-    // If it's missing, we MUST fail because Firestore rules will reject it anyway.
     if (!currentUid) {
       console.error("socialService: sendMessageRequest TECHNICAL_ERROR (auth.currentUser.uid is missing)");
       return 'TECHNICAL_ERROR';
@@ -292,6 +317,14 @@ export const socialService = {
     }
 
     try {
+      // 0. Check Block
+      console.log("socialService: Checking block status...");
+      const blocked = await this.isBlocked(fromUserId, toUser.uid);
+      if (blocked) {
+        console.warn("socialService: sendMessageRequest BLOCKED");
+        return 'TECHNICAL_ERROR';
+      }
+
       // 1. Check if chat already exists (Deterministic Chat ID)
       const chatId = `chat_${[fromUserId, toUser.uid].sort().join('_')}`;
       console.log("socialService: Checking chat existence:", chatId);
@@ -300,9 +333,7 @@ export const socialService = {
       try {
         chatSnap = await getDoc(doc(db, "chats", chatId));
       } catch (err) {
-        console.error("socialService: Error checking chat existence (likely permission denied on non-existent doc):", err);
-        // If we can't read it, we assume it doesn't exist or we don't have permission.
-        // But with the new rules, this should not happen.
+        console.error("socialService: Error checking chat existence:", err);
       }
 
       if (chatSnap?.exists()) {
@@ -322,90 +353,69 @@ export const socialService = {
         console.error("socialService: Error checking request existence:", err);
       }
       
-      // Backward Compatibility: Check for legacy request with random ID
-      // ONLY if deterministic one doesn't exist AND we didn't have a permission error
-      if (!requestSnap?.exists()) {
-        console.log("socialService: Request not found by ID, checking legacy query...");
-        try {
-          const q = query(
-            collection(db, "interactionRequests"),
-            where("fromUserId", "==", fromUserId),
-            where("toUserId", "==", toUser.uid),
-            limit(1)
-          );
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            console.log("socialService: Legacy request found:", snap.docs[0].id);
-            requestRef = doc(db, "interactionRequests", snap.docs[0].id);
-            requestSnap = snap.docs[0];
-          }
-        } catch (queryErr) {
-          console.warn("socialService: Legacy query failed (likely missing index):", queryErr);
-          // If query fails, we just proceed with the deterministic ID.
-        }
-      }
-
       if (requestSnap?.exists()) {
         const existingData = requestSnap.data();
-        console.log("socialService: Existing request data:", existingData);
+        console.log("socialService: Existing request data found:", existingData);
         if (existingData.status === 'pending') {
           console.log("socialService: Request already pending.");
           return 'ALREADY_REQUESTED';
         }
         if (existingData.status === 'accepted') {
-          console.log("socialService: Request already accepted (chat should exist).");
+          console.log("socialService: Request already accepted.");
           return 'ALREADY_CHATTING';
         }
-        // If rejected, we allow resubmitting (overwriting the existing doc)
       }
 
-      // 3. Create request with deterministic ID or update legacy one
+      // 3. Create request with deterministic ID
       console.log("socialService: Committing request batch...");
       const batch = writeBatch(db);
       
       const requestData = {
-        id: requestRef.id,
+        id: requestId,
         fromUserId: fromUserId,
         toUserId: toUser.uid,
         status: "pending",
         type: "message_request",
-        createdAt: (requestSnap?.exists() && requestSnap.data().createdAt) ? requestSnap.data().createdAt : serverTimestamp(),
+        message: "", // Satisfy rule checks
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         senderSnapshot: {
-          nickname: fromUser.social?.nickname || fromUser.displayName || "İsimsiz",
-          photoURL: fromUser.social?.photos?.[0] || fromUser.photoURL || ""
+          nickname: fromUser?.social?.nickname || fromUser?.displayName || "İsimsiz",
+          photoURL: fromUser?.social?.photos?.[0] || fromUser?.photoURL || ""
         },
         receiverSnapshot: {
-          nickname: toUser.social?.nickname || toUser.displayName || "İsimsiz",
-          photoURL: toUser.social?.photos?.[0] || toUser.photoURL || ""
+          nickname: toUser?.social?.nickname || toUser?.displayName || "İsimsiz",
+          photoURL: toUser?.social?.photos?.[0] || toUser?.photoURL || ""
         }
       };
       
-      batch.set(requestRef, requestData, { merge: true });
+      console.log("socialService: Request data to be set:", requestData);
+      batch.set(requestRef, requestData);
 
       // 4. Create notification
       const notifRef = doc(collection(db, "notifications"));
-      batch.set(notifRef, {
+      const notifData = {
         userId: toUser.uid,
         type: "message_request",
         title: "Yeni Mesaj İsteği",
-        message: `${fromUser.social?.nickname || fromUser.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
+        message: `${fromUser?.social?.nickname || fromUser?.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
         data: { fromUserId: fromUserId },
         read: false,
         createdAt: serverTimestamp()
-      });
+      };
+      console.log("socialService: Notification data to be set:", notifData);
+      batch.set(notifRef, notifData);
 
       await batch.commit();
       console.log("socialService: Request batch committed successfully.");
       return 'SUCCESS';
     } catch (error) {
       console.error("socialService: CRITICAL ERROR in sendMessageRequest:", error);
-      // Log more details if it's a Firebase error
       if (error && typeof error === 'object' && 'code' in error) {
         console.error("socialService: Firebase Error Code:", (error as any).code);
         console.error("socialService: Firebase Error Message:", (error as any).message);
       }
-      return 'TECHNICAL_ERROR';
+      throw error; // Throwing here so handleSendMessage catch block can log it
     }
   },
 
@@ -544,6 +554,12 @@ export const socialService = {
   // --- Advanced Messaging Features ---
 
   async sendMessage(chatId: string, senderId: string, otherUserId: string, content: { text?: string, mediaUrl?: string, mediaType?: 'image' | 'video' }) {
+    // Check block status
+    const blocked = await this.isBlocked(senderId, otherUserId);
+    if (blocked) {
+      throw new Error("Bu kullanıcıyla artık iletişim kuramazsın.");
+    }
+
     const batch = writeBatch(db);
     const msgRef = doc(collection(db, "messages"));
     
@@ -604,6 +620,7 @@ export const socialService = {
     const q = query(
       collection(db, "messages"),
       where("chatId", "==", chatId),
+      where("participants", "array-contains", currentUserId),
       where("senderId", "==", otherUserId),
       where("status", "!=", "seen"),
       limit(50)
@@ -642,6 +659,7 @@ export const socialService = {
     const q = query(
       collection(db, "messages"),
       where("chatId", "==", chatId),
+      where("participants", "array-contains", currentUserId),
       where("senderId", "==", otherUserId),
       where("status", "==", "sent"),
       limit(50)
@@ -687,5 +705,26 @@ export const socialService = {
     await updateDoc(doc(db, "chats", chatId), {
       [`typing.${userId}`]: isTyping
     });
+  },
+
+  // --- Privacy & Moderation ---
+  async blockUser(targetUid: string) {
+    const func = httpsCallable(functions, 'blockUser');
+    return await func({ targetUid });
+  },
+
+  async unblockUser(targetUid: string) {
+    const func = httpsCallable(functions, 'unblockUser');
+    return await func({ targetUid });
+  },
+
+  async muteUser(targetUid: string) {
+    const func = httpsCallable(functions, 'muteUser');
+    return await func({ targetUid });
+  },
+
+  async unmuteUser(targetUid: string) {
+    const func = httpsCallable(functions, 'unmuteUser');
+    return await func({ targetUid });
   }
 };

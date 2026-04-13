@@ -14,6 +14,7 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import LoginScreen from "./components/LoginScreen";
 import RegisterScreen from "./components/RegisterScreen";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
+import EmailVerificationScreen from "./components/EmailVerificationScreen";
 import HomeScreen from "./components/HomeScreen";
 import BottomNav from "./components/BottomNav";
 import FortuneFlow from "./components/FortuneFlow";
@@ -37,13 +38,17 @@ import { DEFAULT_ECONOMY_CONFIG } from "./constants";
 import { socialService } from "./lib/socialService";
 import { walletService } from "./lib/walletService";
 import { isSocialProfileReady } from "./lib/socialUtils";
+import { notificationService } from "./services/notificationService";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { BadgeProvider } from "./lib/BadgeContext";
 
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <BadgeProvider>
+        <AppContent />
+      </BadgeProvider>
     </ErrorBoundary>
   );
 }
@@ -68,6 +73,21 @@ function AppContent() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
+
+  // Auto-reset quota exceeded after 1 minute to allow probing
+  useEffect(() => {
+    if (!quotaExceeded) return;
+    
+    toast.error("Bağlantı Kısıtlı", {
+      description: "Yıldızlar şu an çok meşgul, bazı özellikler geçici olarak kısıtlanmış olabilir. Lütfen daha sonra tekrar deneyin.",
+      duration: 5000
+    });
+
+    const timer = setTimeout(() => {
+      setQuotaExceeded(false);
+    }, 60000); // 1 minute
+    return () => clearTimeout(timer);
+  }, [quotaExceeded]);
   
   // Presence Management
   useEffect(() => {
@@ -94,6 +114,21 @@ function AppContent() {
     };
   }, [user?.uid]);
 
+  // Notification Service Setup
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Request permission and save token
+    notificationService.requestPermission(user.uid);
+    
+    // Setup foreground listener
+    notificationService.setupOnMessageListener();
+
+    return () => {
+      // No cleanup needed for foreground listener as it's global
+    };
+  }, [user?.uid]);
+
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
   // Admin Preview Mode
@@ -111,73 +146,46 @@ function AppContent() {
     }
   }, [isAdmin, user?.uid]);
 
-  // Fetch Global Config (One-time fetch with fallback and cache)
+  // Unified Startup Data Fetch (Config & Economy)
   useEffect(() => {
-    const fetchConfig = async () => {
-      // Check Cache First
-      const cached = cacheManager.get<AppConfig>("appConfig");
-      if (cached) {
-        setAppConfig(cached);
-        return;
-      }
+    if (quotaExceeded) return;
 
-      try {
-        const configRef = doc(db, "config", "global");
-        const snapshot = await getDoc(configRef);
-        
-        if (snapshot.exists()) {
-          const data = snapshot.data() as AppConfig;
-          setAppConfig(data);
-          cacheManager.set("appConfig", data, 3600); // Cache for 1 hour
-        } else {
-          const fallback = {
-            prices: DEFAULT_ECONOMY_CONFIG.fortunePricing,
-            icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '🔢', yildizname: '✨', havas: '📜', mainBalance: '🪙', adBalance: '⚡' },
-            dailyMessagePrompt: "Günün mesajını oluştur. Yanıtı şu JSON formatında ver: { \"text\": \"mesaj içeriği\", \"category\": \"love|career|general\" }",
-            adRewardEnergy: 5,
-            maxDailyAds: 5,
-            subscriptionLimits: { coffee: 10, tarot: 10, advanced: 10, totalDaily: 10 },
-            packagePrices: { "100_coins": 49.99, "500_coins": 199.99, "daily_sub": 19.99, "weekly_sub": 59.99, "monthly_sub": 149.99 }
-          };
-          setAppConfig(fallback);
-          cacheManager.set("appConfig", fallback, 3600);
+    const fetchStartupData = async () => {
+      // 1. App Config
+      let currentConfig = cacheManager.get<AppConfig>("appConfig");
+      if (!currentConfig) {
+        try {
+          const snapshot = await getDoc(doc(db, "config", "global"));
+          if (snapshot.exists()) {
+            currentConfig = snapshot.data() as AppConfig;
+            cacheManager.set("appConfig", currentConfig, 3600);
+          }
+        } catch (err: any) {
+          if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
         }
-      } catch (err: any) {
-        if (err.message?.includes("quota")) setQuotaExceeded(true);
-        console.error("Config fetch error:", err);
+      }
+      if (currentConfig) setAppConfig(currentConfig);
+
+      // 2. Economy Config (Only if user is logged in)
+      if (user && !economyConfig) {
+        let currentEconomy = cacheManager.get<EconomyConfig>("economyConfig");
+        if (!currentEconomy) {
+          try {
+            const snapshot = await getDoc(doc(db, "adminSettings", "economy"));
+            if (snapshot.exists()) {
+              currentEconomy = snapshot.data() as EconomyConfig;
+              cacheManager.set("economyConfig", currentEconomy, 1800);
+            }
+          } catch (err: any) {
+            if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+          }
+        }
+        setEconomyConfig(currentEconomy || DEFAULT_ECONOMY_CONFIG);
       }
     };
-    fetchConfig();
-  }, []);
 
-  // Fetch Economy Config (Lazy load with cache)
-  useEffect(() => {
-    if (!user || economyConfig) return;
-    
-    const fetchEconomy = async () => {
-      const cached = cacheManager.get<EconomyConfig>("economyConfig");
-      if (cached) {
-        setEconomyConfig(cached);
-        return;
-      }
-
-      try {
-        const economyRef = doc(db, "adminSettings", "economy");
-        const snapshot = await getDoc(economyRef);
-        if (snapshot.exists()) {
-          const data = snapshot.data() as EconomyConfig;
-          setEconomyConfig(data);
-          cacheManager.set("economyConfig", data, 1800); // Cache for 30 mins
-        } else {
-          setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
-        }
-      } catch (err: any) {
-        if (err.message?.includes("quota")) setQuotaExceeded(true);
-        setEconomyConfig(DEFAULT_ECONOMY_CONFIG);
-      }
-    };
-    fetchEconomy();
-  }, [user]);
+    fetchStartupData();
+  }, [user, quotaExceeded]);
 
   // Listen for global notifications
   // REMOVED: Global notification listener is too expensive. 
@@ -193,10 +201,12 @@ function AppContent() {
     { type: 'havas', content: "Merhaba {isim}, ilmi havas ile gizli enerjilere bakıyorum. {cinsiyet} olarak hayatındaki {iliskidurumu} durumunu ve {isdurumu} hayatını inceliyorum. Doğum tarihin {dogumtarihi}. Ekstra bilgi: {ekbilgi}. Lütfen bu derin ilme göre hayatını detaylıca yorumla." },
   ]);
   
-    // Real Profile Sync
+    // Real Profile Sync (Unified and Quota-Aware)
     useEffect(() => {
-      if (!user) {
-        setUserProfile(null);
+      if (!user || quotaExceeded) {
+        if (!user) {
+          setUserProfile(null);
+        }
         setIsProfileLoading(false);
         return;
       }
@@ -204,86 +214,88 @@ function AppContent() {
       setIsProfileLoading(true);
       const userRef = doc(db, "users", user.uid);
 
+      // Use a single onSnapshot for real-time profile updates
       const unsubscribe = onSnapshot(userRef, async (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
-          let profile = normalizeUserProfile(data, snapshot.id);
-          
-          if (profile.isBanned) {
-            setUserProfile(profile);
-            setIsProfileLoading(false);
-            return;
-          }
-
+          const profile = normalizeUserProfile(data, snapshot.id);
           setUserProfile(profile);
           setIsProfileLoading(false);
         } else {
-          // Document doesn't exist, create it
-          console.log("Creating initial profile for new user:", user.uid);
-          const initialProfile: UserProfile = {
-            uid: user.uid,
-            email: user.email || "",
-            displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-            photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
-            dailyAdReadingsUsed: {
-              coffee: 0,
-              tarot: 0,
-              lastResetDate: new Date().toISOString().split('T')[0]
-            },
-            createdAt: new Date().toISOString(),
-            isBanned: false,
-            role: 'user',
-            mainCoins: 0,
-            energy: 0,
-            superLikes: 0,
-            refreshCount: 0,
-            compatibilityCount: 0,
-            dailyAdWatchCount: 0,
-            lastAdReset: new Date().toISOString(),
-            social: {
-              enabled: false,
-              profileCompleted: false,
-              nickname: user.displayName || "Gezgin",
-              gender: 'erkek' as const,
-              lookingFor: 'arkadaş',
-              bio: '',
-              photos: [] as string[],
-              interests: [] as string[],
-              visible: true,
-              banned: false,
-              settings: {
-                whoCanMessage: 'everyone' as const,
-                whoCanAddFriend: 'everyone' as const,
-                notifications: {
-                  messages: true,
-                  friendRequests: true,
-                  roomInvites: true,
-                  gifts: true
-                }
-              }
-            },
-            subscription: {
-              status: 'none',
-              type: 'none',
-              dailyLimitUsed: 0,
-              dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
-            }
-          };
+          // Document doesn't exist, create it (Only once)
           try {
+            const initialProfile: UserProfile = {
+              uid: user.uid,
+              email: user.email || "",
+              displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
+              photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
+              dailyAdReadingsUsed: {
+                coffee: 0,
+                tarot: 0,
+                lastResetDate: new Date().toISOString().split('T')[0]
+              },
+              createdAt: new Date().toISOString(),
+              isBanned: false,
+              role: 'user',
+              mainCoins: 0,
+              energy: 0,
+              superLikes: 0,
+              refreshCount: 0,
+              compatibilityCount: 0,
+              dailyAdWatchCount: 0,
+              lastAdReset: new Date().toISOString(),
+              notificationSettings: {
+                messages: true,
+                likes: true,
+                superLikes: true,
+                fortunes: true,
+                compatibility: true,
+                rewards: true,
+                broadcasts: true,
+                reminders: true,
+                system: true
+              },
+              social: {
+                enabled: false,
+                profileCompleted: false,
+                nickname: user.displayName || "Gezgin",
+                gender: 'erkek' as const,
+                lookingFor: 'arkadaş',
+                bio: '',
+                photos: [] as string[],
+                interests: [] as string[],
+                visible: true,
+                banned: false,
+                settings: {
+                  whoCanMessage: 'everyone' as const,
+                  whoCanAddFriend: 'everyone' as const,
+                  notifications: {
+                    messages: true,
+                    friendRequests: true,
+                    roomInvites: true,
+                    gifts: true
+                  }
+                }
+              },
+              subscription: {
+                status: 'none',
+                type: 'none',
+                dailyLimitUsed: 0,
+                dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
+              }
+            };
             await setDoc(userRef, initialProfile);
           } catch (setErr: any) {
-            if (setErr.message?.includes("quota")) setQuotaExceeded(true);
-            console.error("Error creating initial profile:", setErr);
+            if (setErr.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
           }
         }
       }, (err: any) => {
-        if (err.message?.includes("quota")) setQuotaExceeded(true);
-        console.error("Profile sync error:", err);
+        if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
         setIsProfileLoading(false);
       });
 
       return () => unsubscribe();
-    }, [user]);
+    }, [user, quotaExceeded]);
 
   // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
@@ -324,7 +336,7 @@ function AppContent() {
       // Cache for 5 minutes
       cacheManager.set(`userHistory_${user.uid}`, fetchedHistory, 300);
     } catch (err: any) {
-      if (err.message?.includes("quota")) setQuotaExceeded(true);
+      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
       handleFirestoreError(err, OperationType.LIST, "readings");
     } finally {
       setIsHistoryLoading(false);
@@ -332,12 +344,12 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!user) return;
-    // Fetch once on mount or when tab changes to history/fortunes
-    if (activeTab === 'fortunes' || activeTab === 'history' || activeTab === 'home') {
+    if (!user || quotaExceeded) return;
+    // Fetch only when tab changes to history/fortunes
+    if (activeTab === 'fortunes' || activeTab === 'history') {
       fetchHistory();
     }
-  }, [user, activeTab]);
+  }, [user, activeTab, quotaExceeded]);
 
   const loadMoreHistory = async () => {
     if (!user || !lastHistoryDoc || !hasMoreHistory) return;
@@ -361,7 +373,7 @@ function AppContent() {
       setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
       setHasMoreHistory(snapshot.docs.length === 20);
     } catch (err: any) {
-      if (err.message?.includes("quota")) setQuotaExceeded(true);
+      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
       console.error("Load more history error:", err);
     }
   };
@@ -467,7 +479,7 @@ function AppContent() {
   const isSyncingRef = useRef(false);
 
   const syncReadings = async () => {
-    if (!user || !userProfile || isSyncingRef.current || history.length === 0) return;
+    if (!user || !userProfile || isSyncingRef.current || history.length === 0 || quotaExceeded) return;
     isSyncingRef.current = true;
 
     try {
@@ -518,7 +530,8 @@ function AppContent() {
                 updatedAt: now.toISOString()
               });
             }
-          } catch (err) {
+          } catch (err: any) {
+            if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
             console.error("Sync: Failed to update status to completed", err);
           }
         }
@@ -531,15 +544,15 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (!user || !userProfile) return;
+    if (!user || !userProfile || quotaExceeded) return;
     
     syncReadings();
     const interval = setInterval(syncReadings, 60000); // Every 60 seconds (optimized from 30)
     return () => clearInterval(interval);
-  }, [user, userProfile, history]);
+  }, [user, userProfile, history, quotaExceeded]);
 
   const handleFortuneComplete = async (data: any) => {
-    if (!user || !userProfile || !appConfig || isSubmitting) return;
+    if (!user || !userProfile || !appConfig || isSubmitting || quotaExceeded) return;
 
     setIsSubmitting(true);
     const loadingToast = toast.loading("Falınız hazırlanıyor...", {
@@ -599,6 +612,7 @@ function AppContent() {
   };
 
   const handlePriorityInterpretation = async (id: string) => {
+    if (quotaExceeded) return;
     const loadingToast = toast.loading("Öncelikli yorum talebiniz işleniyor...");
     
     try {
@@ -652,28 +666,6 @@ function AppContent() {
 
   const activeProfile = previewUser || userProfile;
 
-  if (quotaExceeded) {
-    return (
-      <div className="min-h-screen bg-[#FDFCFE] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border border-black/5">
-          <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <AlertCircle className="w-10 h-10 text-amber-500" />
-          </div>
-          <h1 className="text-2xl font-bold text-heading mb-4">Sistem Yoğun</h1>
-          <p className="text-body mb-8">
-            Şu an çok fazla istek alıyoruz. Yıldızlar biraz dinleniyor, lütfen kısa bir süre sonra tekrar deneyin. ✨
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full py-4 bg-primary text-white rounded-2xl font-semibold hover:opacity-90 transition-all active:scale-95"
-          >
-            Tekrar Dene
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Show loading while checking auth or fetching profile for logged in user
   if (loading || (user && isProfileLoading && !activeProfile)) {
     return (
@@ -714,6 +706,12 @@ function AppContent() {
         )}
       </AnimatePresence>
     );
+  }
+
+  // Email Verification Check
+  const isEmailUser = user.providerData.some(p => p.providerId === 'password');
+  if (isEmailUser && !user.emailVerified) {
+    return <EmailVerificationScreen />;
   }
 
   if (activeProfile?.isBanned) {

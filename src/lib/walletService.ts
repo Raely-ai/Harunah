@@ -189,11 +189,11 @@ export const walletService = {
     return await callFunction('refreshDiscoverFeed');
   },
 
-  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis: any; cached: boolean }> {
+  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; readyAt?: string }> {
     return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
   },
   
-  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; analysis: any }> {
+  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; readyAt: string }> {
     return await callFunction('runManualCompatibilityAnalysis', data);
   },
 

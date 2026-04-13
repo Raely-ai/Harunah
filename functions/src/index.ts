@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
@@ -10,6 +11,7 @@ admin.initializeApp({
 });
 
 const db = getFirestore("ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
+const messaging = getMessaging();
 
 // Define OpenAI Secret
 const openAiKey = defineSecret("OPENAI_API_KEY");
@@ -24,6 +26,79 @@ function getOpenAI() {
     _openai = new OpenAI({ apiKey: key });
   }
   return _openai;
+}
+
+/**
+ * NOTIFICATION HELPERS
+ */
+
+async function sendPushToUser(userId: string, payload: { title: string, body: string, data?: Record<string, string>, category?: string, senderId?: string }) {
+  try {
+    const userSnap = await db.collection("users").doc(userId).get();
+    if (!userSnap.exists) return;
+    const userData = userSnap.data() as any;
+    const fcmToken = userData.fcmToken;
+
+    // Check if sender is muted
+    const mutedUserIds = userData.social?.mutedUserIds || [];
+    if (payload.senderId && mutedUserIds.includes(payload.senderId)) {
+      console.log(`User ${userId} has muted sender ${payload.senderId}. Skipping push.`);
+      return;
+    }
+
+    const settings = userData.notificationSettings || {
+      messages: true,
+      likes: true,
+      superLikes: true,
+      fortunes: true,
+      compatibility: true,
+      rewards: true,
+      broadcasts: true,
+      reminders: true,
+      system: true
+    };
+
+    if (!fcmToken) return;
+
+    // Check preference based on category
+    if (payload.category && settings[payload.category] === false) {
+      console.log(`User ${userId} has disabled ${payload.category} notifications.`);
+      return;
+    }
+
+    const message = {
+      token: fcmToken,
+      notification: {
+        title: payload.title,
+        body: payload.body,
+      },
+      data: payload.data || {},
+      android: {
+        priority: 'high' as const,
+        notification: {
+          sound: 'default',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          }
+        }
+      }
+    };
+
+    await messaging.send(message);
+    console.log(`Push sent to user ${userId}`);
+  } catch (error: any) {
+    console.error(`Error sending push to user ${userId}:`, error);
+    if (error.code === 'messaging/registration-token-not-registered' || error.code === 'messaging/invalid-registration-token') {
+      console.log(`Cleaning up invalid token for user ${userId}`);
+      await db.collection("users").doc(userId).update({ fcmToken: FieldValue.delete() });
+    }
+  }
 }
 
 /**
@@ -204,7 +279,8 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
         expectedReaderFoundAt: expectedReaderFoundAt.toISOString(),
         interpretationStartedAt: interpretationStartedAt.toISOString(),
         expectedCompletedAt: expectedCompletedAt.toISOString(),
-        title: type === 'coffee' ? 'Kahve Falı' : type === 'tarot' ? 'Tarot Açılımı' : type.charAt(0).toUpperCase() + type.slice(1)
+        title: type === 'coffee' ? 'Kahve Falı' : type === 'tarot' ? 'Tarot Açılımı' : type.charAt(0).toUpperCase() + type.slice(1),
+        isSeenByUser: false
       };
 
       transaction.set(readingRef, readingData);
@@ -527,7 +603,7 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
     const reading = doc.data();
     await doc.ref.update({ status: 'found', updatedAt: now });
     
-    // Notify
+    // Notify In-App
     await db.collection("notifications").add({
       userId: reading.userId,
       type: 'system',
@@ -536,6 +612,14 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
       read: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       data: { readingId: doc.id }
+    });
+
+    // Notify Push
+    await sendPushToUser(reading.userId, {
+      title: 'Yorumcu Bulundu!',
+      body: `${reading.title} için yorumcunuz hazır, yorumlanmaya başlanıyor.`,
+      data: { screen: 'fortune_detail', readingId: doc.id },
+      category: 'fortunes'
     });
   }
 
@@ -550,7 +634,7 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
     const reading = doc.data();
     await doc.ref.update({ status: 'interpreting', updatedAt: now });
     
-    // Notify
+    // Notify In-App
     await db.collection("notifications").add({
       userId: reading.userId,
       type: 'system',
@@ -559,6 +643,14 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
       read: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       data: { readingId: doc.id }
+    });
+
+    // Notify Push
+    await sendPushToUser(reading.userId, {
+      title: 'Falınız Yorumlanıyor',
+      body: `${reading.title} yorumunuz LASYA tarafından hazırlanıyor.`,
+      data: { screen: 'fortune_detail', readingId: doc.id },
+      category: 'fortunes'
     });
   }
 
@@ -581,19 +673,321 @@ export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes'
           updatedAt: now 
         });
         
-        // Notify
+        // Notify In-App
         await db.collection("notifications").add({
-        userId: reading.userId,
+          userId: reading.userId,
+          type: 'system',
+          title: 'Falınız Hazır!',
+          message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          data: { readingId: doc.id }
+        });
+
+        // Notify Push
+        await sendPushToUser(reading.userId, {
+          title: 'Falınız Hazır!',
+          body: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
+          data: { screen: 'fortune_detail', readingId: doc.id },
+          category: 'fortunes'
+        });
+      }
+    }
+
+  return null;
+});
+
+/**
+ * COMPATIBILITY REQUESTS PROCESSOR
+ */
+
+export const processCompatibilityRequests = functions.pubsub.schedule('every 2 minutes').onRun(async (context) => {
+  const now = new Date().toISOString();
+  
+  const pendingRequests = await db.collection("compatibilityRequests")
+    .where("status", "==", "pending")
+    .where("readyAt", "<=", now)
+    .limit(20)
+    .get();
+
+  if (pendingRequests.empty) return null;
+
+  const economySnap = await db.collection("adminSettings").doc("economy").get();
+  const economy = economySnap.exists ? economySnap.data() as any : {};
+  const customPrompt = economy.manualCompatibilityPrompt || "Analyze compatibility between {person1_name} and {person2_name}. Relationship type: {relationshipType}.";
+  const openai = getOpenAI();
+
+  for (const requestDoc of pendingRequests.docs) {
+    const request = requestDoc.data();
+    const { userId, person1, person2, relationshipType, source, targetUserId, cacheKey } = request;
+
+    try {
+      // Prepare Placeholders
+      const placeholders: Record<string, string> = {
+        person1_name: person1.name,
+        person1_birthDate: person1.birthDate || "Bilinmiyor",
+        person1_status: person1.status || "Bilinmiyor",
+        person2_name: person2.name,
+        person2_birthDate: person2.birthDate || "Bilinmiyor",
+        person2_status: person2.status || "Bilinmiyor",
+        relationshipType: relationshipType
+      };
+
+      let finalPrompt = customPrompt;
+      Object.entries(placeholders).forEach(([key, value]) => {
+        const regex = new RegExp(`{${key}}`, 'g');
+        finalPrompt = finalPrompt.replace(regex, value);
+      });
+
+      // Call OpenAI
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Sen uzman bir ilişki danışmanı ve astroloğusun. Yorumunu mistik ve etkileyici bir dille yap." },
+          { role: "user", content: finalPrompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 1000
+      });
+
+      const aiComment = response.choices[0].message.content || "";
+      
+      // Generate Analysis Scores
+      const loveScore = Math.floor(Math.random() * 31) + 65; // 65-95
+      const friendshipScore = Math.floor(Math.random() * 31) + 65;
+      const energyScore = Math.floor(Math.random() * 31) + 65;
+      
+      const summaryShort = `${person1.name} ve ${person2.name} arasındaki uyum yıldızlar tarafından destekleniyor.`;
+      
+      const analysisData = {
+        userId,
+        source: source || 'manual',
+        targetUserId: targetUserId || null,
+        person1,
+        person2,
+        targetName: person2.name,
+        targetPhoto: person2.photo,
+        relationshipType,
+        loveScore,
+        friendshipScore,
+        energyScore,
+        summaryShort,
+        summaryLong: aiComment,
+        aiComment,
+        createdAt: new Date().toISOString(),
+        cacheKey: cacheKey || null
+      };
+      
+      const batch = db.batch();
+      
+      // Update request status
+      batch.update(requestDoc.ref, { status: 'completed', updatedAt: now });
+      
+      // Add to history
+      const historyRef = db.collection("compatibilityHistory").doc();
+      batch.set(historyRef, { 
+        id: historyRef.id, 
+        requestId: requestDoc.id,
+        ...analysisData 
+      });
+      
+      // Notify user In-App
+      const notifRef = db.collection("notifications").doc();
+      batch.set(notifRef, {
+        userId,
         type: 'system',
-        title: 'Falınız Hazır!',
-        message: `${reading.title} yorumunuz tamamlandı. Hemen inceleyin!`,
+        title: 'Uyum Analiziniz Hazır!',
+        message: `${person1.name} ve ${person2.name} arasındaki analiz tamamlandı.`,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        data: { readingId: doc.id }
+        data: { screen: 'compatibility_history' }
       });
+
+      await batch.commit();
+
+      // Notify Push
+      await sendPushToUser(userId, {
+        title: 'Uyum Analiziniz Hazır!',
+        body: `${person1.name} ve ${person2.name} arasındaki analiz tamamlandı.`,
+        data: { screen: 'compatibility_history' },
+        category: 'compatibility'
+      });
+
+    } catch (error) {
+      console.error(`Error processing compatibility request ${requestDoc.id}:`, error);
+      await requestDoc.ref.update({ status: 'error', error: String(error), updatedAt: now });
+    }
+  }
+  return null;
+});
+
+/**
+ * NOTIFICATION TRIGGERS
+ */
+
+// 1. Message Trigger
+export const onMessageCreate = functions.firestore
+  .document('messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    if (message.senderId === 'system') return;
+
+    const receiverId = message.receiverId;
+    if (!receiverId) return;
+
+    await sendPushToUser(receiverId, {
+      title: 'Yeni Mesaj!',
+      body: message.text || 'Bir medya gönderildi.',
+      data: { screen: 'chat', chatId: message.chatId },
+      category: 'messages',
+      senderId: message.senderId
+    });
+  });
+
+// 2. Swipe Trigger (Like / Super Like)
+export const onSwipeCreate = functions.firestore
+  .document('swipes/{swipeId}')
+  .onCreate(async (snap, context) => {
+    const swipe = snap.data();
+    if (swipe.type === 'pass') return;
+
+    const fromUserId = swipe.fromUserId;
+    const toUserId = swipe.toUserId;
+
+    const fromUserSnap = await db.collection("users").doc(fromUserId).get();
+    const fromUserName = fromUserSnap.exists ? (fromUserSnap.data()?.social?.nickname || fromUserSnap.data()?.displayName || 'Biri') : 'Biri';
+
+    const title = swipe.type === 'super_like' ? 'Yeni Süper Like!' : 'Yeni Beğeni!';
+    const body = `${fromUserName} seni beğendi! ❤️`;
+
+    await sendPushToUser(toUserId, {
+      title,
+      body,
+      data: { screen: 'likers', fromUserId },
+      category: 'likes',
+      senderId: fromUserId
+    });
+  });
+
+// 3. Interaction Request Trigger
+export const onInteractionRequestCreate = functions.firestore
+  .document('interactionRequests/{requestId}')
+  .onCreate(async (snap, context) => {
+    const request = snap.data();
+    if (request.status !== 'pending') return;
+
+    const fromUserId = request.fromUserId;
+    const toUserId = request.toUserId;
+    const fromUserName = request.senderSnapshot?.nickname || 'Biri';
+
+    await sendPushToUser(toUserId, {
+      title: 'Yeni Mesaj İsteği',
+      body: `${fromUserName} sana bir mesaj isteği gönderdi.`,
+      data: { screen: 'requests', fromUserId },
+      category: 'messages',
+      senderId: fromUserId
+    });
+  });
+
+// 4. User Update Trigger (Verification)
+export const onUserUpdate = functions.firestore
+  .document('users/{userId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    // Verification Status Change
+    if (before.isVerified !== after.isVerified) {
+      const title = after.isVerified ? 'Hesabınız Doğrulandı!' : 'Doğrulama Durumu Güncellendi';
+      const body = after.isVerified 
+        ? 'Tebrikler! Hesabınız başarıyla doğrulandı. Artık tüm özelliklere erişebilirsiniz.' 
+        : 'Hesabınızın doğrulama durumu değişti. Lütfen profilinizi kontrol edin.';
+
+      await sendPushToUser(context.params.userId, {
+        title,
+        body,
+        data: { screen: 'profile' },
+        category: 'system'
+      });
+    }
+  });
+
+/**
+ * ADMIN NOTIFICATION FUNCTIONS
+ */
+
+export const adminBroadcastNotification = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  // Check if admin
+  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+  if (adminSnap.data()?.role !== 'admin') {
+    throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const { title, body, screen, data: extraData } = data;
+  if (!title || !body) throw new functions.https.HttpsError('invalid-argument', 'Başlık ve mesaj zorunludur.');
+
+  // Fetch all users with FCM tokens
+  // Note: In a real app with millions of users, this should be a background task with batching
+  const usersSnap = await db.collection("users").where("fcmToken", "!=", null).get();
+  
+  console.log(`Broadcasting to ${usersSnap.size} users...`);
+
+  const results = {
+    successCount: 0,
+    failureCount: 0
+  };
+
+  // Batch send (FCM supports up to 500 per call, but we'll use our helper for simplicity/token cleanup)
+  for (const userDoc of usersSnap.docs) {
+    try {
+      await sendPushToUser(userDoc.id, {
+        title,
+        body,
+        data: { ...extraData, screen: screen || 'home' },
+        category: 'system'
+      });
+      results.successCount++;
+    } catch (err) {
+      results.failureCount++;
     }
   }
 
+  return { success: true, results };
+});
+
+/**
+ * RETENTION REMINDERS (Scheduled)
+ */
+
+export const checkDailyReminders = functions.pubsub.schedule('every 4 hours').onRun(async (context) => {
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  
+  // 1. Daily Energy Reminder
+  const energyUsers = await db.collection("users")
+    .where("energy", "<", 50)
+    .limit(100)
+    .get();
+
+  for (const userDoc of energyUsers.docs) {
+    const user = userDoc.data();
+    const lastReminder = user.lastDailyEnergyReminderAt || "";
+    if (lastReminder !== today) {
+      await sendPushToUser(userDoc.id, {
+        title: 'Enerjin Doldu!',
+        body: 'Günlük ücretsiz enerjin seni bekliyor. Hemen gel ve falına baktır! ✨',
+        data: { screen: 'wallet' },
+        category: 'reminders'
+      });
+      await userDoc.ref.update({ lastDailyEnergyReminderAt: today });
+    }
+  }
+
+  // 2. Free Reading Reminder
+  // (Logic for checking if 24h passed since last free reading)
+  
   return null;
 });
 
@@ -1914,7 +2308,7 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
   }
 });
 
-// 18. Run Discover Compatibility Analysis
+// 18. Run Discover Compatibility Analysis (Delayed Processing)
 export const runDiscoverCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
@@ -1956,69 +2350,58 @@ export const runDiscoverCompatibilityAnalysis = functions.https.onCall(async (da
       
       transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
       
-      // Generate Analysis Scores
-      const loveScore = Math.floor(Math.random() * 31) + 65; // 65-95
-      const friendshipScore = Math.floor(Math.random() * 31) + 65;
-      const energyScore = Math.floor(Math.random() * 31) + 65;
-      
-      // Relationship type labels
-      const relLabels: any = {
-        ask: "Aşk",
-        arkadas: "Arkadaşlık",
-        flirt: "Flört",
-        platonik: "Platonik",
-        gorucu_usulu: "Görücü Usulü",
-        eski_sevgili: "Eski Sevgili",
-        karsiliksiz_sevgi: "Karşılıksız Sevgi",
-        evlilik_adayi: "Evlilik Adayı"
-      };
+      const now = new Date();
+      const readyAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes later
 
-      const relLabel = relLabels[relationshipType] || relationshipType;
-
-      // Simple AI-like summaries (In a real app, call OpenAI here)
-      const summaryShort = `Yıldız haritalarınız ${relLabel} bağlamında oldukça güçlü bir çekim sergiliyor.`;
-      const summaryLong = `Sizin enerjileriniz birbirini tamamlayan nadir bir yapıda. ${relLabel} uyumunuzda özellikle duygusal derinlik ve karşılıklı anlayış ön plana çıkıyor. Yıldızlarınızın konumu, aranızdaki iletişimin akıcı ve samimi olacağını işaret ediyor. Bu bağ, her iki taraf için de öğretici ve besleyici bir deneyim vaat ediyor.`;
-      
-      const analysisData = {
+      const requestRef = db.collection("compatibilityRequests").doc();
+      const requestData = {
+        id: requestRef.id,
         userId,
         source: 'discover',
         targetUserId,
-        targetName: targetData.social?.nickname || targetData.displayName || "Gezgin",
-        targetPhoto: targetData.social?.photos?.[0] || targetData.photoURL || "",
         relationshipType,
-        loveScore,
-        friendshipScore,
-        energyScore,
-        summaryShort,
-        summaryLong,
-        createdAt: new Date().toISOString(),
-        cacheKey
+        status: 'pending',
+        createdAt: now.toISOString(),
+        readyAt: readyAt.toISOString(),
+        cacheKey,
+        // Pre-fetch names/photos for the processor
+        person1: {
+          name: userData.social?.nickname || userData.displayName || "Sen",
+          photo: userData.social?.photos?.[0] || userData.photoURL || "",
+          birthDate: userData.social?.birthDate || "",
+          status: userData.social?.relationshipStatus || "Bilinmiyor"
+        },
+        person2: {
+          name: targetData.social?.nickname || targetData.displayName || "Gezgin",
+          photo: targetData.social?.photos?.[0] || targetData.photoURL || "",
+          birthDate: targetData.social?.birthDate || "",
+          status: targetData.social?.relationshipStatus || "Bilinmiyor"
+        }
       };
-      
-      const newHistoryRef = db.collection("compatibilityHistory").doc();
-      transaction.set(newHistoryRef, { id: newHistoryRef.id, ...analysisData });
+
+      transaction.set(requestRef, requestData);
       
       const logRef = db.collection("usageLogs").doc();
       transaction.set(logRef, {
         id: logRef.id,
         userId,
         type: 'social_feature',
-        feature: 'compatibility_analysis',
+        feature: 'compatibility_analysis_request',
         targetUserId,
         relationshipType,
-        createdAt: new Date().toISOString()
+        createdAt: now.toISOString()
       });
       
-      return { success: true, analysis: analysisData, cached: false };
+      return { success: true, requestId: requestRef.id, readyAt: readyAt.toISOString(), cached: false };
     });
   } catch (error: any) {
     console.error("runDiscoverCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Analiz yapılırken hata oluştu.');
+    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
   }
 });
 
-// 19. Run Manual Compatibility Analysis
+// 19. Run Manual Compatibility Analysis (Delayed Processing)
 export const runManualCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
@@ -2028,7 +2411,6 @@ export const runManualCompatibilityAnalysis = functions.https.onCall(async (data
     throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
   }
 
-  // Validate required fields for both persons
   const validatePerson = (p: any) => p.name && p.birthDate && p.status && p.photo;
   if (!validatePerson(person1) || !validatePerson(person2)) {
     throw new functions.https.HttpsError('invalid-argument', 'Tüm alanlar zorunludur.');
@@ -2051,63 +2433,112 @@ export const runManualCompatibilityAnalysis = functions.https.onCall(async (data
       
       transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
       
-      // Generate Analysis Scores
-      const loveScore = Math.floor(Math.random() * 31) + 65; // 65-95
-      const friendshipScore = Math.floor(Math.random() * 31) + 65;
-      const energyScore = Math.floor(Math.random() * 31) + 65;
-      
-      // Relationship type labels
-      const relLabels: any = {
-        ask: "Aşk",
-        arkadas: "Arkadaş",
-        flirt: "Flört",
-        platonik: "Platonik",
-        gorucu_usulu: "Görücü Usulü",
-        eski_sevgili: "Eski Sevgili",
-        karsiliksiz_sevgi: "Karşılıksız Sevgi",
-        evlilik_adayi: "Evlilik Adayı"
-      };
+      const now = new Date();
+      const readyAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes later
 
-      const relLabel = relLabels[relationshipType] || relationshipType;
-
-      // Simple AI-like summaries
-      const summaryShort = `${person1.name} ve ${person2.name} arasındaki ${relLabel} uyumu yıldızlar tarafından destekleniyor.`;
-      const summaryLong = `${person1.name} ve ${person2.name} enerjileri birbirini tamamlayan nadir bir yapıda. ${relLabel} bağlamında özellikle duygusal derinlik ve karşılıklı anlayış ön plana çıkıyor. Yıldızlarınızın konumu, aranızdaki iletişimin akıcı ve samimi olacağını işaret ediyor. Bu bağ, her iki taraf için de öğretici ve besleyici bir deneyim vaat ediyor.`;
-      
-      const analysisData = {
+      const requestRef = db.collection("compatibilityRequests").doc();
+      const requestData = {
+        id: requestRef.id,
         userId,
-        source: 'manual',
         person1,
         person2,
-        targetName: person2.name, // For compatibility with history list
-        targetPhoto: person2.photo, // For compatibility with history list
         relationshipType,
-        loveScore,
-        friendshipScore,
-        energyScore,
-        summaryShort,
-        summaryLong,
-        createdAt: new Date().toISOString()
+        status: 'pending',
+        createdAt: now.toISOString(),
+        readyAt: readyAt.toISOString()
       };
-      
-      const newHistoryRef = db.collection("compatibilityHistory").doc();
-      transaction.set(newHistoryRef, { id: newHistoryRef.id, ...analysisData });
+
+      transaction.set(requestRef, requestData);
       
       const logRef = db.collection("usageLogs").doc();
       transaction.set(logRef, {
         id: logRef.id,
         userId,
         type: 'social_feature',
-        feature: 'manual_compatibility_analysis',
+        feature: 'manual_compatibility_analysis_request',
         relationshipType,
-        createdAt: new Date().toISOString()
+        createdAt: now.toISOString()
       });
       
-      return { success: true, analysis: analysisData };
+      return { success: true, requestId: requestRef.id, readyAt: readyAt.toISOString() };
     });
   } catch (error: any) {
     console.error("runManualCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Analiz yapılırken hata oluştu.');
+    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
+  }
+});
+
+/**
+ * PRIVACY & MODERATION FUNCTIONS (Block/Mute)
+ */
+
+export const blockUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const { targetUid } = data;
+  if (!targetUid) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+  if (targetUid === context.auth.uid) throw new functions.https.HttpsError('invalid-argument', 'Kendinizi engelleyemezsiniz.');
+
+  const userRef = db.collection("users").doc(context.auth.uid);
+  
+  try {
+    await userRef.update({
+      "social.blockedUserIds": admin.firestore.FieldValue.arrayUnion(targetUid)
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new functions.https.HttpsError('internal', 'Engelleme işlemi başarısız oldu.');
+  }
+});
+
+export const unblockUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const { targetUid } = data;
+  if (!targetUid) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+
+  const userRef = db.collection("users").doc(context.auth.uid);
+  
+  try {
+    await userRef.update({
+      "social.blockedUserIds": admin.firestore.FieldValue.arrayRemove(targetUid)
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new functions.https.HttpsError('internal', 'Engel kaldırma işlemi başarısız oldu.');
+  }
+});
+
+export const muteUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const { targetUid } = data;
+  if (!targetUid) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+  if (targetUid === context.auth.uid) throw new functions.https.HttpsError('invalid-argument', 'Kendinizi susturamazsınız.');
+
+  const userRef = db.collection("users").doc(context.auth.uid);
+  
+  try {
+    await userRef.update({
+      "social.mutedUserIds": admin.firestore.FieldValue.arrayUnion(targetUid)
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new functions.https.HttpsError('internal', 'Susturma işlemi başarısız oldu.');
+  }
+});
+
+export const unmuteUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const { targetUid } = data;
+  if (!targetUid) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+
+  const userRef = db.collection("users").doc(context.auth.uid);
+  
+  try {
+    await userRef.update({
+      "social.mutedUserIds": admin.firestore.FieldValue.arrayRemove(targetUid)
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new functions.https.HttpsError('internal', 'Susturma kaldırma işlemi başarısız oldu.');
   }
 });
