@@ -755,10 +755,13 @@ export interface Transaction {
 export type SocialActionResult = 
   | 'SUCCESS' 
   | 'ALREADY_REQUESTED' 
+  | 'ALREADY_LIKED'
   | 'ALREADY_CHATTING' 
   | 'SELF_ACTION' 
   | 'INVALID_TARGET' 
+  | 'TARGET_NOT_FOUND'
   | 'BLOCKED'
+  | 'NOTIFICATION_FAILED'
   | 'TECHNICAL_ERROR';
 
 export type RefreshActionResult = 

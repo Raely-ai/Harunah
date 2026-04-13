@@ -1,6 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
@@ -845,19 +845,24 @@ export const onMessageCreate = functions.firestore
   });
 
 // 2. Swipe Trigger (Like / Super Like)
-export const onSwipeCreate = functions.firestore
+export const onSwipeWrite = functions.firestore
   .document('swipes/{swipeId}')
-  .onCreate(async (snap, context) => {
-    const swipe = snap.data();
-    if (swipe.type === 'pass') return;
+  .onWrite(async (change, context) => {
+    const after = change.after.data();
+    const before = change.before.data();
 
-    const fromUserId = swipe.fromUserId;
-    const toUserId = swipe.toUserId;
+    if (!after || after.type === 'pass') return;
+
+    // Only send push if it's a new swipe or type changed to like/super_like
+    if (before && before.type === after.type) return;
+
+    const fromUserId = after.fromUserId;
+    const toUserId = after.toUserId;
 
     const fromUserSnap = await db.collection("users").doc(fromUserId).get();
     const fromUserName = fromUserSnap.exists ? (fromUserSnap.data()?.social?.nickname || fromUserSnap.data()?.displayName || 'Biri') : 'Biri';
 
-    const title = swipe.type === 'super_like' ? 'Yeni Süper Like!' : 'Yeni Beğeni!';
+    const title = after.type === 'super_like' ? 'Yeni Süper Like!' : 'Yeni Beğeni!';
     const body = `${fromUserName} seni beğendi! ❤️`;
 
     await sendPushToUser(toUserId, {
@@ -2433,7 +2438,12 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
     const targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
     const recentIds = userData.social?.recentDiscoverIds || [];
 
-    console.log(`[refreshDiscoverFeed] User gender: ${gender}, Target: ${targetGender}`);
+    // 1.1 Fetch Swipes to exclude
+    const swipesSnap = await db.collection("swipes").where("fromUserId", "==", userId).get();
+    const swipedUserIds = swipesSnap.docs.map(d => d.data().toUserId);
+    const exclusionList = new Set([userId, ...recentIds, ...swipedUserIds]);
+
+    console.log(`[refreshDiscoverFeed] User gender: ${gender}, Target: ${targetGender}, Swiped count: ${swipedUserIds.length}`);
 
     // 2. Query for potential users (outside transaction)
     let usersQuery = db.collection("users")
@@ -2474,13 +2484,14 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
 
       // Filter users
       let availableUsers = usersSnap.docs
-        .filter(doc => doc.id !== userId && !recentIds.includes(doc.id))
+        .filter(doc => !exclusionList.has(doc.id))
         .map(doc => ({ id: doc.id, ...doc.data() }));
         
       if (availableUsers.length < 10) {
-        // If too few, allow some recent ones but still exclude self
+        // If too few, allow some recent ones but still exclude self and swiped
+        const absoluteExclusion = new Set([userId, ...swipedUserIds]);
         availableUsers = usersSnap.docs
-          .filter(doc => doc.id !== userId)
+          .filter(doc => !absoluteExclusion.has(doc.id))
           .map(doc => ({ id: doc.id, ...doc.data() }));
       }
       
@@ -2750,16 +2761,37 @@ export const unmuteUser = functions.https.onCall(async (data, context) => {
 // 20. Send Message Request (Secure Backend)
 // 19. Send Like (Secure)
 export const sendLike = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  console.log("[sendLike] Function invoked");
   
-  const fromUserId = context.auth.uid;
-  const { targetUserId, type } = data; // type: 'like' | 'super_like' | 'pass'
-
-  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-  if (fromUserId === targetUserId) return { status: 'SELF_ACTION' };
-
   try {
-    return await db.runTransaction(async (transaction) => {
+    // 1. Auth Check
+    if (!context.auth) {
+      console.error("[sendLike] Unauthenticated call");
+      throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    }
+    
+    const fromUserId = context.auth.uid;
+    const { targetUserId, type } = data || {};
+
+    console.log(`[sendLike] PARAMS - from: ${fromUserId}, to: ${targetUserId}, type: ${type}`);
+
+    // 2. Input Validation
+    if (!targetUserId || typeof targetUserId !== 'string') {
+      console.warn("[sendLike] Invalid targetUserId:", targetUserId);
+      return { status: 'TARGET_NOT_FOUND' };
+    }
+    if (!['like', 'super_like', 'pass'].includes(type)) {
+      console.warn("[sendLike] Invalid type:", type);
+      return { status: 'TECHNICAL_ERROR', message: 'Geçersiz işlem tipi.' };
+    }
+    if (fromUserId === targetUserId) {
+      console.warn("[sendLike] Self action detected");
+      return { status: 'SELF_ACTION' };
+    }
+
+    // 3. Transaction
+    const result = await db.runTransaction(async (transaction) => {
+      console.log("[sendLike] Transaction started");
       const fromUserRef = db.collection("users").doc(fromUserId);
       const toUserRef = db.collection("users").doc(targetUserId);
       
@@ -2768,25 +2800,41 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         transaction.get(toUserRef)
       ]);
 
-      if (!fromUserSnap.exists || !toUserSnap.exists) {
-        throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      if (!fromUserSnap.exists) {
+        console.error(`[sendLike] From user ${fromUserId} not found`);
+        return { status: 'TECHNICAL_ERROR', message: 'Gönderen kullanıcı bulunamadı.' };
+      }
+      if (!toUserSnap.exists) {
+        console.warn(`[sendLike] Target user ${targetUserId} not found`);
+        return { status: 'TARGET_NOT_FOUND' };
       }
 
-      const fromUserData = fromUserSnap.data() as any;
-      const toUserData = toUserSnap.data() as any;
+      const fromUserData = fromUserSnap.data() || {};
+      const toUserData = toUserSnap.data() || {};
 
       // Block check
-      const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
-                        (toUserData.social?.blockedUserIds || []).includes(fromUserId);
-      if (isBlocked) return { status: 'BLOCKED' };
+      const fromBlocked = (fromUserData.social?.blockedUserIds || []);
+      const toBlocked = (toUserData.social?.blockedUserIds || []);
+      
+      if (fromBlocked.includes(targetUserId) || toBlocked.includes(fromUserId)) {
+        console.warn(`[sendLike] Action blocked between ${fromUserId} and ${targetUserId}`);
+        return { status: 'BLOCKED' };
+      }
 
       const swipeId = `swipe_${fromUserId}_${targetUserId}`;
       const swipeRef = db.collection("swipes").doc(swipeId);
       const swipeSnap = await transaction.get(swipeRef);
 
-      const now = FieldValue.serverTimestamp();
+      // Check if already swiped with same type (to avoid duplicates)
+      if (swipeSnap.exists && swipeSnap.data()?.type === type && type !== 'pass') {
+        console.log(`[sendLike] Already swiped with type ${type}`);
+        return { status: 'ALREADY_LIKED' };
+      }
 
-      // Record Swipe
+      const now = admin.firestore.FieldValue.serverTimestamp();
+
+      // A. Record Swipe
+      console.log("[sendLike] Setting swipe record");
       transaction.set(swipeRef, {
         id: swipeId,
         fromUserId,
@@ -2796,8 +2844,11 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         updatedAt: now
       }, { merge: true });
 
-      if (type !== 'pass') {
-        // Create notification
+      // B. Handle Like / Super Like
+      if (type === 'like' || type === 'super_like') {
+        console.log(`[sendLike] Processing ${type} notifications`);
+        
+        // Create in-app notification
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
           userId: targetUserId,
@@ -2815,6 +2866,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
         // If super_like, also create an interaction request
         if (type === 'super_like') {
+          console.log("[sendLike] Creating interaction request for super_like");
           const requestId = `request_${fromUserId}_${targetUserId}`;
           const requestRef = db.collection("interactionRequests").doc(requestId);
           transaction.set(requestRef, {
@@ -2833,11 +2885,26 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         }
       }
 
+      console.log("[sendLike] Transaction callback finished");
       return { status: 'SUCCESS' };
     });
+
+    console.log("[sendLike] Transaction committed successfully");
+    return result;
+
   } catch (error: any) {
-    console.error("sendLike error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    console.error("[sendLike] FATAL ERROR:", error);
+    
+    // If it's already an HttpsError, rethrow it
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+
+    // Otherwise return a technical error status
+    return { 
+      status: 'TECHNICAL_ERROR', 
+      message: error.message || 'Bilinmeyen bir hata oluştu.' 
+    };
   }
 });
 

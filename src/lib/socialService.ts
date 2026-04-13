@@ -163,6 +163,21 @@ export const socialService = {
   },
 
   // 2.1 Check Block Status
+  async getSwipedUserIds(userId: string): Promise<string[]> {
+    try {
+      const q = query(
+        collection(db, "swipes"),
+        where("fromUserId", "==", userId)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(d => d.data().toUserId);
+    } catch (error) {
+      console.error("socialService: Error fetching swiped IDs:", error);
+      return [];
+    }
+  },
+
+  // 2.2 Check Block Status
   async isBlocked(userAId: string, userBId: string): Promise<boolean> {
     try {
       const [userASnap, userBSnap] = await Promise.all([

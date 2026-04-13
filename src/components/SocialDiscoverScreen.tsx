@@ -125,6 +125,7 @@ export default function SocialDiscoverScreen({
   const [internalRefreshTimer, setInternalRefreshTimer] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>([]);
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set());
 
   const refreshTimer = externalRefreshTimer || internalRefreshTimer;
 
@@ -141,6 +142,7 @@ export default function SocialDiscoverScreen({
         setFeelingEnergyUsers(cached.feelingEnergyUsers);
         setNewFrequencyUsers(cached.newFrequencyUsers);
         setCompatibilityHistory(cached.compatibilityHistory);
+        setSwipedUserIds(new Set(cached.swipedUserIds || []));
         setLoading(false);
         return;
       }
@@ -148,14 +150,17 @@ export default function SocialDiscoverScreen({
 
     setLoading(true);
     try {
-      // 1. Fetch Compatibility History
-      const histQ = query(
-        collection(db, "compatibilityHistory"),
-        where("userId", "==", uid)
-      );
-      const histSnap = await getDocs(histQ);
+      // 1. Fetch Compatibility History & Swipes
+      const [histSnap, swipedIds] = await Promise.all([
+        getDocs(query(collection(db, "compatibilityHistory"), where("userId", "==", uid))),
+        socialService.getSwipedUserIds(uid)
+      ]);
+
       const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
       setCompatibilityHistory(history);
+      
+      const swipedSet = new Set([uid, ...swipedIds]);
+      setSwipedUserIds(swipedSet);
 
       // 2. Fetch Discover Users
       const targetGender = getTargetGender(currentUser);
@@ -168,23 +173,20 @@ export default function SocialDiscoverScreen({
         where("social.profileCompleted", "==", true),
         where("social.visible", "==", true),
         where("social.gender", "==", targetGender),
-        limit(40)
+        limit(100) // Increased limit to ensure we have enough after filtering
       );
 
       const snapshot = await getDocs(discoverQ);
       console.log(`[SocialDiscover] Firestore returned ${snapshot.docs.length} users from query.`);
       
-      const allFetched = snapshot.docs
-        .map(doc => normalizeUserProfile(doc.data(), doc.id))
-        .filter(u => {
+      const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
+      const allFetched = rawUsers.filter(u => {
           const eligible = isEligibleSocialUser(u, uid, targetGender);
-          if (!eligible) {
-            console.log(`[SocialDiscover] User ${u.uid} (${u.social?.nickname}) filtered out by isEligibleSocialUser.`);
-          }
-          return eligible;
+          const isSwiped = swipedSet.has(u.uid);
+          return eligible && !isSwiped;
         });
 
-      console.log(`[SocialDiscover] Total eligible users after filtering: ${allFetched.length}`);
+      console.log(`[SocialDiscover] Summary: Total Raw: ${rawUsers.length}, Swiped/Ineligible: ${rawUsers.length - allFetched.length}, Final: ${allFetched.length}`);
 
       // Shuffle for variety
       const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
@@ -225,7 +227,8 @@ export default function SocialDiscoverScreen({
         compatibleUsers: sectionA,
         feelingEnergyUsers: sectionB,
         newFrequencyUsers: sectionC,
-        compatibilityHistory: history
+        compatibilityHistory: history,
+        swipedUserIds: Array.from(swipedSet)
       }, DISCOVER_CACHE_TTL);
 
     } catch (error) {
@@ -338,8 +341,9 @@ export default function SocialDiscoverScreen({
     try {
       const result = await walletService.refreshDiscoverFeed();
       if (result.success) {
-        // Clear cache and force re-fetch
+        // Clear both caches and force re-fetch
         cacheManager.clear(DISCOVER_CACHE_KEY);
+        cacheManager.clear("socialMatchData");
         await fetchData(true);
         
         if (result.status === 'FREE_REFRESH_USED') {

@@ -82,14 +82,8 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
       setLoading(true);
       try {
         // 1. Fetch Swipes
-        const swipesQ = query(
-          collection(db, "swipes"),
-          where("fromUserId", "==", uid)
-        );
-        const swipesSnap = await getDocs(swipesQ);
-        const firestoreIds = swipesSnap.docs.map(doc => doc.data().toUserId);
-        
-        const newSwipedIds = new Set([uid, ...firestoreIds]);
+        const swipedIds = await socialService.getSwipedUserIds(uid);
+        const newSwipedIds = new Set([uid, ...swipedIds]);
         setSwipedUserIds(newSwipedIds);
 
         // 2. Fetch Potential Matches
@@ -103,23 +97,20 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
           where("social.profileCompleted", "==", true),
           where("social.visible", "==", true),
           where("social.gender", "==", targetGender),
-          limit(40)
+          limit(100) // Increased limit
         );
 
         const snapshot = await getDocs(matchQ);
         console.log(`[SocialMatch] Firestore returned ${snapshot.docs.length} users from query.`);
         
-        const fetchedUsers = snapshot.docs
-          .map(doc => normalizeUserProfile(doc.data(), doc.id))
-          .filter(u => {
+        const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
+        const fetchedUsers = rawUsers.filter(u => {
             const eligible = isEligibleSocialUser(u, uid, targetGender);
-            if (!eligible) {
-              console.log(`[SocialMatch] User ${u.uid} (${u.social?.nickname}) filtered out by isEligibleSocialUser.`);
-            }
-            return eligible;
+            const isSwiped = newSwipedIds.has(u.uid);
+            return eligible && !isSwiped;
           });
 
-        console.log(`[SocialMatch] Total eligible users after filtering: ${fetchedUsers.length}`);
+        console.log(`[SocialMatch] Summary: Total Raw: ${rawUsers.length}, Swiped/Ineligible: ${rawUsers.length - fetchedUsers.length}, Final: ${fetchedUsers.length}`);
 
         // Sort by compatibility score
         fetchedUsers.sort((a, b) => {
@@ -171,7 +162,23 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     
     // Optimistic update local state after animation
     setTimeout(() => {
-      setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
+      setSwipedUserIds(prev => {
+        const next = new Set(prev).add(targetUser.uid);
+        
+        // Update Cache to persist swiped IDs
+        const cached = cacheManager.get<any>("socialMatchData");
+        if (cached) {
+          cacheManager.set("socialMatchData", {
+            ...cached,
+            swipedUserIds: next
+          }, 600);
+        }
+        
+        // Clear Discover cache to ensure consistency when switching tabs
+        cacheManager.clear("socialDiscoverData");
+        
+        return next;
+      });
       setExitDirection(null);
       setIsAnimating(false);
       setIsProcessing(false);
