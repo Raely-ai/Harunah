@@ -22,7 +22,8 @@ import {
   Clock,
   User,
   AlertCircle,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react";
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { 
@@ -93,16 +94,26 @@ export default function SocialMessagesScreen({
 
     let unsubscribe: () => void = () => {};
 
-    const handleFetch = async () => {
+    const handleFetch = async (force = false) => {
       if (activeTab === 'chats') {
+        if (!force) {
+          const cached = cacheManager.get<any>(CHAT_LIST_CACHE_KEY);
+          if (cached) {
+            setChats(cached);
+            return;
+          }
+        }
+
         setLoading(true);
-        const q = query(
-          collection(db, "chats"),
-          where("participants", "array-contains", currentUser.uid),
-          orderBy("lastMessageAt", "desc"),
-          limit(30)
-        );
-        unsubscribe = onSnapshot(q, async (snapshot) => {
+        try {
+          const q = query(
+            collection(db, "chats"),
+            where("participants", "array-contains", currentUser.uid),
+            orderBy("lastMessageAt", "desc"),
+            limit(30)
+          );
+          
+          const snapshot = await getDocs(q);
           const chatDocs = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
             .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
@@ -126,24 +137,39 @@ export default function SocialMessagesScreen({
 
           setChats(chatList);
           cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 300);
+        } catch (error) {
+          console.error("Error fetching chats:", error);
+        } finally {
           setLoading(false);
-        }, (error) => {
-          console.error("Error in chats snapshot:", error);
-          setLoading(false);
-        });
+        }
       } else if (activeTab === 'requests') {
-        const q = query(
-          collection(db, "interactionRequests"),
-          where("toUserId", "==", currentUser.uid),
-          where("status", "==", "pending"),
-          orderBy("createdAt", "desc"),
-          limit(20)
-        );
-        unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!force) {
+          const cached = cacheManager.get<any>(REQUESTS_CACHE_KEY);
+          if (cached) {
+            setRequests(cached);
+            return;
+          }
+        }
+
+        setLoading(true);
+        try {
+          const q = query(
+            collection(db, "interactionRequests"),
+            where("toUserId", "==", currentUser.uid),
+            where("status", "==", "pending"),
+            orderBy("createdAt", "desc"),
+            limit(20)
+          );
+          
+          const snapshot = await getDocs(q);
           const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
           setRequests(requestList);
           cacheManager.set(REQUESTS_CACHE_KEY, requestList, 300);
-        });
+        } catch (error) {
+          console.error("Error fetching requests:", error);
+        } finally {
+          setLoading(false);
+        }
       } else if (activeTab === 'likers') {
         setLoading(true);
         try {
@@ -188,7 +214,9 @@ export default function SocialMessagesScreen({
     };
 
     handleFetch();
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [activeTab, currentUser.uid]);
 
   const filteredChats = useMemo(() => {
@@ -337,9 +365,22 @@ export default function SocialMessagesScreen({
   return (
     <div className="flex flex-col h-full bg-[#F6F4F8] text-body">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-2xl border-b border-black/5 px-6 py-5 flex flex-col gap-0.5 z-10">
-        <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
-        <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em] opacity-60">Sohbetler ve İstekler</p>
+      <header className="bg-white/80 backdrop-blur-2xl border-b border-black/5 px-6 py-5 flex items-center justify-between z-10">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
+          <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em] opacity-60">Sohbetler ve İstekler</p>
+        </div>
+        <button 
+          onClick={() => {
+            cacheManager.clear(CHAT_LIST_CACHE_KEY);
+            cacheManager.clear(REQUESTS_CACHE_KEY);
+            cacheManager.clear(LIKERS_CACHE_KEY);
+            window.location.reload(); // Simple way to force re-fetch all
+          }}
+          className="p-2.5 rounded-2xl bg-black/5 text-muted hover:text-amber-600 transition-all border border-black/5"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
       </header>
 
       {/* Tabs */}
@@ -786,14 +827,19 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Listen for other user updates (online status)
+  // Fetch other user updates (online status) once on mount
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "users", chat.otherUser.uid), (snap) => {
-      if (snap.exists()) {
-        setOtherUser({ uid: snap.id, ...snap.data() } as UserProfile);
+    const fetchOtherUser = async () => {
+      try {
+        const snap = await getDoc(doc(db, "users", chat.otherUser.uid));
+        if (snap.exists()) {
+          setOtherUser({ uid: snap.id, ...snap.data() } as UserProfile);
+        }
+      } catch (error) {
+        console.error("Error fetching other user profile:", error);
       }
-    });
-    return () => unsubscribe();
+    };
+    fetchOtherUser();
   }, [chat.otherUser.uid]);
 
   // Listen for messages and handle status updates

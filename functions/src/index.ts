@@ -2701,7 +2701,7 @@ export const blockUser = functions.https.onCall(async (data, context) => {
     await userRef.update({
       "social.blockedUserIds": admin.firestore.FieldValue.arrayUnion(targetUid)
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     throw new functions.https.HttpsError('internal', 'Engelleme işlemi başarısız oldu.');
   }
@@ -2718,7 +2718,7 @@ export const unblockUser = functions.https.onCall(async (data, context) => {
     await userRef.update({
       "social.blockedUserIds": admin.firestore.FieldValue.arrayRemove(targetUid)
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     throw new functions.https.HttpsError('internal', 'Engel kaldırma işlemi başarısız oldu.');
   }
@@ -2736,7 +2736,7 @@ export const muteUser = functions.https.onCall(async (data, context) => {
     await userRef.update({
       "social.mutedUserIds": admin.firestore.FieldValue.arrayUnion(targetUid)
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     throw new functions.https.HttpsError('internal', 'Susturma işlemi başarısız oldu.');
   }
@@ -2753,7 +2753,7 @@ export const unmuteUser = functions.https.onCall(async (data, context) => {
     await userRef.update({
       "social.mutedUserIds": admin.firestore.FieldValue.arrayRemove(targetUid)
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     throw new functions.https.HttpsError('internal', 'Susturma kaldırma işlemi başarısız oldu.');
   }
@@ -2794,12 +2794,14 @@ export const sendLike = functions.https.onCall(async (data, context) => {
     
     // 3. Transaction
     const result = await db.runTransaction(async (transaction) => {
-      console.log("[sendLike] Transaction started");
+      console.log(`[sendLike] Transaction started for ${fromUserId} -> ${targetUserId}`);
       
       const [fromUserSnap, toUserSnap] = await Promise.all([
         transaction.get(fromUserRef),
         transaction.get(toUserRef)
       ]);
+
+      console.log(`[sendLike] Snaps fetched. fromExists: ${fromUserSnap.exists}, toExists: ${toUserSnap.exists}`);
 
       if (!fromUserSnap.exists) {
         console.error(`[sendLike] From user ${fromUserId} not found`);
@@ -2822,9 +2824,21 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         return { status: 'BLOCKED' };
       }
 
+      // 4. Consumption Check (if super_like)
+      if (type === 'super_like') {
+        const superLikes = fromUserData.superLikes || 0;
+        console.log(`[sendLike] Checking superLikes: ${superLikes}`);
+        if (superLikes <= 0) {
+          return { status: 'INSUFFICIENT_FUNDS', message: 'Yetersiz Süper Like hakkı.' };
+        }
+        transaction.update(fromUserRef, { superLikes: admin.firestore.FieldValue.increment(-1) });
+      }
+
       const swipeId = `swipe_${fromUserId}_${targetUserId}`;
       const swipeRef = db.collection("swipes").doc(swipeId);
       const swipeSnap = await transaction.get(swipeRef);
+
+      console.log(`[sendLike] Swipe check: exists=${swipeSnap.exists}`);
 
       // Check if already swiped with same type (to avoid duplicates)
       if (swipeSnap.exists && swipeSnap.data()?.type === type && type !== 'pass') {
@@ -2840,10 +2854,12 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         try {
           existingCreatedAt = admin.firestore.Timestamp.fromDate(new Date(existingCreatedAt));
         } catch (e) {
+          console.warn("[sendLike] Failed to parse existingCreatedAt:", existingCreatedAt);
           existingCreatedAt = now;
         }
       }
 
+      console.log(`[sendLike] Recording swipe: ${swipeId}`);
       // A. Record Swipe
       transaction.set(swipeRef, {
         id: swipeId,
@@ -2856,6 +2872,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
       // B. Handle Like / Super Like
       if (type === 'like' || type === 'super_like') {
+        console.log(`[sendLike] Creating notification for ${targetUserId}`);
         // Create in-app notification
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
@@ -2874,6 +2891,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
         // If super_like, also create an interaction request
         if (type === 'super_like') {
+          console.log(`[sendLike] Creating interactionRequest for ${targetUserId}`);
           const requestId = `request_${fromUserId}_${targetUserId}`;
           const requestRef = db.collection("interactionRequests").doc(requestId);
           transaction.set(requestRef, {
@@ -2892,6 +2910,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         }
       }
 
+      console.log("[sendLike] Transaction SUCCESS");
       return { status: 'SUCCESS' };
     });
 
@@ -2987,6 +3006,10 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
 
       // Create request
       const now = admin.firestore.FieldValue.serverTimestamp();
+      
+      // Consumption Check (if needed - currently message requests might be free or use different logic)
+      // For now, we just ensure it's secure.
+
       transaction.set(requestRef, {
         id: requestId,
         fromUserId,
@@ -3118,11 +3141,12 @@ export const acceptRequest = functions.https.onCall(async (data, context) => {
         createdAt: now
       });
 
-      return { success: true, chatId };
+      return { status: 'SUCCESS', chatId };
     });
   } catch (error: any) {
     console.error("acceptRequest error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3146,10 +3170,11 @@ export const rejectRequest = functions.https.onCall(async (data, context) => {
       status: 'rejected',
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("rejectRequest error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3223,20 +3248,25 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
         unreadMessagesCount: admin.firestore.FieldValue.increment(1)
       });
 
-      // Send Push Notification
-      await sendPushToUser(receiverId, {
-        title: senderData.social?.nickname || senderData.displayName || "Yeni Mesaj",
-        body: lastMessageText,
-        data: { screen: 'chat', chatId },
-        category: 'messages',
-        senderId
-      });
+      // Send Push Notification (Outside transaction or handled safely)
+      try {
+        await sendPushToUser(receiverId, {
+          title: senderData.social?.nickname || senderData.displayName || "Yeni Mesaj",
+          body: lastMessageText,
+          data: { screen: 'chat', chatId },
+          category: 'messages',
+          senderId
+        });
+      } catch (pushError) {
+        console.error("Push notification failed, but message was sent:", pushError);
+      }
 
-      return { success: true, messageId: msgRef.id };
+      return { status: 'SUCCESS', messageId: msgRef.id };
     });
   } catch (error: any) {
     console.error("sendMessage error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3261,7 +3291,7 @@ export const markAsSeen = functions.https.onCall(async (data, context) => {
 
     if (unreadMessages.empty) {
       await chatRef.update({ [`unreadCount.${userId}`]: 0 });
-      return { success: true };
+      return { status: 'SUCCESS' };
     }
 
     const batch = db.batch();
@@ -3285,10 +3315,11 @@ export const markAsSeen = functions.https.onCall(async (data, context) => {
     }
 
     await batch.commit();
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("markAsSeen error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3318,10 +3349,11 @@ export const markAsDelivered = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("markAsDelivered error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3337,10 +3369,11 @@ export const deleteChat = functions.https.onCall(async (data, context) => {
     await chatRef.update({
       deletedFor: admin.firestore.FieldValue.arrayUnion(userId)
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("deleteChat error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3370,10 +3403,11 @@ export const deleteMessage = functions.https.onCall(async (data, context) => {
     } else {
       await msgRef.update({ isDeleted: true });
     }
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("deleteMessage error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3396,10 +3430,11 @@ export const editMessage = functions.https.onCall(async (data, context) => {
       text: newText,
       editedAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("editMessage error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3415,10 +3450,11 @@ export const setTypingStatus = functions.https.onCall(async (data, context) => {
     await chatRef.update({
       [`typing.${userId}`]: !!isTyping
     });
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("setTypingStatus error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3434,7 +3470,7 @@ export const createChat = functions.https.onCall(async (data, context) => {
   
   try {
     const chatSnap = await chatRef.get();
-    if (chatSnap.exists) return { success: true, chatId };
+    if (chatSnap.exists) return { status: 'SUCCESS', chatId };
 
     const now = admin.firestore.FieldValue.serverTimestamp();
     await chatRef.set({
@@ -3469,10 +3505,11 @@ export const createChat = functions.https.onCall(async (data, context) => {
       type: 'system'
     });
 
-    return { success: true, chatId };
+    return { status: 'SUCCESS', chatId };
   } catch (error: any) {
     console.error("createChat error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });
 
@@ -3504,9 +3541,50 @@ export const createReport = functions.https.onCall(async (data, context) => {
       status: 'pending'
     });
 
-    return { success: true };
+    return { status: 'SUCCESS' };
   } catch (error: any) {
     console.error("createReport error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
+  }
+});
+
+// 12. Update Social Profile (Secure Backend)
+export const updateSocialProfile = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { nickname, bio, gender, zodiacSign, photos, interests, birthDate } = data;
+
+  const userRef = db.collection("users").doc(userId);
+
+  try {
+    const updates: any = {};
+    if (nickname !== undefined) {
+      if (nickname.length > 50) throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
+      updates["social.nickname"] = nickname;
+    }
+    if (bio !== undefined) {
+      if (bio.length > 500) throw new functions.https.HttpsError('invalid-argument', 'Bio çok uzun.');
+      updates["social.bio"] = bio;
+    }
+    if (gender !== undefined) updates["social.gender"] = gender;
+    if (zodiacSign !== undefined) updates["social.zodiacSign"] = zodiacSign;
+    if (photos !== undefined) {
+      if (!Array.isArray(photos) || photos.length > 6) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz fotoğraf listesi.');
+      updates["social.photos"] = photos;
+    }
+    if (interests !== undefined) updates["social.interests"] = interests;
+    if (birthDate !== undefined) updates["social.birthDate"] = birthDate;
+
+    if (Object.keys(updates).length === 0) return { success: true };
+
+    updates["updatedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    await userRef.update(updates);
+
+    return { status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("updateSocialProfile error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    return { status: 'TECHNICAL_ERROR', message: error.message };
   }
 });

@@ -163,6 +163,7 @@ export interface UserProfile {
   compatibilityCount: number;
   dailyAdWatchCount: number;
   lastAdReset: string;
+  unreadMessagesCount?: number;
 
   // Deprecated Wallet Fields (Do not use in new code)
   credits?: number;

@@ -18,28 +18,29 @@ import { toast } from "sonner";
 export const socialService = {
   // 1. Create or Get Chat
   async createChat(_userAId: string, userBId: string): Promise<string> {
-    console.log("socialService: createChat (Backend) starting", { userBId });
     try {
       const result = await callFunction('createChat', { targetUserId: userBId });
-      return result.chatId;
+      if (result.status === 'SUCCESS') return result.chatId;
+      throw new Error(result.message || "Sohbet oluşturulamadı.");
     } catch (error: any) {
-      console.error("socialService: Error in createChat (Backend):", error);
+      console.error("socialService: Error in createChat:", error);
       throw error;
     }
   },
 
   // 2. Send Like (Encounter Module)
   async sendLike(fromUser: UserProfile, toUserId: string, type: 'like' | 'super_like' | 'pass'): Promise<SocialActionResult> {
-    console.log("socialService: sendLike (Backend) called", { fromUserId: fromUser.uid, toUserId, type });
     if (!toUserId) return 'INVALID_TARGET';
     if (fromUser.uid === toUserId) return 'SELF_ACTION';
 
     try {
       const result = await callFunction('sendLike', { targetUserId: toUserId, type });
+      if (result.status === 'INSUFFICIENT_FUNDS') {
+        toast.error("Yetersiz hak. Lütfen cüzdanınızdan hak satın alın.");
+      }
       return result.status;
     } catch (error: any) {
-      console.error("socialService: Error in sendLike (Backend):", error);
-      toast.error(error.message || "İşlem sırasında bir hata oluştu.");
+      console.error("socialService: Error in sendLike:", error);
       return 'TECHNICAL_ERROR';
     }
   },
@@ -81,13 +82,8 @@ export const socialService = {
   },
 
   // 3. Send Message Request (Discover Module)
-  async sendMessageRequest(fromUser: UserProfile, toUser: UserProfile): Promise<SocialActionResult> {
+  async sendMessageRequest(_fromUser: UserProfile, toUser: UserProfile): Promise<SocialActionResult> {
     const currentUid = auth.currentUser?.uid;
-    
-    console.log("socialService: sendMessageRequest (Backend) called", { 
-      toUserId: toUser?.uid,
-    });
-
     if (!toUser?.uid) return 'INVALID_TARGET';
     if (!currentUid) return 'TECHNICAL_ERROR';
     if (currentUid === toUser.uid) return 'SELF_ACTION';
@@ -95,31 +91,31 @@ export const socialService = {
     try {
       const result = await callFunction('sendMessageRequest', { targetUserId: toUser.uid });
       return result.status;
-    } catch (error) {
-      console.error("socialService: Error in sendMessageRequest (Backend):", error);
+    } catch (error: any) {
+      console.error("socialService: Error in sendMessageRequest:", error);
       return 'TECHNICAL_ERROR';
     }
   },
 
   // 4. Accept Request
   async acceptRequest(request: InteractionRequest) {
-    console.log("socialService: acceptRequest (Backend) starting", { requestId: request.id });
     try {
       const result = await callFunction('acceptRequest', { requestId: request.id });
-      return result.chatId;
+      if (result.status === 'SUCCESS') return result.chatId;
+      throw new Error(result.message || "İstek kabul edilemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in acceptRequest (Backend):", error);
+      console.error("socialService: Error in acceptRequest:", error);
       throw error;
     }
   },
 
   // 5. Reject Request
   async rejectRequest(requestId: string) {
-    console.log("socialService: rejectRequest (Backend) starting", { requestId });
     try {
-      await callFunction('rejectRequest', { requestId });
+      const result = await callFunction('rejectRequest', { requestId });
+      if (result.status !== 'SUCCESS') throw new Error(result.message || "İstek reddedilemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in rejectRequest (Backend):", error);
+      console.error("socialService: Error in rejectRequest:", error);
       throw error;
     }
   },
@@ -127,6 +123,7 @@ export const socialService = {
   async updateUserStatus(uid: string, isOnline: boolean) {
     if (!uid || auth.currentUser?.uid !== uid) return;
     try {
+      // isOnline and lastSeen are allowed for direct write in rules for performance
       await updateDoc(doc(db, "users", uid), {
         "social.isOnline": isOnline,
         "social.lastSeen": serverTimestamp()
@@ -138,16 +135,32 @@ export const socialService = {
 
   async updateSocialField(uid: string, field: string, value: any) {
     if (!uid) return;
-    const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
-      [`social.${field}`]: value
-    });
+    try {
+      const result = await callFunction('updateSocialProfile', { [field]: value });
+      if (result.status !== 'SUCCESS') throw new Error(result.message || "Güncelleme başarısız.");
+    } catch (error: any) {
+      console.error("socialService: Error updating social field:", error);
+      toast.error(error.message || "Güncelleme başarısız.");
+    }
+  },
+
+  async updateFullProfile(data: any) {
+    try {
+      const result = await callFunction('updateSocialProfile', data);
+      if (result.status === 'SUCCESS') {
+        toast.success("Profil güncellendi.");
+      } else {
+        throw new Error(result.message || "Güncelleme başarısız.");
+      }
+    } catch (error: any) {
+      console.error("socialService: Error updating profile:", error);
+      toast.error(error.message || "Güncelleme başarısız.");
+    }
   },
 
   // --- Advanced Messaging Features ---
 
   async sendMessage(chatId: string, senderId: string, otherUserId: string, content: { text?: string, mediaUrl?: string, mediaType?: 'image' | 'video' }) {
-    console.log("socialService: sendMessage (Backend) starting", { chatId });
     try {
       const result = await callFunction('sendMessage', { 
         chatId, 
@@ -155,9 +168,10 @@ export const socialService = {
         mediaUrl: content.mediaUrl, 
         mediaType: content.mediaType 
       });
-      return result.messageId;
+      if (result.status === 'SUCCESS') return result.messageId;
+      throw new Error(result.message || "Mesaj gönderilemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in sendMessage (Backend):", error);
+      console.error("socialService: Error in sendMessage:", error);
       throw error;
     }
   },
@@ -176,11 +190,11 @@ export const socialService = {
   },
 
   async deleteChat(chatId: string, _userId: string) {
-    console.log("socialService: deleteChat (Backend) starting", { chatId });
     try {
-      await callFunction('deleteChat', { chatId });
+      const result = await callFunction('deleteChat', { chatId });
+      if (result.status !== 'SUCCESS') throw new Error(result.message || "Sohbet silinemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in deleteChat (Backend):", error);
+      console.error("socialService: Error in deleteChat:", error);
       throw error;
     }
   },
@@ -189,7 +203,7 @@ export const socialService = {
     try {
       await callFunction('markAsSeen', { chatId });
     } catch (error: any) {
-      console.error("socialService: Error in markAsSeen (Backend):", error);
+      console.error("socialService: Error in markAsSeen:", error);
     }
   },
 
@@ -197,26 +211,26 @@ export const socialService = {
     try {
       await callFunction('markAsDelivered', { chatId });
     } catch (error: any) {
-      console.error("socialService: Error in markAsDelivered (Backend):", error);
+      console.error("socialService: Error in markAsDelivered:", error);
     }
   },
 
   async deleteMessage(messageId: string, _chatId: string, forEveryone: boolean = false) {
-    console.log("socialService: deleteMessage (Backend) starting", { messageId });
     try {
-      await callFunction('deleteMessage', { messageId, forEveryone });
+      const result = await callFunction('deleteMessage', { messageId, forEveryone });
+      if (result.status !== 'SUCCESS') throw new Error(result.message || "Mesaj silinemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in deleteMessage (Backend):", error);
+      console.error("socialService: Error in deleteMessage:", error);
       throw error;
     }
   },
 
   async editMessage(messageId: string, newText: string) {
-    console.log("socialService: editMessage (Backend) starting", { messageId });
     try {
-      await callFunction('editMessage', { messageId, newText });
+      const result = await callFunction('editMessage', { messageId, newText });
+      if (result.status !== 'SUCCESS') throw new Error(result.message || "Mesaj düzenlenemedi.");
     } catch (error: any) {
-      console.error("socialService: Error in editMessage (Backend):", error);
+      console.error("socialService: Error in editMessage:", error);
       throw error;
     }
   },
@@ -225,24 +239,32 @@ export const socialService = {
     try {
       await callFunction('setTypingStatus', { chatId, isTyping });
     } catch (error: any) {
-      console.error("socialService: Error in setTypingStatus (Backend):", error);
+      console.error("socialService: Error in setTypingStatus:", error);
     }
   },
 
   // --- Privacy & Moderation ---
   async blockUser(targetUid: string) {
-    return await callFunction('blockUser', { targetUid });
+    const result = await callFunction('blockUser', { targetUid });
+    if (result.status === 'SUCCESS') toast.success("Kullanıcı engellendi.");
+    return result;
   },
 
   async unblockUser(targetUid: string) {
-    return await callFunction('unblockUser', { targetUid });
+    const result = await callFunction('unblockUser', { targetUid });
+    if (result.status === 'SUCCESS') toast.success("Engel kaldırıldı.");
+    return result;
   },
 
   async muteUser(targetUid: string) {
-    return await callFunction('muteUser', { targetUid });
+    const result = await callFunction('muteUser', { targetUid });
+    if (result.status === 'SUCCESS') toast.success("Kullanıcı susturuldu.");
+    return result;
   },
 
   async unmuteUser(targetUid: string) {
-    return await callFunction('unmuteUser', { targetUid });
+    const result = await callFunction('unmuteUser', { targetUid });
+    if (result.status === 'SUCCESS') toast.success("Susturma kaldırıldı.");
+    return result;
   }
 };

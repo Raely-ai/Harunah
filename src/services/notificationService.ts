@@ -22,11 +22,14 @@ export const notificationService = {
       }
 
       // Get token
-      // Note: You need a VAPID key from Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates
-      // For now, we'll try without it or use a placeholder if needed.
-      // Usually, AI Studio environment might have constraints here.
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (!vapidKey) {
+        console.warn("VITE_FIREBASE_VAPID_KEY is missing. FCM token will not be obtained.");
+        return null;
+      }
+
       const token = await getToken(messaging, {
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY
+        vapidKey: vapidKey
       });
 
       if (token) {

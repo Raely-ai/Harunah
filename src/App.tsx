@@ -129,20 +129,25 @@ function AppContent() {
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
-  // Admin Preview Mode
+  // Admin Preview Mode (Optimized to getDoc)
   useEffect(() => {
     const previewId = localStorage.getItem('admin_preview_user_id');
-    if (previewId && isAdmin) {
-      const unsubscribe = onSnapshot(doc(db, "users", previewId), (snapshot) => {
-        if (snapshot.exists()) {
-          setPreviewUser(normalizeUserProfile(snapshot.data(), snapshot.id));
+    if (previewId && isAdmin && !quotaExceeded) {
+      const fetchPreview = async () => {
+        try {
+          const snapshot = await getDoc(doc(db, "users", previewId));
+          if (snapshot.exists()) {
+            setPreviewUser(normalizeUserProfile(snapshot.data(), snapshot.id));
+          }
+        } catch (err: any) {
+          if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
         }
-      });
-      return () => unsubscribe();
+      };
+      fetchPreview();
     } else {
       setPreviewUser(null);
     }
-  }, [isAdmin, user?.uid]);
+  }, [isAdmin, user?.uid, quotaExceeded]);
 
   // Unified Startup Data Fetch (Config & Economy)
   useEffect(() => {
@@ -735,7 +740,7 @@ function AppContent() {
 
   return (
     <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
-      <BadgeProvider userProfile={userProfile}>
+      <BadgeProvider userProfile={userProfile} quotaExceeded={quotaExceeded}>
         {/* Admin Preview Banner */}
         {previewUser && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-black py-2 px-4 flex items-center justify-between font-bold text-xs shadow-lg">
