@@ -6,9 +6,7 @@ import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
 import * as crypto from "crypto";
 
-admin.initializeApp({
-  projectId: "gen-lang-client-0107919355"
-});
+admin.initializeApp();
 
 const db = getFirestore("ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 const messaging = getMessaging();
@@ -2801,16 +2799,8 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         transaction.get(toUserRef)
       ]);
 
-      console.log(`[sendLike] Snaps fetched. fromExists: ${fromUserSnap.exists}, toExists: ${toUserSnap.exists}`);
-
-      if (!fromUserSnap.exists) {
-        console.error(`[sendLike] From user ${fromUserId} not found`);
-        return { status: 'TECHNICAL_ERROR', message: 'Gönderen kullanıcı bulunamadı.' };
-      }
-      if (!toUserSnap.exists) {
-        console.warn(`[sendLike] Target user ${targetUserId} not found`);
-        return { status: 'TARGET_NOT_FOUND' };
-      }
+      if (!fromUserSnap.exists) return { status: 'TECHNICAL_ERROR', message: 'Gönderen kullanıcı bulunamadı.' };
+      if (!toUserSnap.exists) return { status: 'TARGET_NOT_FOUND' };
 
       const fromUserData = fromUserSnap.data() || {};
       const toUserData = toUserSnap.data() || {};
@@ -2820,14 +2810,12 @@ export const sendLike = functions.https.onCall(async (data, context) => {
       const toBlocked = (toUserData.social?.blockedUserIds || []);
       
       if (fromBlocked.includes(targetUserId) || toBlocked.includes(fromUserId)) {
-        console.warn(`[sendLike] Action blocked between ${fromUserId} and ${targetUserId}`);
         return { status: 'BLOCKED' };
       }
 
       // 4. Consumption Check (if super_like)
       if (type === 'super_like') {
         const superLikes = fromUserData.superLikes || 0;
-        console.log(`[sendLike] Checking superLikes: ${superLikes}`);
         if (superLikes <= 0) {
           return { status: 'INSUFFICIENT_FUNDS', message: 'Yetersiz Süper Like hakkı.' };
         }
@@ -2838,28 +2826,22 @@ export const sendLike = functions.https.onCall(async (data, context) => {
       const swipeRef = db.collection("swipes").doc(swipeId);
       const swipeSnap = await transaction.get(swipeRef);
 
-      console.log(`[sendLike] Swipe check: exists=${swipeSnap.exists}`);
-
       // Check if already swiped with same type (to avoid duplicates)
       if (swipeSnap.exists && swipeSnap.data()?.type === type && type !== 'pass') {
-        console.log(`[sendLike] Already swiped with type ${type}`);
         return { status: 'ALREADY_LIKED' };
       }
 
       const now = admin.firestore.FieldValue.serverTimestamp();
       
-      // Defensive handling for existing createdAt (ensure it's a Timestamp or null)
       let existingCreatedAt = swipeSnap.exists ? swipeSnap.data()?.createdAt : null;
       if (existingCreatedAt && typeof existingCreatedAt === 'string') {
         try {
           existingCreatedAt = admin.firestore.Timestamp.fromDate(new Date(existingCreatedAt));
         } catch (e) {
-          console.warn("[sendLike] Failed to parse existingCreatedAt:", existingCreatedAt);
           existingCreatedAt = now;
         }
       }
 
-      console.log(`[sendLike] Recording swipe: ${swipeId}`);
       // A. Record Swipe
       transaction.set(swipeRef, {
         id: swipeId,
@@ -2872,7 +2854,6 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
       // B. Handle Like / Super Like
       if (type === 'like' || type === 'super_like') {
-        console.log(`[sendLike] Creating notification for ${targetUserId}`);
         // Create in-app notification
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
@@ -2891,7 +2872,6 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 
         // If super_like, also create an interaction request
         if (type === 'super_like') {
-          console.log(`[sendLike] Creating interactionRequest for ${targetUserId}`);
           const requestId = `request_${fromUserId}_${targetUserId}`;
           const requestRef = db.collection("interactionRequests").doc(requestId);
           transaction.set(requestRef, {
@@ -2910,9 +2890,28 @@ export const sendLike = functions.https.onCall(async (data, context) => {
         }
       }
 
-      console.log("[sendLike] Transaction SUCCESS");
-      return { status: 'SUCCESS' };
+      return { 
+        status: 'SUCCESS', 
+        targetUserId, 
+        type,
+        senderNickname: fromUserData.social?.nickname || fromUserData.displayName || "Biri"
+      };
     });
+
+    // Send Push Notification outside transaction
+    if (result.status === 'SUCCESS' && (result.type === 'like' || result.type === 'super_like')) {
+      try {
+        await sendPushToUser(result.targetUserId, {
+          title: result.type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
+          body: `${result.senderNickname} seni beğendi! ❤️`,
+          data: { screen: 'notifications' },
+          category: 'social',
+          senderId: fromUserId
+        });
+      } catch (pushError) {
+        console.error("Push notification failed:", pushError);
+      }
+    }
 
     return result;
 
@@ -2954,7 +2953,6 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
     }
 
     const result = await db.runTransaction(async (transaction) => {
-      console.log("[sendMessageRequest] Transaction started");
       const fromUserRef = db.collection("users").doc(fromUserId);
       const toUserRef = db.collection("users").doc(targetUserId);
       
@@ -2964,7 +2962,6 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       ]);
 
       if (!fromUserSnap.exists || !toUserSnap.exists) {
-        console.warn("[sendMessageRequest] User not found");
         throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
       }
 
@@ -2974,19 +2971,13 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       // Block check
       const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
                         (toUserData.social?.blockedUserIds || []).includes(fromUserId);
-      if (isBlocked) {
-        console.warn("[sendMessageRequest] Action blocked");
-        return { status: 'BLOCKED' };
-      }
+      if (isBlocked) return { status: 'BLOCKED' };
 
       // Existing chat check
       const chatId = `chat_${[fromUserId, targetUserId].sort().join('_')}`;
       const chatRef = db.collection("chats").doc(chatId);
       const chatSnap = await transaction.get(chatRef);
-      if (chatSnap.exists) {
-        console.log("[sendMessageRequest] Already chatting");
-        return { status: 'ALREADY_CHATTING' };
-      }
+      if (chatSnap.exists) return { status: 'ALREADY_CHATTING' };
 
       // Existing request check
       const requestId = `request_${fromUserId}_${targetUserId}`;
@@ -2994,22 +2985,13 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       const requestSnap = await transaction.get(requestRef);
       if (requestSnap.exists) {
         const reqData = requestSnap.data();
-        if (reqData?.status === 'pending') {
-          console.log("[sendMessageRequest] Already requested");
-          return { status: 'ALREADY_REQUESTED' };
-        }
-        if (reqData?.status === 'accepted') {
-          console.log("[sendMessageRequest] Already accepted");
-          return { status: 'ALREADY_CHATTING' };
-        }
+        if (reqData?.status === 'pending') return { status: 'ALREADY_REQUESTED' };
+        if (reqData?.status === 'accepted') return { status: 'ALREADY_CHATTING' };
       }
 
       // Create request
       const now = admin.firestore.FieldValue.serverTimestamp();
       
-      // Consumption Check (if needed - currently message requests might be free or use different logic)
-      // For now, we just ensure it's secure.
-
       transaction.set(requestRef, {
         id: requestId,
         fromUserId,
@@ -3041,8 +3023,27 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
         createdAt: now
       });
 
-      return { status: 'SUCCESS' };
+      return { 
+        status: 'SUCCESS', 
+        targetUserId,
+        senderNickname: fromUserData.social?.nickname || fromUserData.displayName || "Biri"
+      };
     });
+
+    // Send Push Notification outside transaction
+    if (result.status === 'SUCCESS') {
+      try {
+        await sendPushToUser(result.targetUserId, {
+          title: "Yeni Mesaj İsteği",
+          body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`,
+          data: { screen: 'notifications' },
+          category: 'social',
+          senderId: fromUserId
+        });
+      } catch (pushError) {
+        console.error("Push notification failed:", pushError);
+      }
+    }
 
     return result;
 
@@ -3141,8 +3142,31 @@ export const acceptRequest = functions.https.onCall(async (data, context) => {
         createdAt: now
       });
 
-      return { status: 'SUCCESS', chatId };
+      return { 
+        status: 'SUCCESS', 
+        chatId,
+        fromUserId,
+        toUserId: userId,
+        toUserNickname: fromUserData.social?.nickname || fromUserData.displayName || "Biri"
+      };
     });
+
+    // Send Push Notification outside transaction
+    if (result.status === 'SUCCESS') {
+      try {
+        await sendPushToUser(result.fromUserId, {
+          title: "İstek Kabul Edildi!",
+          body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`,
+          data: { screen: 'chat', chatId: result.chatId },
+          category: 'social',
+          senderId: result.toUserId
+        });
+      } catch (pushError) {
+        console.error("Push notification failed:", pushError);
+      }
+    }
+
+    return result;
   } catch (error: any) {
     console.error("acceptRequest error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -3189,7 +3213,7 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
   const chatRef = db.collection("chats").doc(chatId);
   
   try {
-    return await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const chatSnap = await transaction.get(chatRef);
       if (!chatSnap.exists) throw new functions.https.HttpsError('not-found', 'Sohbet bulunamadı.');
       const chat = chatSnap.data() as any;
@@ -3200,8 +3224,8 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
       
       // Block Check
       const [senderSnap, receiverSnap] = await Promise.all([
-        db.collection("users").doc(senderId).get(),
-        db.collection("users").doc(receiverId).get()
+        transaction.get(db.collection("users").doc(senderId)),
+        transaction.get(db.collection("users").doc(receiverId))
       ]);
       
       const senderData = senderSnap.data() || {};
@@ -3209,7 +3233,7 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
       
       if ((senderData.social?.blockedUserIds || []).includes(receiverId) || 
           (receiverData.social?.blockedUserIds || []).includes(senderId)) {
-        throw new functions.https.HttpsError('failed-precondition', 'Bu kullanıcıyla iletişim kuramazsınız.');
+        return { status: 'BLOCKED' };
       }
 
       const now = admin.firestore.FieldValue.serverTimestamp();
@@ -3248,21 +3272,32 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
         unreadMessagesCount: admin.firestore.FieldValue.increment(1)
       });
 
-      // Send Push Notification (Outside transaction or handled safely)
+      return { 
+        status: 'SUCCESS', 
+        messageId: msgRef.id, 
+        receiverId, 
+        chatId,
+        senderNickname: senderData.social?.nickname || senderData.displayName || "Biri",
+        lastMessageText
+      };
+    });
+
+    // Send Push Notification outside transaction
+    if (result.status === 'SUCCESS') {
       try {
-        await sendPushToUser(receiverId, {
-          title: senderData.social?.nickname || senderData.displayName || "Yeni Mesaj",
-          body: lastMessageText,
-          data: { screen: 'chat', chatId },
+        await sendPushToUser(result.receiverId, {
+          title: result.senderNickname,
+          body: result.lastMessageText,
+          data: { screen: 'chat', chatId: result.chatId },
           category: 'messages',
           senderId
         });
       } catch (pushError) {
         console.error("Push notification failed, but message was sent:", pushError);
       }
+    }
 
-      return { status: 'SUCCESS', messageId: msgRef.id };
-    });
+    return result;
   } catch (error: any) {
     console.error("sendMessage error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -3553,7 +3588,7 @@ export const createReport = functions.https.onCall(async (data, context) => {
 export const updateSocialProfile = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { nickname, bio, gender, zodiacSign, photos, interests, birthDate } = data;
+  const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
 
   const userRef = db.collection("users").doc(userId);
 
@@ -3575,6 +3610,8 @@ export const updateSocialProfile = functions.https.onCall(async (data, context) 
     }
     if (interests !== undefined) updates["social.interests"] = interests;
     if (birthDate !== undefined) updates["social.birthDate"] = birthDate;
+    if (isOnline !== undefined) updates["social.isOnline"] = isOnline;
+    if (lastSeen !== undefined) updates["social.lastSeen"] = admin.firestore.FieldValue.serverTimestamp();
 
     if (Object.keys(updates).length === 0) return { success: true };
 

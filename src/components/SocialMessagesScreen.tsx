@@ -921,8 +921,9 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
       } else {
         await socialService.sendMessage(chat.id, currentUser.uid, otherUser.uid, { text: messageText });
       }
-    } catch (error) {
-      toast.error("Mesaj gönderilemedi.");
+    } catch (error: any) {
+      const errorMessage = error?.message || "Mesaj gönderilemedi.";
+      toast.error(errorMessage);
       // Remove optimistic message on failure
       setMessages(prev => prev.filter(m => m.id !== tempId));
       console.error(error);

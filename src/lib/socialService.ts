@@ -123,13 +123,10 @@ export const socialService = {
   async updateUserStatus(uid: string, isOnline: boolean) {
     if (!uid || auth.currentUser?.uid !== uid) return;
     try {
-      // isOnline and lastSeen are allowed for direct write in rules for performance
-      await updateDoc(doc(db, "users", uid), {
-        "social.isOnline": isOnline,
-        "social.lastSeen": serverTimestamp()
-      });
+      // We use updateSocialProfile for consistency, even if rules allow direct write for these fields
+      await callFunction('updateSocialProfile', { isOnline, lastSeen: new Date().toISOString() });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+      console.error("socialService: Error updating user status:", error);
     }
   },
 
