@@ -164,7 +164,6 @@ export default function SocialDiscoverScreen({
 
       // 2. Fetch Discover Users
       const targetGender = getTargetGender(currentUser);
-      console.log(`[SocialDiscover] Fetching users for target gender: ${targetGender}. Current user gender: ${currentUser.social?.gender}`);
       
       const usersRef = collection(db, "users");
       const discoverQ = query(
@@ -177,7 +176,6 @@ export default function SocialDiscoverScreen({
       );
 
       const snapshot = await getDocs(discoverQ);
-      console.log(`[SocialDiscover] Firestore returned ${snapshot.docs.length} users from query.`);
       
       const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
       const allFetched = rawUsers.filter(u => {
@@ -185,8 +183,6 @@ export default function SocialDiscoverScreen({
           const isSwiped = swipedSet.has(u.uid);
           return eligible && !isSwiped;
         });
-
-      console.log(`[SocialDiscover] Summary: Total Raw: ${rawUsers.length}, Swiped/Ineligible: ${rawUsers.length - allFetched.length}, Final: ${allFetched.length}`);
 
       // Shuffle for variety
       const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
@@ -292,13 +288,8 @@ export default function SocialDiscoverScreen({
   const handleSendMessage = async (targetUser: UserProfile) => {
     if (isProcessing) return;
     setIsProcessing(true);
-    console.log("SocialDiscoverScreen: handleSendMessage starting", { 
-      currentUserId: currentUser?.uid, 
-      targetUserId: targetUser?.uid 
-    });
     try {
       const result = await socialService.sendMessageRequest(currentUser, targetUser);
-      console.log("SocialDiscoverScreen: sendMessageRequest result:", result);
       switch (result) {
         case 'SUCCESS':
           toast.success("İstek gönderildi");

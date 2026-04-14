@@ -88,7 +88,6 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
         // 2. Fetch Potential Matches
         const targetGender = getTargetGender(currentUser);
-        console.log(`[SocialMatch] Fetching users for target gender: ${targetGender}. Current user gender: ${currentUser.social?.gender}`);
         
         const usersRef = collection(db, "users");
         const matchQ = query(
@@ -101,7 +100,6 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         );
 
         const snapshot = await getDocs(matchQ);
-        console.log(`[SocialMatch] Firestore returned ${snapshot.docs.length} users from query.`);
         
         const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
         const fetchedUsers = rawUsers.filter(u => {
@@ -205,9 +203,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
         }
       }
       
-      console.log(`[DEBUG] Initiating sendLike for ${targetUser.uid} with type ${type}`);
       const result = await socialService.sendLike(currentUser, targetUser.uid, type);
-      console.log(`[DEBUG] sendLike result for ${targetUser.uid}:`, result);
       
       switch (result) {
         case 'SUCCESS':

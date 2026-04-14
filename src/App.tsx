@@ -46,9 +46,7 @@ import { BadgeProvider } from "./lib/BadgeContext";
 export default function App() {
   return (
     <ErrorBoundary>
-      <BadgeProvider>
-        <AppContent />
-      </BadgeProvider>
+      <AppContent />
     </ErrorBoundary>
   );
 }
@@ -737,8 +735,9 @@ function AppContent() {
 
   return (
     <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
-      {/* Admin Preview Banner */}
-      {previewUser && (
+      <BadgeProvider userProfile={userProfile}>
+        {/* Admin Preview Banner */}
+        {previewUser && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-black py-2 px-4 flex items-center justify-between font-bold text-xs shadow-lg">
           <div className="flex items-center gap-2">
             <Eye className="w-4 h-4" />
@@ -1137,6 +1136,7 @@ function AppContent() {
           />
         )}
       </AnimatePresence>
+      </BadgeProvider>
     </div>
   );
 }

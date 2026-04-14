@@ -98,7 +98,9 @@ export default function SocialMessagesScreen({
         setLoading(true);
         const q = query(
           collection(db, "chats"),
-          where("participants", "array-contains", currentUser.uid)
+          where("participants", "array-contains", currentUser.uid),
+          orderBy("lastMessageAt", "desc"),
+          limit(30)
         );
         unsubscribe = onSnapshot(q, async (snapshot) => {
           const chatDocs = snapshot.docs
@@ -133,42 +135,55 @@ export default function SocialMessagesScreen({
         const q = query(
           collection(db, "interactionRequests"),
           where("toUserId", "==", currentUser.uid),
-          where("status", "==", "pending")
+          where("status", "==", "pending"),
+          orderBy("createdAt", "desc"),
+          limit(20)
         );
         unsubscribe = onSnapshot(q, (snapshot) => {
           const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
-          requestList.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
           setRequests(requestList);
           cacheManager.set(REQUESTS_CACHE_KEY, requestList, 300);
         });
       } else if (activeTab === 'likers') {
-        const q = query(
-          collection(db, "swipes"),
-          where("toUserId", "==", currentUser.uid),
-          where("type", "in", ["like", "super_like"])
-        );
-        unsubscribe = onSnapshot(q, async (snapshot) => {
-          console.log(`[DEBUG] Likers snapshot received. Count: ${snapshot.docs.length}`);
+        setLoading(true);
+        try {
+          const q = query(
+            collection(db, "swipes"),
+            where("toUserId", "==", currentUser.uid),
+            where("type", "in", ["like", "super_like"])
+          );
+          
+          const snapshot = await getDocs(q);
           const likerList = await Promise.all(snapshot.docs.map(async (swipeDoc) => {
             const swipeData = swipeDoc.data();
-            console.log(`[DEBUG] Processing swipe: ${swipeDoc.id}`, swipeData);
-            const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
-            if (!senderSnap.exists()) {
-              console.warn(`[DEBUG] Liker user doc not found: ${swipeData.fromUserId}`);
-              return null;
+            let sender = profilesCache.current[swipeData.fromUserId];
+            
+            if (!sender) {
+              const senderSnap = await getDoc(doc(db, "users", swipeData.fromUserId));
+              if (senderSnap.exists()) {
+                sender = normalizeUserProfile(senderSnap.data(), senderSnap.id);
+                profilesCache.current[swipeData.fromUserId] = sender;
+              }
             }
+
+            if (!sender) return null;
+
             return {
               id: swipeDoc.id,
-              user: normalizeUserProfile(senderSnap.data(), senderSnap.id),
+              user: sender,
               createdAt: swipeData.createdAt
             };
           }));
+
           const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
           validLikers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
           setLikers(validLikers);
           cacheManager.set(LIKERS_CACHE_KEY, validLikers, 300);
-          console.log(`[DEBUG] Likers updated. Valid count: ${validLikers.length}`);
-        });
+        } catch (error) {
+          console.error("Error fetching likers:", error);
+        } finally {
+          setLoading(false);
+        }
       }
     };
 

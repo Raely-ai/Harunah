@@ -3218,6 +3218,11 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
         [`unreadCount.${receiverId}`]: admin.firestore.FieldValue.increment(1)
       });
 
+      // Increment global unread count for receiver
+      transaction.update(db.collection("users").doc(receiverId), {
+        unreadMessagesCount: admin.firestore.FieldValue.increment(1)
+      });
+
       // Send Push Notification
       await sendPushToUser(receiverId, {
         title: senderData.social?.nickname || senderData.displayName || "Yeni Mesaj",
@@ -3260,11 +3265,18 @@ export const markAsSeen = functions.https.onCall(async (data, context) => {
     }
 
     const batch = db.batch();
+    const countToDecrement = unreadMessages.size;
+    
     unreadMessages.docs.forEach(doc => {
       batch.update(doc.ref, { status: 'seen', seen: true });
     });
 
     batch.update(chatRef, { [`unreadCount.${userId}`]: 0 });
+    
+    // Decrement global unread count for user
+    batch.update(db.collection("users").doc(userId), {
+      unreadMessagesCount: admin.firestore.FieldValue.increment(-countToDecrement)
+    });
 
     // Update lastMessageStatus if it was from the other user
     const chatSnap = await chatRef.get();
