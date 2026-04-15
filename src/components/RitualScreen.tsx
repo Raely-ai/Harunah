@@ -4,7 +4,7 @@ import { Sparkles, Clock, Zap, ShieldCheck, Stars, CheckCircle2, Search, User, L
 import { FortuneType, FortuneReading } from "../types";
 import { httpsCallable } from "firebase/functions";
 import { doc, onSnapshot } from "firebase/firestore";
-import { functions, auth, db } from "../lib/firebase";
+import { functions, auth, db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { toast } from "sonner";
 
 interface RitualScreenProps {
@@ -107,6 +107,8 @@ export default function RitualScreen({ type, reading: initialReading, onClose, o
       if (snapshot.exists()) {
         setReading({ id: snapshot.id, ...snapshot.data() } as FortuneReading);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `readings/${initialReading.id}`);
     });
     return () => unsubscribe();
   }, [initialReading?.id]);

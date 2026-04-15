@@ -9,7 +9,7 @@ console.log("Firebase config loaded:", firebaseConfig);
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, 'us-central1');
 
 // Initialize Firestore with specific settings to stabilize connection
 export const db = initializeFirestore(app, {

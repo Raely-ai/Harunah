@@ -776,6 +776,8 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
       if (snap.exists()) {
         setChat({ ...initialChat, ...snap.data() } as any);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `chats/${initialChat.id}`);
     });
     return () => unsubscribe();
   }, [initialChat.id]);
@@ -860,11 +862,18 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
       
       setMessages(msgs);
       
-      // Mark as seen when chat is open
-      socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);
+      // Mark as seen when chat is open and there are unread messages for current user
+      // We check chat.unreadCount from the latest state if possible, but here we use the msgs status
+      const hasUnseen = msgs.some(m => m.senderId !== currentUser.uid && m.status !== 'seen' && m.type !== 'system');
+      if (hasUnseen) {
+        socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);
+      }
       
-      // Mark as delivered if they were just 'sent'
-      socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
+      // Mark as delivered if there are messages with status 'sent' that are not from me
+      const hasUndelivered = msgs.some(m => m.senderId !== currentUser.uid && m.status === 'sent' && m.type !== 'system');
+      if (hasUndelivered) {
+        socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
+      }
 
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "messages");

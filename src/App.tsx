@@ -95,20 +95,10 @@ function AppContent() {
     socialService.updateUserStatus(user.uid, true);
 
     // Set offline on tab close or navigation away
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        socialService.updateUserStatus(user.uid, false);
-      } else {
-        socialService.updateUserStatus(user.uid, true);
-      }
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('beforeunload', () => socialService.updateUserStatus(user.uid, false));
 
     return () => {
       socialService.updateUserStatus(user.uid, false);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user?.uid]);
 
@@ -293,6 +283,7 @@ function AppContent() {
           }
         }
       }, (err: any) => {
+        handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
         if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
         setIsProfileLoading(false);
       });
@@ -555,7 +546,17 @@ function AppContent() {
   }, [user, userProfile, history, quotaExceeded]);
 
   const handleFortuneComplete = async (data: any) => {
-    if (!user || !userProfile || !appConfig || isSubmitting || quotaExceeded) return;
+    console.log("handleFortuneComplete triggered with data:", data);
+    if (!user || !userProfile || !appConfig || isSubmitting || quotaExceeded) {
+      console.log("handleFortuneComplete early return:", { 
+        hasUser: !!user, 
+        hasProfile: !!userProfile, 
+        hasConfig: !!appConfig, 
+        isSubmitting, 
+        quotaExceeded 
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     const loadingToast = toast.loading("Falınız hazırlanıyor...", {
@@ -563,6 +564,7 @@ function AppContent() {
     });
 
     try {
+      console.log("Calling createFortuneReading...");
       const createFortune = httpsCallable(functions, 'createFortuneReading');
       const result: any = await createFortune({
         type: data.type,
@@ -581,11 +583,18 @@ function AppContent() {
         priorityMode: data.priorityMode
       });
 
+      console.log("createFortuneReading response:", result);
       const { readingId } = result.data;
 
-      // Trigger AI immediately (Fake processing will handle the delay in UI)
+      if (!readingId) {
+        throw new Error("Reading ID not received from server");
+      }
+
+      // Trigger AI immediately
+      console.log("Calling processFortuneAI for readingId:", readingId);
       const processAI = httpsCallable(functions, 'processFortuneAI');
-      processAI({ readingId }).catch(err => console.error("Immediate AI trigger failed:", err));
+      await processAI({ readingId });
+      console.log("processFortuneAI completed successfully");
 
       toast.dismiss(loadingToast);
       toast.success("Falınız sıraya alındı!", {

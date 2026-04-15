@@ -6,7 +6,8 @@ import {
   query, 
   where, 
   limit, 
-  getDocs
+  getDocs,
+  startAfter
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
@@ -126,14 +127,17 @@ export default function SocialDiscoverScreen({
   const [isProcessing, setIsProcessing] = useState(false);
   const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>([]);
   const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set());
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
 
   const refreshTimer = externalRefreshTimer || internalRefreshTimer;
 
-  const fetchData = async (forceRefresh = false) => {
+  const fetchData = async (forceRefresh = false, isLoadMore = false) => {
     if (!uid) return;
     
-    // Check Cache First (unless forced)
-    if (!forceRefresh) {
+    // Check Cache First (unless forced or loading more)
+    if (!forceRefresh && !isLoadMore) {
       const cached = cacheManager.get<any>(DISCOVER_CACHE_KEY);
       if (cached) {
         setFeaturedUsers(cached.featuredUsers);
@@ -143,6 +147,9 @@ export default function SocialDiscoverScreen({
         setNewFrequencyUsers(cached.newFrequencyUsers);
         setCompatibilityHistory(cached.compatibilityHistory);
         setSwipedUserIds(new Set(cached.swipedUserIds || []));
+        setAllUsers(cached.allUsers || []);
+        setLastVisible(cached.lastVisible || null);
+        setHasMore(cached.hasMore ?? true);
         setLoading(false);
         return;
       }
@@ -166,43 +173,63 @@ export default function SocialDiscoverScreen({
       const targetGender = getTargetGender(currentUser);
       
       const usersRef = collection(db, "users");
-      const discoverQ = query(
+      let discoverQ = query(
         usersRef,
         where("social.enabled", "==", true),
         where("social.profileCompleted", "==", true),
         where("social.visible", "==", true),
         where("social.gender", "==", targetGender),
-        limit(100) // Increased limit to ensure we have enough after filtering
+        limit(10)
       );
+
+      if (isLoadMore && lastVisible) {
+        discoverQ = query(discoverQ, startAfter(lastVisible));
+      }
 
       const snapshot = await getDocs(discoverQ);
       
+      if (snapshot.empty) {
+        setHasMore(false);
+        if (!isLoadMore) {
+          setCompatibleUsers([]);
+          setFeelingEnergyUsers([]);
+          setNewFrequencyUsers([]);
+          setAllUsers([]);
+        }
+        return;
+      }
+
+      const newLastVisible = snapshot.docs[snapshot.docs.length - 1];
+      setLastVisible(newLastVisible);
+      setHasMore(snapshot.docs.length === 10);
+      
       const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
-      const allFetched = rawUsers.filter(u => {
+      const filteredUsers = rawUsers.filter(u => {
           const eligible = isEligibleSocialUser(u, uid, targetGender);
           const isSwiped = swipedSet.has(u.uid);
           return eligible && !isSwiped;
         });
 
-      // Shuffle for variety
-      const shuffled = [...allFetched].sort(() => Math.random() - 0.5);
+      const updatedAllUsers = isLoadMore ? [...allUsers, ...filteredUsers] : filteredUsers;
+      setAllUsers(updatedAllUsers);
 
-      // Featured (Boosted)
+      // Featured (Boosted) - We still want some featured users if possible
       const now = new Date().toISOString();
-      const featured = allFetched
+      const featured = updatedAllUsers
         .filter(u => u.boostExpiresAt && u.boostExpiresAt > now)
         .slice(0, 10);
       setFeaturedUsers(featured);
       
       // Active Users (First 10)
-      const active = allFetched.slice(0, 10);
+      const active = updatedAllUsers.filter(u => u.social?.isOnline).slice(0, 10);
       setActiveUsers(active);
       
-      // Section A: Compatible
+      // Distribution Logic
       const compatibleIds = history.map(h => h.targetUserId);
-      const matchedCompatible = shuffled.filter(u => compatibleIds.includes(u.uid));
-      const others = shuffled.filter(u => !compatibleIds.includes(u.uid) && !featured.some(f => f.uid === u.uid));
+      const matchedCompatible = updatedAllUsers.filter(u => compatibleIds.includes(u.uid));
+      const others = updatedAllUsers.filter(u => !compatibleIds.includes(u.uid) && !featured.some(f => f.uid === u.uid));
       
+      // Section A: Compatible (Up to 6)
       const sectionA = [...matchedCompatible, ...others].slice(0, 6);
       setCompatibleUsers(sectionA);
 
@@ -224,7 +251,10 @@ export default function SocialDiscoverScreen({
         feelingEnergyUsers: sectionB,
         newFrequencyUsers: sectionC,
         compatibilityHistory: history,
-        swipedUserIds: Array.from(swipedSet)
+        swipedUserIds: Array.from(swipedSet),
+        allUsers: updatedAllUsers,
+        lastVisible: newLastVisible,
+        hasMore: snapshot.docs.length === 10
       }, DISCOVER_CACHE_TTL);
 
     } catch (error) {
@@ -343,6 +373,8 @@ export default function SocialDiscoverScreen({
         // Clear both caches and force re-fetch
         cacheManager.clear(DISCOVER_CACHE_KEY);
         cacheManager.clear("socialMatchData");
+        setLastVisible(null);
+        setHasMore(true);
         await fetchData(true);
         
         if (result.status === 'FREE_REFRESH_USED') {
@@ -369,6 +401,11 @@ export default function SocialDiscoverScreen({
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleLoadMore = () => {
+    if (loading || !hasMore) return;
+    fetchData(false, true);
   };
 
   return (
@@ -527,11 +564,37 @@ export default function SocialDiscoverScreen({
           </div>
         </div>
 
+        {/* Load More Trigger at Bottom */}
+        {hasMore && (
+          <div className="px-6 mt-12 pb-8 flex flex-col items-center gap-4">
+            <div className="w-12 h-1px bg-black/5" />
+            <p className="text-[10px] font-bold text-muted text-center max-w-[200px]">
+              Daha fazla kişi görmek için kaydır
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleLoadMore}
+              disabled={loading}
+              className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/10 hover:bg-indigo-700 transition-all disabled:opacity-50"
+            >
+              {loading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              <span className="text-xs font-black uppercase tracking-widest">
+                {loading ? 'Yükleniyor...' : 'Daha Fazla Gör'}
+              </span>
+            </motion.button>
+          </div>
+        )}
+
         {/* Refresh Trigger at Bottom */}
-        <div className="px-6 mt-12 pb-8 flex flex-col items-center gap-4">
+        <div className="px-6 mt-8 pb-8 flex flex-col items-center gap-4">
           <div className="w-12 h-1px bg-black/5" />
           <p className="text-[10px] font-bold text-muted text-center max-w-[200px]">
-            Daha fazla kişi görmek ve enerjini tazelemek için yenile
+            Enerjini tazelemek için yenile
           </p>
           <motion.button
             whileHover={{ scale: 1.05 }}
