@@ -821,9 +821,10 @@ export const processCompatibilityRequests = functions.pubsub.schedule('every 2 m
 });
 
 /**
- * NOTIFICATION TRIGGERS
+ * NOTIFICATION TRIGGERS (Temporarily disabled due to named database deployment issues)
  */
 
+/*
 // 1. Message Trigger
 export const onMessageCreate = functions.firestore
   .document('messages/{messageId}')
@@ -915,6 +916,7 @@ export const onUserUpdate = functions.firestore
       });
     }
   });
+*/
 
 /**
  * ADMIN NOTIFICATION FUNCTIONS
