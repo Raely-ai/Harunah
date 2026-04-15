@@ -2,19 +2,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
+    // --- Helpers ---
     function isAuthenticated() {
       return request.auth != null;
-    }
-    
-    function isNotBanned() {
-      return !isAuthenticated() || 
-             !exists(/databases/$(database)/documents/users/$(request.auth.uid)) || 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isBanned', false) == false;
-    }
-
-    function isOwnerNotBanned(userId) {
-      return isOwner(userId) && isNotBanned();
     }
     
     function isOwner(userId) {
@@ -23,274 +13,89 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-        (
-          request.auth.token.email == "hpferdicakir@gmail.com" || 
-          request.auth.token.email == "hpferdicakir4@gmail.com" ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-        );
+        (request.auth.token.email == "hpferdicakir@gmail.com" || 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
     }
 
-    function isSocialOperator() {
-      return isAuthenticated() && 
-        (
-          request.auth.token.email == "hpferdicakir@gmail.com" ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'social_operator')
-        );
+    function isParticipant(data) {
+      return isAuthenticated() && (request.auth.uid in data.participants);
     }
 
-    function hasElevatedAccess() {
-      return isAdmin() || isSocialOperator();
-    }
+    // --- Collections ---
 
-    function isTimestampOrString(val) {
-      return val is timestamp || (val is string && val.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$"));
-    }
-
-    function hasOnlyAllowedFields(data, allowedFields) {
-      return data.keys().hasOnly(allowedFields);
-    }
-
-    function isValidUserCreate(data) {
-      return (data.get('uid', request.auth.uid) == request.auth.uid) &&
-             (data.get('role', 'user') == 'user') &&
-             (data.get('isBanned', false) == false);
-    }
-
-    function isValidUser(data) {
-      return data.uid is string &&
-             data.email is string &&
-             (!('social' in data) || (
-               data.social.get('nickname', '') is string &&
-               data.social.get('gender', '') in ['erkek', 'kadın', ''] &&
-               data.social.get('enabled', false) is bool &&
-               data.social.get('profileCompleted', false) is bool
-             ));
-    }
-
-    function isValidReport(data) {
-      return data.reporterId == request.auth.uid &&
-             data.reportedUserId is string &&
-             data.source in ['messages', 'profile', 'match', 'discovery'] &&
-             data.reason is string && data.reason.size() > 0 && data.reason.size() <= 100 &&
-             data.description is string && data.description.size() <= 500 &&
-             data.status == 'pending' &&
-             isTimestampOrString(data.createdAt);
-    }
-
-    // User Profile
+    // Users: Profiles are public to logged-in users, but writes are restricted
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId && isValidUserCreate(request.resource.data);
+      allow create: if isOwner(userId);
       allow update: if isOwner(userId) && 
-        (resource.data.get('isBanned', false) == false) &&
-        // PRODUCTION HARDENING: Only allow specific safe fields for client-side update
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'social', 'fcmToken', 'notificationSettings', 'lastTokenUpdateAt'
-        ]) && (
-          !request.resource.data.diff(resource.data).affectedKeys().contains('social') ||
-          request.resource.data.social.diff(resource.data.social).affectedKeys().hasOnly(['isOnline', 'lastSeen'])
-        );
-      allow delete: if false; // Only via backend/admin SDK
-    }
-
-    // Usage Logs
-    match /usageLogs/{logId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if false; // Only backend
-      allow update, delete: if isAdmin();
-    }
-
-    // Social Swipes
-    match /swipes/{swipeId} {
-      allow read: if isAuthenticated() && (
-        resource == null || 
-        resource.data.fromUserId == request.auth.uid || 
-        resource.data.toUserId == request.auth.uid || 
-        hasElevatedAccess()
-      );
-      allow create: if false; // Only via backend function
-      allow update: if false; // Only via backend function
-      allow delete: if isAuthenticated() && (
-        resource == null || 
-        resource.data.fromUserId == request.auth.uid || 
-        resource.data.toUserId == request.auth.uid || 
-        hasElevatedAccess()
-      );
-    }
-
-    // Interaction Requests
-    match /interactionRequests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource == null || 
-        resource.data.fromUserId == request.auth.uid || 
-        resource.data.toUserId == request.auth.uid || 
-        hasElevatedAccess()
-      );
-      allow create: if false; // Only via backend function
-      allow update: if false; // Only via backend function
-      allow delete: if isAuthenticated() && (
-        resource == null || 
-        resource.data.fromUserId == request.auth.uid || 
-        resource.data.toUserId == request.auth.uid || 
-        hasElevatedAccess()
-      );
-    }
-
-    // Chats
-    match /chats/{chatId} {
-      allow read: if isAuthenticated() && (
-        resource == null || 
-        request.auth.uid in resource.data.participants || 
-        hasElevatedAccess()
-      );
-      allow create: if false; // Only via backend function
-      allow update: if false; // Only via backend function
-      allow delete: if hasElevatedAccess();
-    }
-
-    // Messages
-    match /messages/{messageId} {
-      allow read: if isAuthenticated() && (
-        hasElevatedAccess() ||
-        (resource.data.participants is list && request.auth.uid in resource.data.participants)
-      );
-      allow create: if false; // Only via backend function
-      allow update: if false; // Only via backend function
-      allow delete: if hasElevatedAccess();
-    }
-
-    // Reports
-    match /reports/{reportId} {
-      allow read: if hasElevatedAccess();
-      allow create: if false; // Only via backend function
-      allow update: if false; // Only via backend function
-      allow delete: if false; // Only via backend function
-    }
-
-    // Social Transactions
-    match /socialTransactions/{txId} {
-      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid));
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || hasElevatedAccess();
-    }
-
-    // Withdrawal Requests
-    match /withdrawalRequests/{requestId} {
-      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || hasElevatedAccess();
-    }
-
-    // Social Gift Transactions
-    match /socialGiftTransactions/{txId} {
-      allow read: if isAdmin() || hasElevatedAccess() || (isAuthenticated() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid));
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || hasElevatedAccess();
-    }
-
-    // Hosting Packages
-    match /hostingPackages/{packageId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasElevatedAccess();
-    }
-
-    // Moderation Logs
-    match /moderationLogs/{logId} {
-      allow read: if isAdmin() || hasElevatedAccess();
-      allow create: if isAdmin() || hasElevatedAccess();
-      allow update, delete: if isAdmin() || hasElevatedAccess();
-    }
-
-    // Readings
-    match /readings/{readingId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isNotBanned() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && isNotBanned() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAdmin() || (isAuthenticated() && isNotBanned() && resource.data.userId == request.auth.uid);
-    }
-
-    // Wallet Transactions
-    match /walletTransactions/{txId} {
-      // Use request.auth.uid directly for query compatibility if possible, 
-      // but resource.data is needed for single doc reads and general security.
-      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
-      // PRODUCTION HARDENING: Only system/admin should create transactions.
-      // In a real app, this would be done via Admin SDK in Cloud Functions.
-      allow create: if isAdmin(); 
-      allow update: if isAdmin();
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mainCoins', 'energy', 'subscription', 'isBanned']);
       allow delete: if isAdmin();
     }
 
-    // Social Rooms
-    match /socialRooms/{roomId} {
-      allow read: if isAuthenticated();
-      allow write: if hasElevatedAccess();
+    // Chats: Only participants can read. Writes only via Functions.
+    match /chats/{chatId} {
+      allow read: if isParticipant(resource.data) || isAdmin();
+      allow write: if false; 
     }
 
-    // Test Connection
-    match /test/{testId} {
-      allow read: if true;
+    // Messages: Only participants can read. Writes only via Functions.
+    match /messages/{messageId} {
+      allow read: if isParticipant(resource.data) || isAdmin();
+      allow write: if false;
     }
 
-    match /test_write/{id} {
-      allow write: if true;
+    // Interaction Requests: Sender and Receiver can read. Writes only via Functions.
+    match /interactionRequests/{requestId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId || isAdmin());
+      allow write: if false;
     }
 
-    // Notifications
+    // Notifications: Only owner can read/update/delete. Create only via Functions.
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAdmin(); // Only via backend function or admin
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read, update, delete: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if false;
     }
 
-    // Prompts
-    match /prompts/{promptId} {
-      allow read: if true; // AI needs to read prompts
+    // Swipes: Read by owner. Writes only via Functions.
+    match /swipes/{swipeId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.fromUserId || isAdmin());
+      allow write: if false;
+    }
+
+    // Reports: Admin only read. Create only via Functions.
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Wallet & Economy: Admin only or Backend only
+    match /walletTransactions/{txId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /adminSettings/{settingId} {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Global Config
-    match /config/{configId} {
-      allow read: if true;
-      allow write: if false; // Only via backend function
-    }
-
-    // Admin Settings
-    match /adminSettings/{settingId} {
-      allow read: if true;
-      allow write: if false; // Only via backend function
-    }
-
-    // Promo Codes
-    match /promoCodes/{promoCodeId} {
-      allow read: if isAdmin(); // Only admin can see the list/details of codes
-      allow write: if false; // Only via backend function
-    }
-
-    // Promo Code Redemptions
-    match /promoCodeRedemptions/{redemptionId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if false; // Only via backend function
+    // Readings (Fortunes): Owner can read/create.
+    match /readings/{readingId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
-    // Compatibility History
+    // Compatibility
     match /compatibilityHistory/{id} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if false; // Only via backend function
-      allow update: if isAdmin();
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if false;
     }
 
-    // Compatibility Requests
-    match /compatibilityRequests/{id} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    // Default deny for everything else
+    match /{path=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }

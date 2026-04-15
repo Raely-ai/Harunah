@@ -2931,71 +2931,56 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 });
 
 export const sendMessageRequest = functions.https.onCall(async (data, context) => {
-  console.log("[sendMessageRequest] function start");
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const fromUserId = context.auth.uid;
   
+  // Support both toUserId (requested) and targetUserId (legacy/frontend)
+  const toUserId = data?.toUserId || data?.targetUserId;
+
+  if (!toUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID (toUserId) gerekli.');
+  if (fromUserId === toUserId) throw new functions.https.HttpsError('failed-precondition', 'Kendinize istek gönderemezsiniz.');
+
   try {
-    if (!context.auth) {
-      console.error("[sendMessageRequest] Unauthenticated call");
-      throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-    }
-    
-    const fromUserId = context.auth.uid;
-    const { targetUserId } = data || {};
-    console.log(`[sendMessageRequest] auth uid: ${fromUserId}, targetUserId: ${targetUserId}`);
-
-    if (!targetUserId) {
-      console.warn("[sendMessageRequest] Missing targetUserId");
-      throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-    }
-    if (fromUserId === targetUserId) {
-      console.warn("[sendMessageRequest] Self action detected");
-      return { status: 'SELF_ACTION' };
-    }
-
     const result = await db.runTransaction(async (transaction) => {
       const fromUserRef = db.collection("users").doc(fromUserId);
-      const toUserRef = db.collection("users").doc(targetUserId);
-      
+      const toUserRef = db.collection("users").doc(toUserId);
+
       const [fromUserSnap, toUserSnap] = await Promise.all([
         transaction.get(fromUserRef),
         transaction.get(toUserRef)
       ]);
 
-      if (!fromUserSnap.exists || !toUserSnap.exists) {
-        throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
-      }
+      if (!fromUserSnap.exists) throw new functions.https.HttpsError('not-found', 'Gönderen kullanıcı bulunamadı.');
+      if (!toUserSnap.exists) throw new functions.https.HttpsError('not-found', 'Hedef kullanıcı bulunamadı.');
 
       const fromUserData = fromUserSnap.data() as any;
       const toUserData = toUserSnap.data() as any;
 
-      // Block check
-      const isBlocked = (fromUserData.social?.blockedUserIds || []).includes(targetUserId) || 
-                        (toUserData.social?.blockedUserIds || []).includes(fromUserId);
-      if (isBlocked) return { status: 'BLOCKED' };
-
-      // Existing chat check
-      const chatId = `chat_${[fromUserId, targetUserId].sort().join('_')}`;
-      const chatRef = db.collection("chats").doc(chatId);
-      const chatSnap = await transaction.get(chatRef);
-      if (chatSnap.exists) return { status: 'ALREADY_CHATTING' };
-
-      // Existing request check
-      const requestId = `request_${fromUserId}_${targetUserId}`;
+      // Deterministic Request ID for transaction-safe duplicate check
+      const requestId = `req_${fromUserId}_${toUserId}`;
       const requestRef = db.collection("interactionRequests").doc(requestId);
       const requestSnap = await transaction.get(requestRef);
+
       if (requestSnap.exists) {
         const reqData = requestSnap.data();
-        if (reqData?.status === 'pending') return { status: 'ALREADY_REQUESTED' };
-        if (reqData?.status === 'accepted') return { status: 'ALREADY_CHATTING' };
+        if (reqData?.status === 'pending') {
+          return { status: 'ALREADY_REQUESTED' };
+        }
       }
 
-      // Create request
+      // Check if already chatting
+      const chatId = `chat_${[fromUserId, toUserId].sort().join('_')}`;
+      const chatSnap = await transaction.get(db.collection("chats").doc(chatId));
+      if (chatSnap.exists) {
+        return { status: 'ALREADY_CHATTING' };
+      }
+
       const now = admin.firestore.FieldValue.serverTimestamp();
-      
-      transaction.set(requestRef, {
+
+      const requestData = {
         id: requestId,
         fromUserId,
-        toUserId: targetUserId,
+        toUserId,
         status: "pending",
         type: "message_request",
         message: "",
@@ -3009,12 +2994,14 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
           nickname: toUserData.social?.nickname || toUserData.displayName || "İsimsiz",
           photoURL: toUserData.social?.photos?.[0] || toUserData.photoURL || ""
         }
-      });
+      };
 
-      // Create notification
+      transaction.set(requestRef, requestData);
+
+      // Create notification for receiver
       const notifRef = db.collection("notifications").doc();
       transaction.set(notifRef, {
-        userId: targetUserId,
+        userId: toUserId,
         type: "message_request",
         title: "Yeni Mesaj İsteği",
         message: `${fromUserData.social?.nickname || fromUserData.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
@@ -3025,15 +3012,15 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
 
       return { 
         status: 'SUCCESS', 
-        targetUserId,
+        toUserId,
         senderNickname: fromUserData.social?.nickname || fromUserData.displayName || "Biri"
       };
     });
 
     // Send Push Notification outside transaction
-    if (result.status === 'SUCCESS') {
+    if (result && result.status === 'SUCCESS') {
       try {
-        await sendPushToUser(result.targetUserId, {
+        await sendPushToUser(result.toUserId, {
           title: "Yeni Mesaj İsteği",
           body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`,
           data: { screen: 'notifications' },
@@ -3048,13 +3035,8 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
     return result;
 
   } catch (error: any) {
-    console.error("[sendMessageRequest] FATAL ERROR:", error);
-    console.error("[sendMessageRequest] Stack:", error.stack);
-    
-    if (error instanceof functions.https.HttpsError) {
-      throw error;
-    }
-    
+    console.error("[sendMessageRequest] Error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     return { 
       status: 'TECHNICAL_ERROR', 
       message: error.message || 'İşlem sırasında bir hata oluştu.' 
@@ -3506,53 +3488,60 @@ export const createChat = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   const { targetUserId } = data;
+
   if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+  if (userId === targetUserId) throw new functions.https.HttpsError('failed-precondition', 'Kendinizle sohbet başlatamazsınız.');
 
   const chatId = `chat_${[userId, targetUserId].sort().join('_')}`;
   const chatRef = db.collection("chats").doc(chatId);
   
   try {
-    const chatSnap = await chatRef.get();
-    if (chatSnap.exists) return { status: 'SUCCESS', chatId };
+    const result = await db.runTransaction(async (transaction) => {
+      const chatSnap = await transaction.get(chatRef);
+      if (chatSnap.exists) return { status: 'SUCCESS', chatId };
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    await chatRef.set({
-      id: chatId,
-      participants: [userId, targetUserId],
-      createdAt: now,
-      lastMessage: "Sohbet başladı! 👋",
-      lastMessageAt: now,
-      lastMessageSenderId: "system",
-      lastMessageStatus: 'sent',
-      status: 'active',
-      unreadCount: {
-        [userId]: 0,
-        [targetUserId]: 0
-      },
-      typing: {
-        [userId]: false,
-        [targetUserId]: false
-      }
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      
+      transaction.set(chatRef, {
+        id: chatId,
+        participants: [userId, targetUserId],
+        createdAt: now,
+        lastMessage: "Sohbet başladı! 👋",
+        lastMessageAt: now,
+        lastMessageSenderId: "system",
+        lastMessageStatus: 'sent',
+        status: 'active',
+        unreadCount: {
+          [userId]: 0,
+          [targetUserId]: 0
+        },
+        typing: {
+          [userId]: false,
+          [targetUserId]: false
+        }
+      });
+
+      const msgRef = db.collection("messages").doc();
+      transaction.set(msgRef, {
+        id: msgRef.id,
+        chatId,
+        participants: [userId, targetUserId],
+        senderId: "system",
+        text: "Sohbet başlayabilir.",
+        createdAt: now,
+        seen: false,
+        status: 'sent',
+        type: 'system'
+      });
+
+      return { status: 'SUCCESS', chatId };
     });
 
-    const msgRef = db.collection("messages").doc();
-    await msgRef.set({
-      id: msgRef.id,
-      chatId,
-      participants: [userId, targetUserId],
-      senderId: "system",
-      text: "Sohbet başlayabilir.",
-      createdAt: now,
-      seen: false,
-      status: 'sent',
-      type: 'system'
-    });
-
-    return { status: 'SUCCESS', chatId };
+    return result;
   } catch (error: any) {
     console.error("createChat error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    return { status: 'TECHNICAL_ERROR', message: error.message };
+    return { status: 'TECHNICAL_ERROR', message: error.message || 'İşlem sırasında bir hata oluştu.' };
   }
 });
 
