@@ -3075,103 +3075,111 @@ export const acceptRequest = functions.https.onCall(async (data, context) => {
 
   const requestRef = db.collection("interactionRequests").doc(requestId);
   
-  try {
-    return await db.runTransaction(async (transaction) => {
-      const requestSnap = await transaction.get(requestRef);
-      if (!requestSnap.exists) throw new functions.https.HttpsError('not-found', 'İstek bulunamadı.');
-      const request = requestSnap.data() as any;
+  const result = await db.runTransaction(async (transaction) => {
+    const requestSnap = await transaction.get(requestRef);
+    if (!requestSnap.exists) throw new functions.https.HttpsError('not-found', 'İstek bulunamadı.');
+    const request = requestSnap.data() as any;
 
-      if (request.toUserId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
-      if (request.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'İstek zaten işlenmiş.');
+    if (request.toUserId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+    if (request.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'İstek zaten işlenmiş.');
 
-      const fromUserId = request.fromUserId;
-      const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
-      const chatRef = db.collection("chats").doc(chatId);
-      
-      const now = admin.firestore.FieldValue.serverTimestamp();
+    const fromUserId = request.fromUserId;
+    
+    // Read both user docs to ensure they exist and get nicknames
+    const [fromUserSnap, toUserSnap] = await Promise.all([
+      transaction.get(db.collection("users").doc(fromUserId)),
+      transaction.get(db.collection("users").doc(userId))
+    ]);
 
-      // Update Request
-      transaction.update(requestRef, {
-        status: 'accepted',
-        updatedAt: now
-      });
+    if (!fromUserSnap.exists) throw new functions.https.HttpsError('not-found', 'Gönderen kullanıcı bulunamadı.');
+    if (!toUserSnap.exists) throw new functions.https.HttpsError('not-found', 'Alıcı kullanıcı bulunamadı.');
 
-      // Create/Update Chat
-      transaction.set(chatRef, {
-        id: chatId,
-        participants: [fromUserId, userId],
-        createdAt: now,
-        lastMessage: "Sohbet başladı! 👋",
-        lastMessageAt: now,
-        lastMessageSenderId: "system",
-        lastMessageStatus: 'sent',
-        status: 'active',
-        unreadCount: {
-          [fromUserId]: 0,
-          [userId]: 0
-        },
-        typing: {
-          [fromUserId]: false,
-          [userId]: false
-        }
-      }, { merge: true });
+    const fromUserData = fromUserSnap.data() as any;
+    const toUserData = toUserSnap.data() as any;
+    const toUserNickname = toUserData.social?.nickname || toUserData.displayName || "Biri";
 
-      // Initial Message
-      const msgRef = db.collection("messages").doc();
-      transaction.set(msgRef, {
-        id: msgRef.id,
-        chatId,
-        participants: [fromUserId, userId],
-        senderId: "system",
-        text: "Sohbet başlayabilir.",
-        createdAt: now,
-        seen: false,
-        status: 'sent',
-        type: 'system'
-      });
+    const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
+    const chatRef = db.collection("chats").doc(chatId);
+    
+    const now = admin.firestore.FieldValue.serverTimestamp();
 
-      // Notification for sender
-      const notifRef = db.collection("notifications").doc();
-      transaction.set(notifRef, {
-        userId: fromUserId,
-        type: "request_accepted",
-        title: "İstek Kabul Edildi!",
-        message: "Mesaj isteğin kabul edildi, sohbete başlayabilirsin! 🎉",
-        data: { chatId },
-        read: false,
-        createdAt: now
-      });
-
-      return { 
-        status: 'SUCCESS', 
-        chatId,
-        fromUserId,
-        toUserId: userId,
-        toUserNickname: fromUserData.social?.nickname || fromUserData.displayName || "Biri"
-      };
+    // Update Request
+    transaction.update(requestRef, {
+      status: 'accepted',
+      updatedAt: now
     });
 
-    // Send Push Notification outside transaction
-    if (result.status === 'SUCCESS') {
-      try {
-        await sendPushToUser(result.fromUserId, {
-          title: "İstek Kabul Edildi!",
-          body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`,
-          data: { screen: 'chat', chatId: result.chatId },
-          category: 'social',
-          senderId: result.toUserId
-        });
-      } catch (pushError) {
-        console.error("Push notification failed:", pushError);
+    // Create/Update Chat
+    transaction.set(chatRef, {
+      id: chatId,
+      participants: [fromUserId, userId],
+      createdAt: now,
+      lastMessage: "Sohbet başladı! 👋",
+      lastMessageAt: now,
+      lastMessageSenderId: "system",
+      lastMessageStatus: 'sent',
+      status: 'active',
+      unreadCount: {
+        [fromUserId]: 0,
+        [userId]: 0
+      },
+      typing: {
+        [fromUserId]: false,
+        [userId]: false
       }
-    }
+    }, { merge: true });
 
-    return result;
-  } catch (error: any) {
-    console.error("acceptRequest error:", error);
-    if (error instanceof functions.https.HttpsError) throw error;
-    return { status: 'TECHNICAL_ERROR', message: error.message };
+    // Initial Message
+    const msgRef = db.collection("messages").doc();
+    transaction.set(msgRef, {
+      id: msgRef.id,
+      chatId,
+      participants: [fromUserId, userId],
+      senderId: "system",
+      text: "Sohbet başlayabilir.",
+      createdAt: now,
+      seen: false,
+      status: 'sent',
+      type: 'system'
+    });
+
+    // Notification for sender
+    const notifRef = db.collection("notifications").doc();
+    transaction.set(notifRef, {
+      userId: fromUserId,
+      type: "request_accepted",
+      title: "İstek Kabul Edildi!",
+      message: `${toUserNickname} mesaj isteğini kabul etti, sohbete başlayabilirsin! 🎉`,
+      data: { chatId },
+      read: false,
+      createdAt: now
+    });
+
+    return { 
+      status: 'SUCCESS', 
+      chatId,
+      fromUserId,
+      toUserId: userId,
+      toUserNickname
+    };
+  });
+
+  // Send Push Notification outside transaction
+  if (result && result.status === 'SUCCESS') {
+    try {
+      await sendPushToUser(result.fromUserId, {
+        title: "İstek Kabul Edildi!",
+        body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`,
+        data: { screen: 'chat', chatId: result.chatId },
+        category: 'social',
+        senderId: result.toUserId
+      });
+    } catch (pushError) {
+      console.error("Push notification failed:", pushError);
+    }
   }
+
+  return result;
 });
 
 // 2. Reject Request
