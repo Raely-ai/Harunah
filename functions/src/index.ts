@@ -3588,11 +3588,12 @@ export const createReport = functions.https.onCall(async (data, context) => {
 export const updateSocialProfile = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
-
-  const userRef = db.collection("users").doc(userId);
-
+  
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    
+    const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
+    const userRef = db.collection("users").doc(userId);
     const updates: any = {};
     if (nickname !== undefined) {
       if (nickname.length > 50) throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
@@ -3613,7 +3614,7 @@ export const updateSocialProfile = functions.https.onCall(async (data, context) 
     if (isOnline !== undefined) updates["social.isOnline"] = isOnline;
     if (lastSeen !== undefined) updates["social.lastSeen"] = admin.firestore.FieldValue.serverTimestamp();
 
-    if (Object.keys(updates).length === 0) return { success: true };
+    if (Object.keys(updates).length === 0) return { status: 'SUCCESS', message: 'No changes' };
 
     updates["updatedAt"] = admin.firestore.FieldValue.serverTimestamp();
     await userRef.update(updates);
