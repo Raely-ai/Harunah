@@ -2899,15 +2899,18 @@ export const sendLike = functions.https.onCall(async (data, context) => {
     });
 
     // Send Push Notification outside transaction
-    if (result.status === 'SUCCESS' && (result.type === 'like' || result.type === 'super_like')) {
+    if (result && result.status === 'SUCCESS' && (result.type === 'like' || result.type === 'super_like')) {
       try {
-        await sendPushToUser(result.targetUserId, {
-          title: result.type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
-          body: `${result.senderNickname} seni beğendi! ❤️`,
-          data: { screen: 'notifications' },
-          category: 'social',
-          senderId: fromUserId
-        });
+        const targetId = result.targetUserId;
+        if (targetId) {
+          await sendPushToUser(targetId, {
+            title: result.type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
+            body: `${result.senderNickname} seni beğendi! ❤️`,
+            data: { screen: 'notifications' },
+            category: 'social',
+            senderId: fromUserId
+          });
+        }
       } catch (pushError) {
         console.error("Push notification failed:", pushError);
       }
@@ -3335,7 +3338,7 @@ export const markAsSeen = functions.https.onCall(async (data, context) => {
 
     // Update lastMessageStatus if it was from the other user
     const chatSnap = await chatRef.get();
-    if (chatSnap.exists() && chatSnap.data()?.lastMessageSenderId !== userId) {
+    if (chatSnap.exists && chatSnap.data()?.lastMessageSenderId !== userId) {
       batch.update(chatRef, { lastMessageStatus: 'seen' });
     }
 
