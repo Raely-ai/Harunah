@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
-import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import firebaseConfig from "../../firebase-applet-config.json";
@@ -13,7 +13,9 @@ export const functions = getFunctions(app, 'us-central1');
 
 // Initialize Firestore with specific settings to stabilize connection
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(), // Disable offline persistence
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  }), 
   experimentalForceLongPolling: true // Stabilize network connection in restricted environments
 }, firebaseConfig.firestoreDatabaseId);
 

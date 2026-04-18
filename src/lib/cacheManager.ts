@@ -1,18 +1,29 @@
 /**
- * Simple Memory Cache Manager with TTL (Time To Live)
+ * Enhanced Cache Manager with TTL and Persistence support
  */
 class CacheManager {
-  private cache: Map<string, { data: any; expiry: number }> = new Map();
+  private memoryCache: Map<string, { data: any; expiry: number }> = new Map();
 
   /**
    * Set a value in cache
    * @param key Unique key for the cache
    * @param data Data to store
    * @param ttlInSeconds Time to live in seconds (default 5 minutes)
+   * @param persistent Whether to persist in localStorage
    */
-  set(key: string, data: any, ttlInSeconds: number = 300) {
+  set(key: string, data: any, ttlInSeconds: number = 300, persistent: boolean = false) {
     const expiry = Date.now() + ttlInSeconds * 1000;
-    this.cache.set(key, { data, expiry });
+    const entry = { data, expiry };
+    
+    this.memoryCache.set(key, entry);
+    
+    if (persistent) {
+      try {
+        localStorage.setItem(`lasya_cache_${key}`, JSON.stringify(entry));
+      } catch (e) {
+        console.warn("Storage quota exceeded, caching in memory only.");
+      }
+    }
   }
 
   /**
@@ -21,11 +32,26 @@ class CacheManager {
    * @returns The data if exists and not expired, otherwise null
    */
   get<T>(key: string): T | null {
-    const entry = this.cache.get(key);
+    // 1. Try memory
+    let entry = this.memoryCache.get(key);
+    
+    // 2. Try localStorage if not in memory
+    if (!entry) {
+      try {
+        const stored = localStorage.getItem(`lasya_cache_${key}`);
+        if (stored) {
+          entry = JSON.parse(stored);
+          if (entry) this.memoryCache.set(key, entry);
+        }
+      } catch (e) {
+        console.warn("Cache parsing error for key:", key);
+      }
+    }
+
     if (!entry) return null;
 
     if (Date.now() > entry.expiry) {
-      this.cache.delete(key);
+      this.clear(key);
       return null;
     }
 
@@ -38,9 +64,14 @@ class CacheManager {
    */
   clear(key?: string) {
     if (key) {
-      this.cache.delete(key);
+      this.memoryCache.delete(key);
+      localStorage.removeItem(`lasya_cache_${key}`);
     } else {
-      this.cache.clear();
+      this.memoryCache.clear();
+      // Only clear our specific keys from localStorage
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('lasya_cache_'))
+        .forEach(k => localStorage.removeItem(k));
     }
   }
 
@@ -48,9 +79,7 @@ class CacheManager {
    * Check if a key exists and is valid
    */
   isValid(key: string): boolean {
-    const entry = this.cache.get(key);
-    if (!entry) return false;
-    return Date.now() <= entry.expiry;
+    return this.get(key) !== null;
   }
 }
 

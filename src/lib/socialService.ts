@@ -15,6 +15,10 @@ import { callFunction } from "./walletService";
 
 import { toast } from "sonner";
 
+import { cacheManager } from "./cacheManager";
+
+let lastPresenceStatus: boolean | null = null;
+
 export const socialService = {
   // 1. Create or Get Chat
   async createChat(_userAId: string, userBId: string): Promise<string> {
@@ -33,6 +37,12 @@ export const socialService = {
     if (!toUserId) return 'INVALID_TARGET';
     if (fromUser.uid === toUserId) return 'SELF_ACTION';
 
+    // Optimistic Update: Add to swiped list in cache immediately
+    const swipedIds = cacheManager.get<string[]>("socialSwipedIds") || [];
+    if (!swipedIds.includes(toUserId)) {
+      cacheManager.set("socialSwipedIds", [...swipedIds, toUserId], 86400, true);
+    }
+
     try {
       const result = await callFunction('sendLike', { targetUserId: toUserId, type });
       if (result.status === 'INSUFFICIENT_FUNDS') {
@@ -41,19 +51,25 @@ export const socialService = {
       return result.status;
     } catch (error: any) {
       console.error("socialService: Error in sendLike:", error);
+      // Auto-retry queue could go here, but for now we fallback to Firestore persistence (handled by SDK)
       return 'TECHNICAL_ERROR';
     }
   },
 
-  // 2.1 Get Swiped IDs
+  // 2.1 Get Swiped IDs (Local-First)
   async getSwipedUserIds(userId: string): Promise<string[]> {
+    const cached = cacheManager.get<string[]>("socialSwipedIds");
+    if (cached) return cached;
+
     try {
       const q = query(
         collection(db, "swipes"),
         where("fromUserId", "==", userId)
       );
       const snap = await getDocs(q);
-      return snap.docs.map(d => d.data().toUserId);
+      const ids = snap.docs.map(d => d.data().toUserId);
+      cacheManager.set("socialSwipedIds", ids, 86400, true);
+      return ids;
     } catch (error) {
       console.error("socialService: Error fetching swiped IDs:", error);
       return [];
@@ -122,11 +138,30 @@ export const socialService = {
 
   async updateUserStatus(uid: string, isOnline: boolean) {
     if (!uid || auth.currentUser?.uid !== uid) return;
+    
+    // Guard: Don't send same status consecutively
+    if (lastPresenceStatus === isOnline) return;
+    
+    // Simple Debounce Guard (3 seconds)
+    const now = Date.now();
+    const lastUpdate = (this as any)._lastStatusUpdateAt || 0;
+    if (now - lastUpdate < 3000) return;
+    (this as any)._lastStatusUpdateAt = now;
+
     try {
-      // We use updateSocialProfile for consistency, even if rules allow direct write for these fields
-      await callFunction('updateSocialProfile', { isOnline, lastSeen: new Date().toISOString() });
+      lastPresenceStatus = isOnline;
+      
+      const payload: any = { isOnline };
+      // Only send lastSeen when going offline
+      if (!isOnline) {
+        payload.lastSeen = new Date().toISOString();
+      }
+      
+      await callFunction('updateSocialProfile', payload);
     } catch (error) {
       console.error("socialService: Error updating user status:", error);
+      // Reset guard on error to allow retry
+      lastPresenceStatus = null;
     }
   },
 

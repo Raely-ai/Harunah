@@ -13,6 +13,8 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions, handleFirestoreError, OperationType } from "./firebase";
 import { AdminWalletConfig, WalletTransaction, EconomyConfig, RefreshActionResult, PurchaseActionResult } from "../types";
 
+import { cacheManager } from "./cacheManager";
+
 // Helper to call Firebase Functions
 export const callFunction = async (name: string, data?: any) => {
   const func = httpsCallable(functions, name);
@@ -84,12 +86,16 @@ export const DEFAULT_ADMIN_WALLET_CONFIG: AdminWalletConfig = {
 
 export const walletService = {
   async getAdminConfig(): Promise<AdminWalletConfig> {
+    const CACHE_KEY = "adminEconomyConfig";
+    const cached = cacheManager.get<AdminWalletConfig>(CACHE_KEY);
+    if (cached) return cached;
+
     const docRef = doc(db, "adminSettings", "economy");
     try {
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const economy = snap.data() as EconomyConfig;
-        return {
+        const config: AdminWalletConfig = {
           adRewardEnergy: economy.rewards.adRewardEnergy,
           maxDailyAds: economy.rewards.maxDailyAds,
           adRewardExpiryDays: economy.rewards.adRewardExpiryDays,
@@ -120,6 +126,8 @@ export const walletService = {
           socialBundles: DEFAULT_ADMIN_WALLET_CONFIG.socialBundles,
           coinPackages: economy.coinPackages.map(p => ({ id: p.id, coins: p.coins, price: p.priceTRY, bonus: p.bonus }))
         };
+        cacheManager.set(CACHE_KEY, config, 3600, true);
+        return config;
       }
       return DEFAULT_ADMIN_WALLET_CONFIG;
     } catch (error) {
@@ -157,6 +165,10 @@ export const walletService = {
   },
 
   async getTransactions(userId: string, limitCount: number = 20): Promise<WalletTransaction[]> {
+    const CACHE_KEY = `walletTransactions_${userId}`;
+    const cached = cacheManager.get<WalletTransaction[]>(CACHE_KEY);
+    if (cached) return cached;
+
     const q = query(
       collection(db, "walletTransactions"),
       where("userId", "==", userId),
@@ -165,7 +177,9 @@ export const walletService = {
     );
     try {
       const snaps = await getDocs(q);
-      return snaps.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
+      const txs = snaps.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
+      cacheManager.set(CACHE_KEY, txs, 600, true);
+      return txs;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "walletTransactions");
       return [];

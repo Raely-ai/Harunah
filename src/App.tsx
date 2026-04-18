@@ -141,39 +141,37 @@ function AppContent() {
 
   // Unified Startup Data Fetch (Config & Economy)
   useEffect(() => {
-    if (quotaExceeded) return;
-
     const fetchStartupData = async () => {
-      // 1. App Config
+      // 1. App Config - Persistence Enabled
       let currentConfig = cacheManager.get<AppConfig>("appConfig");
-      if (!currentConfig) {
+      if (currentConfig) setAppConfig(currentConfig);
+
+      try {
+        const snapshot = await getDoc(doc(db, "config", "global"));
+        if (snapshot.exists()) {
+          const freshConfig = snapshot.data() as AppConfig;
+          setAppConfig(freshConfig);
+          cacheManager.set("appConfig", freshConfig, 3600, true);
+        }
+      } catch (err: any) {
+        if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+      }
+
+      // 2. Economy Config (Only if user is logged in) - Persistence Enabled
+      if (user) {
+        let currentEconomy = cacheManager.get<EconomyConfig>("economyConfig");
+        if (currentEconomy) setEconomyConfig(currentEconomy);
+
         try {
-          const snapshot = await getDoc(doc(db, "config", "global"));
+          const snapshot = await getDoc(doc(db, "adminSettings", "economy"));
           if (snapshot.exists()) {
-            currentConfig = snapshot.data() as AppConfig;
-            cacheManager.set("appConfig", currentConfig, 3600);
+            const freshEconomy = snapshot.data() as EconomyConfig;
+            setEconomyConfig(freshEconomy);
+            cacheManager.set("economyConfig", freshEconomy, 1800, true);
           }
         } catch (err: any) {
           if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
         }
-      }
-      if (currentConfig) setAppConfig(currentConfig);
-
-      // 2. Economy Config (Only if user is logged in)
-      if (user && !economyConfig) {
-        let currentEconomy = cacheManager.get<EconomyConfig>("economyConfig");
-        if (!currentEconomy) {
-          try {
-            const snapshot = await getDoc(doc(db, "adminSettings", "economy"));
-            if (snapshot.exists()) {
-              currentEconomy = snapshot.data() as EconomyConfig;
-              cacheManager.set("economyConfig", currentEconomy, 1800);
-            }
-          } catch (err: any) {
-            if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
-          }
-        }
-        setEconomyConfig(currentEconomy || DEFAULT_ECONOMY_CONFIG);
       }
     };
 
@@ -194,17 +192,23 @@ function AppContent() {
     { type: 'havas', content: "Merhaba {isim}, ilmi havas ile gizli enerjilere bakıyorum. {cinsiyet} olarak hayatındaki {iliskidurumu} durumunu ve {isdurumu} hayatını inceliyorum. Doğum tarihin {dogumtarihi}. Ekstra bilgi: {ekbilgi}. Lütfen bu derin ilme göre hayatını detaylıca yorumla." },
   ]);
   
-    // Real Profile Sync (Unified and Quota-Aware)
+    // Real Profile Sync (Unified, Local-First, and Quota-Aware)
     useEffect(() => {
-      if (!user || quotaExceeded) {
-        if (!user) {
-          setUserProfile(null);
-        }
+      if (!user) {
+        setUserProfile(null);
         setIsProfileLoading(false);
         return;
       }
 
-      setIsProfileLoading(true);
+      const CACHE_KEY = `userProfile_${user.uid}`;
+      const cachedProfile = cacheManager.get<UserProfile>(CACHE_KEY);
+      if (cachedProfile) {
+        setUserProfile(cachedProfile);
+        setIsProfileLoading(false);
+      } else {
+        setIsProfileLoading(true);
+      }
+
       const userRef = doc(db, "users", user.uid);
 
       // Use a single onSnapshot for real-time profile updates
@@ -213,9 +217,10 @@ function AppContent() {
           const data = snapshot.data();
           const profile = normalizeUserProfile(data, snapshot.id);
           setUserProfile(profile);
+          cacheManager.set(CACHE_KEY, profile, 600, true); // Cache persistently for 10 mins
           setIsProfileLoading(false);
-        } else {
-          // Document doesn't exist, create it (Only once)
+        } else if (!quotaExceeded) {
+          // Document doesn't exist, create it (Only if not in quota error)
           try {
             const initialProfile: UserProfile = {
               uid: user.uid,
@@ -277,19 +282,24 @@ function AppContent() {
                 dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
               }
             };
-            await setDoc(userRef, initialProfile);
+            await setDoc(userRef, initialProfile, { merge: true });
           } catch (setErr: any) {
             if (setErr.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
           }
         }
       }, (err: any) => {
-        handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
-        if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+        const isQuota = err.message?.toLowerCase().includes("quota");
+        if (isQuota) {
+          setQuotaExceeded(true);
+          // If quota hit, we still have the cached profile in state
+        } else {
+          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+        }
         setIsProfileLoading(false);
       });
 
       return () => unsubscribe();
-    }, [user, quotaExceeded]);
+    }, [user?.uid, quotaExceeded]);
 
   // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
@@ -327,8 +337,8 @@ function AppContent() {
       setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
       setHasMoreHistory(snapshot.docs.length === 20);
       
-      // Cache for 5 minutes
-      cacheManager.set(`userHistory_${user.uid}`, fetchedHistory, 300);
+      // Cache for 1 hour persistently
+      cacheManager.set(`userHistory_${user.uid}`, fetchedHistory, 3600, true);
     } catch (err: any) {
       if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
       handleFirestoreError(err, OperationType.LIST, "readings");

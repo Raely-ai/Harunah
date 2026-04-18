@@ -96,13 +96,8 @@ export default function SocialMessagesScreen({
 
     const handleFetch = async (force = false) => {
       if (activeTab === 'chats') {
-        if (!force) {
-          const cached = cacheManager.get<any>(CHAT_LIST_CACHE_KEY);
-          if (cached) {
-            setChats(cached);
-            return;
-          }
-        }
+        const cached = cacheManager.get<any>(CHAT_LIST_CACHE_KEY);
+        if (cached) setChats(cached);
 
         setLoading(true);
         try {
@@ -136,20 +131,18 @@ export default function SocialMessagesScreen({
           });
 
           setChats(chatList);
-          cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 300);
-        } catch (error) {
+          cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 600, true);
+        } catch (error: any) {
+          if (error.message?.toLowerCase().includes("quota")) {
+            toast.error("Sohbet listesi güncellenemedi.");
+          }
           console.error("Error fetching chats:", error);
         } finally {
           setLoading(false);
         }
       } else if (activeTab === 'requests') {
-        if (!force) {
-          const cached = cacheManager.get<any>(REQUESTS_CACHE_KEY);
-          if (cached) {
-            setRequests(cached);
-            return;
-          }
-        }
+        const cached = cacheManager.get<any>(REQUESTS_CACHE_KEY);
+        if (cached) setRequests(cached);
 
         setLoading(true);
         try {
@@ -164,13 +157,16 @@ export default function SocialMessagesScreen({
           const snapshot = await getDocs(q);
           const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
           setRequests(requestList);
-          cacheManager.set(REQUESTS_CACHE_KEY, requestList, 300);
+          cacheManager.set(REQUESTS_CACHE_KEY, requestList, 600, true);
         } catch (error) {
           console.error("Error fetching requests:", error);
         } finally {
           setLoading(false);
         }
       } else if (activeTab === 'likers') {
+        const cached = cacheManager.get<any>(LIKERS_CACHE_KEY);
+        if (cached) setLikers(cached);
+
         setLoading(true);
         try {
           const q = query(
@@ -204,7 +200,7 @@ export default function SocialMessagesScreen({
           const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
           validLikers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
           setLikers(validLikers);
-          cacheManager.set(LIKERS_CACHE_KEY, validLikers, 300);
+          cacheManager.set(LIKERS_CACHE_KEY, validLikers, 600, true);
         } catch (error) {
           console.error("Error fetching likers:", error);
         } finally {
@@ -769,6 +765,8 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const lastProcessedSeenId = useRef<string | null>(null);
+  const lastProcessedDeliveredId = useRef<string | null>(null);
 
   // Sync chat doc updates (typing status, unread counts, etc.)
   useEffect(() => {
@@ -844,14 +842,18 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     fetchOtherUser();
   }, [chat.otherUser.uid]);
 
-  // Listen for messages and handle status updates
+  // Listen for messages and handle status updates with Cache-First approach
   useEffect(() => {
+    const CACHE_KEY = `chatMessages_${chat.id}`;
+    const cachedMessages = cacheManager.get<Message[]>(CACHE_KEY);
+    if (cachedMessages) setMessages(cachedMessages);
+
     const q = query(
       collection(db, "messages"),
       where("chatId", "==", chat.id),
       where("participants", "array-contains", currentUser.uid),
       orderBy("createdAt", "asc"),
-      limit(100)
+      limit(50)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -861,18 +863,26 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
       } as Message));
       
       setMessages(msgs);
+      cacheManager.set(CACHE_KEY, msgs, 1800, true); // Cache for 30 mins persistently
       
       // Mark as seen when chat is open and there are unread messages for current user
-      // We check chat.unreadCount from the latest state if possible, but here we use the msgs status
-      const hasUnseen = msgs.some(m => m.senderId !== currentUser.uid && m.status !== 'seen' && m.type !== 'system');
-      if (hasUnseen) {
-        socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);
+      const unseenMessages = msgs.filter(m => m.senderId !== currentUser.uid && m.status !== 'seen' && m.type !== 'system');
+      if (unseenMessages.length > 0) {
+        const latestUnseenId = unseenMessages[unseenMessages.length - 1].id;
+        if (lastProcessedSeenId.current !== latestUnseenId) {
+          lastProcessedSeenId.current = latestUnseenId;
+          socialService.markAsSeen(chat.id, currentUser.uid, otherUser.uid);
+        }
       }
       
       // Mark as delivered if there are messages with status 'sent' that are not from me
-      const hasUndelivered = msgs.some(m => m.senderId !== currentUser.uid && m.status === 'sent' && m.type !== 'system');
-      if (hasUndelivered) {
-        socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
+      const undeliveredMessages = msgs.filter(m => m.senderId !== currentUser.uid && m.status === 'sent' && m.type !== 'system');
+      if (undeliveredMessages.length > 0) {
+        const latestUndeliveredId = undeliveredMessages[undeliveredMessages.length - 1].id;
+        if (lastProcessedDeliveredId.current !== latestUndeliveredId) {
+          lastProcessedDeliveredId.current = latestUndeliveredId;
+          socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
+        }
       }
 
     }, (error) => {

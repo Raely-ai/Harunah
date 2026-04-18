@@ -255,7 +255,7 @@ export default function SocialDiscoverScreen({
         allUsers: updatedAllUsers,
         lastVisible: newLastVisible,
         hasMore: snapshot.docs.length === 10
-      }, DISCOVER_CACHE_TTL);
+      }, DISCOVER_CACHE_TTL, true);
 
     } catch (error) {
       console.error("Discover fetch error:", error);
