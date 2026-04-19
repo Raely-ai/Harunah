@@ -22,6 +22,7 @@ import {
   ModerationLog, SocialRoom, HostingPackage, SocialGiftTransaction,
   SocialCommerceConfig, normalizeUserProfile, FortuneAIConfig, FortuneType, EconomyConfig
 } from '../types';
+import { toSafeDate, formatSafeDate } from '../lib/dateUtils';
 import { adminService } from '../services/adminService';
 import { DEFAULT_ADMIN_WALLET_CONFIG } from '../lib/walletService';
 import { DEFAULT_AI_CONFIG, DEFAULT_ECONOMY_CONFIG } from '../constants';
@@ -517,7 +518,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-amber-500">{report.reason}</span>
                       <span className="text-white/20">•</span>
-                      <span className="text-[10px] text-white/40">{new Date(report.createdAt).toLocaleString('tr-TR')}</span>
+                      <span className="text-[10px] text-white/40">{formatSafeDate(report.createdAt, "dd.MM.yyyy HH:mm")}</span>
                     </div>
                     <p className="text-sm text-white/60 line-clamp-2">{report.description || 'Açıklama yok.'}</p>
                   </div>
@@ -1257,7 +1258,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     </div>
                     <div className="space-y-1">
                       <span className="text-[8px] font-bold text-white/20 uppercase">Bitiş</span>
-                      <p className="text-xs font-bold">{new Date(code.expiresAt).toLocaleDateString()}</p>
+                      <p className="text-xs font-bold">{formatSafeDate(code.expiresAt, "dd.MM.yyyy")}</p>
                     </div>
                   </div>
 
@@ -1493,11 +1494,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-white/40">Kayıt Tarihi:</span>
-                            <span className="text-white">{selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
+                            <span className="text-white">{formatSafeDate(selectedUser.createdAt, "dd.MM.yyyy")}</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-white/40">Son Giriş:</span>
-                            <span className="text-white">{selectedUser.lastLoginAt ? new Date(selectedUser.lastLoginAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
+                            <span className="text-white">{formatSafeDate(selectedUser.lastLoginAt, "dd.MM.yyyy")}</span>
                           </div>
                         </div>
                       </div>
@@ -1621,7 +1622,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-white/40">Bitiş:</span>
-                            <span className="text-white font-bold">{new Date(selectedUser.subscription.expiresAt!).toLocaleDateString('tr-TR')}</span>
+                            <span className="text-white font-bold">{formatSafeDate(selectedUser.subscription.expiresAt, "dd.MM.yyyy")}</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-white/40">Günlük Limit:</span>
@@ -1665,16 +1666,16 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <div>
                           <h3 className="text-xl font-bold">Profil Boost</h3>
                           <p className="text-sm text-white/40">
-                            Durum: {selectedUser.boostExpiresAt && new Date(selectedUser.boostExpiresAt) > new Date() ? 'Aktif' : 'Pasif'}
+                            Durum: {selectedUser.boostExpiresAt && toSafeDate(selectedUser.boostExpiresAt) > new Date() ? 'Aktif' : 'Pasif'}
                           </p>
                         </div>
                       </div>
 
-                      {selectedUser.boostExpiresAt && new Date(selectedUser.boostExpiresAt) > new Date() && (
+                      {selectedUser.boostExpiresAt && toSafeDate(selectedUser.boostExpiresAt) > new Date() && (
                         <div className="bg-black/40 border border-white/5 rounded-2xl p-6 space-y-4">
                           <div className="flex justify-between text-sm">
                             <span className="text-white/40">Bitiş:</span>
-                            <span className="text-white font-bold">{new Date(selectedUser.boostExpiresAt).toLocaleString('tr-TR')}</span>
+                            <span className="text-white font-bold">{formatSafeDate(selectedUser.boostExpiresAt, "dd.MM.yyyy HH:mm")}</span>
                           </div>
                         </div>
                       )}
@@ -1893,7 +1894,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-xs font-bold truncate">{otherSnap?.nickname || 'Bilinmeyen'}</span>
                                     <span className={`text-[8px] font-bold uppercase ${selectedChat?.id === chat.id ? 'text-black/60' : 'text-white/20'}`}>
-                                      {chat.lastMessageAt ? (typeof chat.lastMessageAt === 'string' ? new Date(chat.lastMessageAt).toLocaleDateString() : new Date(chat.lastMessageAt.seconds * 1000).toLocaleDateString()) : ''}
+                                      {formatSafeDate(chat.lastMessageAt, "dd.MM.yyyy")}
                                     </span>
                                   </div>
                                   <p className={`text-[10px] truncate ${selectedChat?.id === chat.id ? 'text-black/60' : 'text-white/40'}`}>
@@ -1956,7 +1957,7 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                     </button>
                                   </div>
                                   <span className="text-[8px] font-bold text-white/20 mt-1 uppercase">
-                                    {msg.createdAt ? (typeof msg.createdAt === 'string' ? new Date(msg.createdAt).toLocaleString() : new Date(msg.createdAt.seconds * 1000).toLocaleString()) : ''}
+                                    {formatSafeDate(msg.createdAt, "dd.MM.yyyy HH:mm")}
                                   </span>
                                 </div>
                               ))

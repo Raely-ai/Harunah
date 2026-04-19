@@ -44,6 +44,7 @@ import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message, normalizeUserProfile } from "../types";
 import { format, formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
+import { toSafeDate, formatSafeDate } from "../lib/dateUtils";
 import { toast } from "sonner";
 import SocialProfilePopup from "./SocialProfilePopup";
 import { socialService } from "../lib/socialService";
@@ -125,8 +126,8 @@ export default function SocialMessagesScreen({
           }));
           
           chatList.sort((a, b) => {
-            const timeA = a.lastMessageAt?.toMillis?.() || Date.now();
-            const timeB = b.lastMessageAt?.toMillis?.() || Date.now();
+            const timeA = toSafeDate(a.lastMessageAt).getTime();
+            const timeB = toSafeDate(b.lastMessageAt).getTime();
             return timeB - timeA;
           });
 
@@ -198,7 +199,7 @@ export default function SocialMessagesScreen({
           }));
 
           const validLikers = likerList.filter((l): l is NonNullable<typeof l> => l !== null);
-          validLikers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+          validLikers.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
           setLikers(validLikers);
           cacheManager.set(LIKERS_CACHE_KEY, validLikers, 600, true);
         } catch (error) {
@@ -685,7 +686,7 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
           </h3>
           {chat.lastMessageAt && (
             <span className={`text-[10px] font-bold whitespace-nowrap ml-2 uppercase tracking-tight ${unreadCount > 0 ? 'text-amber-600' : 'text-muted'}`}>
-              {format(chat.lastMessageAt.toDate?.() || new Date(), "HH:mm", { locale: tr })}
+              {formatSafeDate(chat.lastMessageAt, "HH:mm")}
             </span>
           )}
         </div>
@@ -1053,12 +1054,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
   const getPresenceText = () => {
     if (otherUser.social?.isOnline) return "Çevrimiçi";
     if (otherUser.social?.lastSeen) {
-      try {
-        const lastSeenDate = otherUser.social.lastSeen.toDate();
-        return `Son görülme: ${formatDistanceToNow(lastSeenDate, { addSuffix: true, locale: tr })}`;
-      } catch (e) {
-        return "Çevrimdışı";
-      }
+      return `Son görülme: ${formatDistanceToNow(toSafeDate(otherUser.social.lastSeen), { addSuffix: true, locale: tr })}`;
     }
     return "Çevrimdışı";
   };
@@ -1375,7 +1371,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
                     {isLastInGroup && (
                       <div className={`flex items-center gap-1.5 mt-1 px-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <span className="text-[9px] font-black text-muted/40 uppercase tracking-tighter">
-                          {msg.createdAt ? format(msg.createdAt.toDate(), "HH:mm", { locale: tr }) : "..."}
+                          {formatSafeDate(msg.createdAt, "HH:mm")}
                         </span>
                         {isMe && (
                           <div className="flex items-center">

@@ -290,7 +290,6 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       return { status: 'SUCCESS', toUserId, senderNickname: fromSnap.data()?.social?.nickname || fromSnap.data()?.displayName };
     });
 
-    // Performance: Async push
     if (result.status === 'SUCCESS') {
       sendPushToUser(result.toUserId, { title: "Yeni Mesaj İsteği", body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`, category: 'social', senderId: fromUserId }).catch(e => console.error("Push failed:", e));
     }
@@ -385,7 +384,6 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
       return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName, lastMsgText };
     });
 
-    // Performance: Async push
     if (result.status === 'SUCCESS') {
       sendPushToUser(result.receiverId, { title: result.senderNickname, body: result.lastMsgText, data: { screen: 'chat', chatId: result.chatId }, category: 'messages', senderId }).catch(e => console.error("Push failed:", e));
     }

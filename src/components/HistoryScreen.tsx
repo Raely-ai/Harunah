@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import ReadingResult from "./ReadingResult";
 import { FortuneReading, FortuneType, UserProfile } from "../types";
+import { formatSafeDate } from "../lib/dateUtils";
 import { toast } from "sonner";
 
 interface HistoryScreenProps {
@@ -238,7 +239,7 @@ export default function HistoryScreen({
                             <h3 className="font-serif font-bold text-white text-xl group-hover:text-amber-400 transition-colors leading-tight">{reading.title}</h3>
                             <div className="flex items-center gap-3 mt-2">
                               <span className="text-[10px] text-white/30 uppercase tracking-widest font-black">
-                                {reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
+                                {formatSafeDate(reading.createdAt, "dd.MM.yyyy")}
                               </span>
                               <span className="w-1 h-1 rounded-full bg-white/10" />
                               <div className={`flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5 ${status.color}`}>

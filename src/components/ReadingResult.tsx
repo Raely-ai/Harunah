@@ -13,6 +13,7 @@ import {
   Star
 } from "lucide-react";
 import { FortuneReading } from "../types";
+import { toSafeDate } from "../lib/dateUtils";
 
 interface ReadingResultProps {
   reading: FortuneReading;
@@ -102,11 +103,11 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
           <div className="flex items-center justify-center gap-8 text-[11px] font-black uppercase tracking-[0.3em] text-white/30">
             <div className="flex items-center gap-2.5">
               <Calendar className="w-3.5 h-3.5" />
-              <span>{reading.createdAt ? new Date(reading.createdAt).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>
+              <span>{toSafeDate(reading.createdAt).toLocaleDateString('tr-TR')}</span>
             </div>
             <div className="flex items-center gap-2.5">
               <Clock className="w-3.5 h-3.5" />
-              <span>{reading.createdAt ? new Date(reading.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
+              <span>{toSafeDate(reading.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
         </div>

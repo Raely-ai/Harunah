@@ -27,6 +27,7 @@ import {
   Ticket
 } from "lucide-react";
 import { UserProfile, WalletTransaction, EconomyConfig } from "../types";
+import { formatSafeDate } from "../lib/dateUtils";
 import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { walletService } from "../lib/walletService";
 import { toast } from "sonner";
@@ -594,7 +595,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                         </div>
                         <div>
                           <p className="text-sm font-bold text-heading">{tx.description || 'Cüzdan İşlemi'}</p>
-                          <p className="text-[10px] text-muted">{tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('tr-TR') : '-'}</p>
+                          <p className="text-[10px] text-muted">{formatSafeDate(tx.createdAt, "dd.MM.yyyy") || '-'}</p>
                         </div>
                       </div>
                       <div className="text-right">

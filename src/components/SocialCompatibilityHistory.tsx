@@ -29,6 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, CompatibilityHistory } from '../types';
+import { toSafeDate } from '../lib/dateUtils';
 import { toast } from 'sonner';
 import { walletService } from '../lib/walletService';
 
@@ -534,7 +535,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-heading truncate uppercase tracking-tight">{item.targetName}</h4>
                       <span className="text-[7px] font-bold text-muted/40 uppercase">
-                        {new Date(item.createdAt).toLocaleDateString('tr-TR')}
+                        {toSafeDate(item.createdAt).toLocaleDateString('tr-TR')}
                       </span>
                     </div>
                     <p className="text-[9px] text-muted/60 font-medium truncate italic">
