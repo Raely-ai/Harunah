@@ -21,14 +21,15 @@ let lastPresenceStatus: boolean | null = null;
 
 export const socialService = {
   // 1. Create or Get Chat
-  async createChat(_userAId: string, userBId: string): Promise<string> {
+  async createChat(_userAId: string, userBId: string): Promise<string | null> {
     try {
       const result = await callFunction('createChat', { targetUserId: userBId });
       if (result.status === 'SUCCESS') return result.chatId;
       throw new Error(result.message || "Sohbet oluşturulamadı.");
     } catch (error: any) {
       console.error("socialService: Error in createChat:", error);
-      throw error;
+      toast.error(error.message || "Sohbet oluşturulamadı.");
+      return null;
     }
   },
 
@@ -106,7 +107,7 @@ export const socialService = {
 
     try {
       const result = await callFunction('sendMessageRequest', { targetUserId: toUser.uid });
-      return result.status;
+      return result.status || 'SUCCESS';
     } catch (error: any) {
       console.error("socialService: Error in sendMessageRequest:", error);
       return 'TECHNICAL_ERROR';
@@ -121,7 +122,8 @@ export const socialService = {
       throw new Error(result.message || "İstek kabul edilemedi.");
     } catch (error: any) {
       console.error("socialService: Error in acceptRequest:", error);
-      throw error;
+      toast.error(error.message || "İstek kabul edilemedi.");
+      return null;
     }
   },
 
@@ -130,9 +132,11 @@ export const socialService = {
     try {
       const result = await callFunction('rejectRequest', { requestId });
       if (result.status !== 'SUCCESS') throw new Error(result.message || "İstek reddedilemedi.");
+      return true;
     } catch (error: any) {
       console.error("socialService: Error in rejectRequest:", error);
-      throw error;
+      toast.error(error.message || "İstek reddedilemedi.");
+      return false;
     }
   },
 
@@ -157,7 +161,8 @@ export const socialService = {
         payload.lastSeen = new Date().toISOString();
       }
       
-      await callFunction('updateSocialProfile', payload);
+      // We use a background fire-and-forget style for status to not block
+      callFunction('updateSocialProfile', payload).catch(e => console.warn("Status update silent fail:", e));
     } catch (error) {
       console.error("socialService: Error updating user status:", error);
       // Reset guard on error to allow retry
@@ -204,7 +209,8 @@ export const socialService = {
       throw new Error(result.message || "Mesaj gönderilemedi.");
     } catch (error: any) {
       console.error("socialService: Error in sendMessage:", error);
-      throw error;
+      toast.error(error.message || "Mesaj gönderilemedi.");
+      return null;
     }
   },
 
@@ -225,9 +231,11 @@ export const socialService = {
     try {
       const result = await callFunction('deleteChat', { chatId });
       if (result.status !== 'SUCCESS') throw new Error(result.message || "Sohbet silinemedi.");
+      return true;
     } catch (error: any) {
       console.error("socialService: Error in deleteChat:", error);
-      throw error;
+      toast.error(error.message || "Sohbet silinemedi.");
+      return false;
     }
   },
 
@@ -251,9 +259,11 @@ export const socialService = {
     try {
       const result = await callFunction('deleteMessage', { messageId, forEveryone });
       if (result.status !== 'SUCCESS') throw new Error(result.message || "Mesaj silinemedi.");
+      return true;
     } catch (error: any) {
       console.error("socialService: Error in deleteMessage:", error);
-      throw error;
+      toast.error(error.message || "Mesaj silinemedi.");
+      return false;
     }
   },
 

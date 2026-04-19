@@ -22,16 +22,23 @@ export const callFunction = async (name: string, data?: any) => {
     const result = await func(data);
     return result.data as any;
   } catch (error: any) {
+    // Determine if this is a quota error or internal error
+    const isQuotaError = error.message?.toLowerCase().includes('quota') || 
+                         error.code === 'resource-exhausted';
+    
+    if (isQuotaError) {
+      console.warn(`Firebase Function ${name} hit quota limit. Falling back.`);
+      return { success: false, status: 'QUOTA_EXCEEDED', message: "Hizmet şu an yoğun." };
+    }
+
     console.error(`Firebase Function ${name} error:`, error);
     
     // Extract meaningful error message
     let message = "Bir hata oluştu.";
     if (error.message) {
-      // If it's a standard HttpsError, the message is usually what we want
       message = error.message;
     }
     
-    // If it's an internal error, try to see if there's more detail in the details object
     if (error.code === 'internal' && error.details) {
       message = typeof error.details === 'string' ? error.details : JSON.stringify(error.details);
     }
@@ -144,12 +151,21 @@ export const walletService = {
   },
 
   async spendBalance(_userId: string, balanceType: 'main' | 'energy', amount: number, source: string, description: string): Promise<{ success: boolean; message?: string }> {
-    return await callFunction('spendBalance', { balanceType, amount, source, description });
+    try {
+      return await callFunction('spendBalance', { balanceType, amount, source, description });
+    } catch (error: any) {
+      console.error("spendBalance error:", error);
+      return { success: false, message: error.message || "Bakiye harcanamadı." };
+    }
   },
 
   async purchaseSocialRight(_userId: string, type: 'superLike' | 'refresh' | 'compatibility', quantity: number = 1): Promise<{ success: boolean; status: PurchaseActionResult; message?: string }> {
     const description = type === 'superLike' ? 'Süper Like' : type === 'refresh' ? 'Keşfet Yenileme' : 'Uyum Analizi';
-    return await callFunction('purchaseSocialItem', { type, description, quantity });
+    try {
+      return await callFunction('purchaseSocialItem', { type, description, quantity });
+    } catch (error: any) {
+      return { success: false, status: 'ERROR', message: error.message };
+    }
   },
 
   async purchaseSocialBundle(_userId: string, bundleId: string): Promise<{ success: boolean; message?: string }> {
@@ -187,36 +203,69 @@ export const walletService = {
   },
 
   async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string }> {
-    const config = await this.getAdminConfig();
-    return await callFunction('consumeSocialFeature', { type, config });
+    try {
+      const config = await this.getAdminConfig();
+      return await callFunction('consumeSocialFeature', { type, config });
+    } catch (error: any) {
+      console.error("consumeSocialFeature error:", error);
+      return { success: false };
+    }
   },
 
   async purchaseBoostPackage(_userId: string, type: 'weekly' | 'monthly'): Promise<{ success: boolean; message?: string; boostExpiresAt?: string }> {
-    return await callFunction('purchaseBoostPackage', { type });
+    try {
+      return await callFunction('purchaseBoostPackage', { type });
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
   },
 
   async sendSuperLike(targetUserId: string): Promise<{ success: boolean; chatId?: string }> {
-    return await callFunction('sendSuperLikeAndCreateChat', { targetUserId });
+    try {
+      return await callFunction('sendSuperLikeAndCreateChat', { targetUserId });
+    } catch (error: any) {
+      return { success: false };
+    }
   },
 
   async refreshDiscoverFeed(): Promise<{ success: boolean; status: RefreshActionResult; users: any[] }> {
-    return await callFunction('refreshDiscoverFeed');
+    try {
+      return await callFunction('refreshDiscoverFeed');
+    } catch (error: any) {
+      return { success: false, status: 'ERROR', users: [] };
+    }
   },
 
   async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; readyAt?: string }> {
-    return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
+    try {
+      return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
+    } catch (error: any) {
+      return { success: false, cached: false };
+    }
   },
   
   async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; readyAt: string }> {
-    return await callFunction('runManualCompatibilityAnalysis', data);
+    try {
+      return await callFunction('runManualCompatibilityAnalysis', data);
+    } catch (error: any) {
+      return { success: false, requestId: '', readyAt: '' };
+    }
   },
 
   async refreshDiscover(): Promise<{ success: boolean; status: RefreshActionResult; lastRefreshAt: string }> {
-    return await callFunction('refreshDiscover');
+    try {
+      return await callFunction('refreshDiscover');
+    } catch (error: any) {
+      return { success: false, status: 'ERROR', lastRefreshAt: new Date().toISOString() };
+    }
   },
 
   async updateSocialSettings(settings: any): Promise<{ success: boolean }> {
-    return await callFunction('updateSocialSettings', { settings });
+    try {
+      return await callFunction('updateSocialSettings', { settings });
+    } catch (error: any) {
+      return { success: false };
+    }
   },
 
   async adminGrantWallet(targetUserId: string, amount: number, balanceType: 'main' | 'energy', description: string): Promise<void> {

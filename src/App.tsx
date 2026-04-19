@@ -119,6 +119,24 @@ function AppContent() {
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
 
+  const activeProfile = previewUser || userProfile || ({
+    uid: user?.uid || "guest",
+    email: user?.email || "",
+    displayName: user?.displayName || "Gezgin",
+    photoURL: user?.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=Guest",
+    mainCoins: 0,
+    energy: 0,
+    role: 'user',
+    social: { enabled: false, profileCompleted: false }
+  } as any);
+
+  const activeConfig = appConfig || {
+    prices: { coffee: 0, tarot: 0, water: 0, ebced: 0, yildizname: 0, havas: 0, dream: 0, extraQuestion: 0, priorityFee: 0 },
+    icons: { coffee: '☕', tarot: '🃏', water: '💧', ebced: '❤️', yildizname: '⭐', havas: '✨' }
+  } as any;
+
+  const activeEconomy = economyConfig || DEFAULT_ECONOMY_CONFIG;
+
   // Admin Preview Mode (Optimized to getDoc)
   useEffect(() => {
     const previewId = localStorage.getItem('admin_preview_user_id');
@@ -418,54 +436,39 @@ function AppContent() {
   };
 
   const handleSelectFortune = (type: FortuneType) => {
-    if (!userProfile || !appConfig) return;
-
-    const prices = economyConfig?.fortunePricing || DEFAULT_ECONOMY_CONFIG.fortunePricing;
+    // No early return for null profile/config - we use defaults
+    const prices = activeEconomy?.fortunePricing || DEFAULT_ECONOMY_CONFIG.fortunePricing;
     const price = (prices as any)[type] || 0;
-    const isSubscribed = userProfile.subscription?.status === 'active';
+    const isSubscribed = activeProfile.subscription?.status === 'active';
     const isAdEligible = ['coffee', 'tarot'].includes(type);
 
     if (isSubscribed) {
-      const subLimits = economyConfig?.subscriptionLimits || DEFAULT_ECONOMY_CONFIG.subscriptionLimits;
-      const subUsed = userProfile.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 };
+      const subLimits = activeEconomy?.subscriptionLimits || DEFAULT_ECONOMY_CONFIG.subscriptionLimits;
+      const subUsed = activeProfile.subscription?.dailyReadingsUsed || { coffee: 0, tarot: 0, advanced: 0 };
       const limit = subLimits.totalDaily;
       const used = (subUsed.coffee || 0) + (subUsed.tarot || 0) + (subUsed.advanced || 0);
 
-      if (used >= limit) {
-        toast.error(`Günlük abonelik limitinize ulaştınız (${limit}).`, {
-          description: "Diğer bakiyelerinizi kullanabilir veya yarın tekrar deneyebilirsiniz."
-        });
-        // Don't return, let them use credits if they want? 
-        // Actually, usually subscription means "free up to limit". 
-        // If limit reached, they should use credits.
-      } else {
+      if (used < limit) {
         setActiveFortune(type);
         return;
       }
     }
 
-    // Reset daily ad readings if needed
     const today = new Date().toISOString().split('T')[0];
-    const adUsage = userProfile.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: today };
-    if (adUsage.lastResetDate !== today) {
-      adUsage.coffee = 0;
-      adUsage.tarot = 0;
-      adUsage.lastResetDate = today;
-    }
-
+    const adUsage = activeProfile.dailyAdReadingsUsed || { coffee: 0, tarot: 0, lastResetDate: today };
+    
     // Check Ad Credits first for Coffee/Tarot
     if (isAdEligible) {
-      const adLimit = 2; // User specified 2 coffee, 2 tarot limit for ad credits
+      const adLimit = 2;
       const used = adUsage[type as 'coffee' | 'tarot'];
-      
-      if ((userProfile.energy || 0) >= price && used < adLimit) {
+      if ((activeProfile.energy || 0) >= price && used < adLimit) {
         setActiveFortune(type);
         return;
       }
     }
 
     // Check Main Credits
-    if ((userProfile.mainCoins || 0) < price) {
+    if ((activeProfile.mainCoins || 0) < price) {
       toast.error("Bakiyen yetersiz!", {
         description: isAdEligible 
           ? "Reklam izleyerek kredi kazanabilir veya bakiye yükleyebilirsin."
@@ -556,15 +559,7 @@ function AppContent() {
   }, [user, userProfile, history, quotaExceeded]);
 
   const handleFortuneComplete = async (data: any) => {
-    console.log("handleFortuneComplete triggered with data:", data);
-    if (!user || !userProfile || !appConfig || isSubmitting || quotaExceeded) {
-      console.log("handleFortuneComplete early return:", { 
-        hasUser: !!user, 
-        hasProfile: !!userProfile, 
-        hasConfig: !!appConfig, 
-        isSubmitting, 
-        quotaExceeded 
-      });
+    if (!user || isSubmitting || quotaExceeded) {
       return;
     }
 
@@ -574,9 +569,8 @@ function AppContent() {
     });
 
     try {
-      console.log("Calling createFortuneReading...");
-      const createFortune = httpsCallable(functions, 'createFortuneReading');
-      const result: any = await createFortune({
+      const createFortuneFunc = httpsCallable(functions, 'createFortuneReading');
+      const result: any = await createFortuneFunc({
         type: data.type,
         formData: {
           adSoyad: data.adSoyad,
@@ -593,18 +587,16 @@ function AppContent() {
         priorityMode: data.priorityMode
       });
 
-      console.log("createFortuneReading response:", result);
-      const { readingId } = result.data;
+      const { readingId } = result.data || {};
 
       if (!readingId) {
-        throw new Error("Reading ID not received from server");
+        throw new Error("Mistik bağlantı şu an kurulamadı. Lütfen bakiye kontrolü yapın.");
       }
 
-      // Trigger AI immediately
-      console.log("Calling processFortuneAI for readingId:", readingId);
-      const processAI = httpsCallable(functions, 'processFortuneAI');
-      await processAI({ readingId });
-      console.log("processFortuneAI completed successfully");
+      // Background AI Trigger (Non-blocking)
+      httpsCallable(functions, 'processFortuneAI')({ readingId }).catch(e => {
+        console.warn("AI background trigger failed:", e);
+      });
 
       toast.dismiss(loadingToast);
       toast.success("Falınız sıraya alındı!", {
@@ -614,19 +606,20 @@ function AppContent() {
       setActiveFortune(null);
       playSound('success');
       
-      // Clear history cache to force refresh
       cacheManager.clear(`userHistory_${user.uid}`);
       fetchHistory(true);
-      
-      // Navigate to history to show the new reading status
-      setActiveTab('fortunes');
+      setActiveTab('history'); // Navigate to history immediately
       
       return { id: readingId };
     } catch (error: any) {
       console.error("Fortune creation error:", error);
       toast.dismiss(loadingToast);
+      
+      const isQuota = error.message?.toLowerCase().includes("quota");
+      if (isQuota) setQuotaExceeded(true);
+
       toast.error("İşlem başarısız", {
-        description: error.message || "Lütfen daha sonra tekrar deneyin."
+        description: isQuota ? "Yıldızlar şu an çok yoğun, lütfen birazdan tekrar deneyin." : (error.message || "Lütfen daha sonra tekrar deneyin.")
       });
     } finally {
       setIsSubmitting(false);
@@ -686,26 +679,7 @@ function AppContent() {
     }
   };
 
-  const activeProfile = previewUser || userProfile;
-
-  // Show loading while checking auth or fetching profile for logged in user
-  if (loading || (user && isProfileLoading && !activeProfile)) {
-    return (
-      <div className="min-h-screen bg-[#FDFCFE] flex items-center justify-center p-6">
-        <div className="flex flex-col items-center gap-6">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 border-4 border-black/5 border-t-amber-500 rounded-full"
-          />
-          <div className="space-y-2 text-center">
-            <h2 className="text-xl font-serif font-bold text-heading">LASYA Yükleniyor</h2>
-            <p className="text-muted text-sm italic">Yıldızlar senin için hizalanıyor...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Removed duplicate activeProfile and loading return
 
   if (showSplash) {
     return <SplashScreen />;
@@ -736,7 +710,7 @@ function AppContent() {
     return <EmailVerificationScreen />;
   }
 
-  if (activeProfile?.isBanned) {
+  if (activeProfile.isBanned === true) {
     return (
       <div className="min-h-screen bg-[#FDFCFE] flex flex-col items-center justify-center p-8 text-center space-y-6">
         <div className="w-24 h-24 rounded-[2.5rem] bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-500 mb-4 shadow-sm">
@@ -865,7 +839,7 @@ function AppContent() {
 
       <div className={`relative z-10 w-full ${activeTab === 'home' ? 'h-screen overflow-hidden' : 'pb-32'}`}>
         <AnimatePresence mode="wait">
-          {activeTab === 'home' && activeProfile && (
+          {activeTab === 'home' && (
             <motion.div
               key="home"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -880,12 +854,12 @@ function AppContent() {
                 history={history}
                 onSelectFortune={handleSelectFortune}
                 onNavigate={handleNavigate}
-                config={appConfig}
+                config={activeConfig}
               />
             </motion.div>
           )}
 
-          {activeTab === 'fortunes' && activeProfile && (
+          {activeTab === 'fortunes' && (
             <motion.div
               key="fortunes"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -896,8 +870,8 @@ function AppContent() {
               <FortunesScreen 
                 onSelectFortune={handleSelectFortune}
                 onBack={() => handleNavigate('home')}
-                config={appConfig}
-                economyConfig={economyConfig}
+                config={activeConfig}
+                economyConfig={activeEconomy}
                 userProfile={activeProfile}
                 history={history}
                 onDeleteHistory={handleDeleteHistory}
@@ -907,7 +881,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'messages' && activeProfile && (
+          {activeTab === 'messages' && (
             <motion.div
               key="messages"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -944,7 +918,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'wallet' && activeProfile && (
+          {activeTab === 'wallet' && (
             <motion.div
               key="wallet"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -956,12 +930,12 @@ function AppContent() {
               <SocialWalletScreen 
                 currentUser={activeProfile}
                 onNavigate={handleNavigate}
-                economyConfig={economyConfig}
+                economyConfig={activeEconomy}
               />
             </motion.div>
           )}
 
-          {activeTab === 'profile' && activeProfile && (
+          {activeTab === 'profile' && (
             <motion.div
               key="profile"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -982,7 +956,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'social-profile' && activeProfile && (
+          {activeTab === 'social-profile' && (
             <motion.div
               key="social-profile"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -998,7 +972,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'social-intro' && activeProfile && (
+          {activeTab === 'social-intro' && (
             <motion.div
               key="social-intro"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1020,7 +994,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'social-onboarding' && activeProfile && (
+          {activeTab === 'social-onboarding' && (
             <motion.div
               key="social-onboarding"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1037,7 +1011,7 @@ function AppContent() {
             </motion.div>
           )}
 
-          {activeTab === 'social-management' && activeProfile && (
+          {activeTab === 'social-management' && (
             <motion.div
               key="social-management"
               initial={{ opacity: 0, y: 20 }}
@@ -1076,8 +1050,8 @@ function AppContent() {
           <FortuneFlow 
             type={activeFortune} 
             userProfile={activeProfile}
-            config={appConfig!}
-            economyConfig={economyConfig!}
+            config={activeConfig}
+            economyConfig={activeEconomy}
             onUpdateProfile={(updates) => setUserProfile(prev => ({ ...prev, ...updates }))}
             onClose={() => setActiveFortune(null)}
             onComplete={handleFortuneComplete}
@@ -1096,11 +1070,11 @@ function AppContent() {
         {isSubscriptionOpen && (
           <SubscriptionScreen 
             onClose={() => setIsSubscriptionOpen(false)}
-            economyConfig={economyConfig}
+            economyConfig={activeEconomy}
             userProfile={activeProfile}
             onSubscribe={async (planId) => {
               try {
-                const result = await walletService.buyFortuneSubscription(activeProfile!.uid, planId as any);
+                const result = await walletService.buyFortuneSubscription(activeProfile.uid, planId as any);
                 if (result.success) {
                   toast.success(`${planId} planı başarıyla başlatıldı!`);
                   setIsSubscriptionOpen(false);
@@ -1129,22 +1103,27 @@ function AppContent() {
             />
           </div>
         )}
-        {isDeleteAccountOpen && userProfile && (
+        {isDeleteAccountOpen && (
           <DeleteAccountModal 
             onClose={() => setIsDeleteAccountOpen(false)}
             onConfirm={async () => {
               try {
+                const targetId = activeProfile.uid;
+                if (!targetId || targetId === 'guest') {
+                  toast.error("Geçerli bir oturum bulunamadı.");
+                  return;
+                }
                 toast.success("Hesabınız siliniyor...");
                 
                 // Delete all readings first
                 const readingsRef = collection(db, "readings");
-                const q = query(readingsRef, where("userId", "==", userProfile.uid));
+                const q = query(readingsRef, where("userId", "==", targetId));
                 const querySnapshot = await getDocs(q);
                 const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
                 await Promise.all(deletePromises);
 
                 // Delete profile
-                await deleteDoc(doc(db, "users", userProfile.uid));
+                await deleteDoc(doc(db, "users", targetId));
                 
                 // Note: Auth deletion usually requires re-auth, so we just sign out for now
                 // and the user doc is gone.
@@ -1154,7 +1133,7 @@ function AppContent() {
                   setIsSettingsOpen(false);
                 }, 2000);
               } catch (err) {
-                handleFirestoreError(err, OperationType.DELETE, `users/${userProfile.uid}`);
+                handleFirestoreError(err, OperationType.DELETE, `users/${activeProfile.uid}`);
               }
             }}
           />
