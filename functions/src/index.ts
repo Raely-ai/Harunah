@@ -39,6 +39,7 @@ export const completeSocialOnboarding = social.completeSocialOnboarding;
 export const updateSocialProfile = social.updateSocialProfile;
 export const updateSocialSettings = social.updateSocialSettings;
 export const refreshDiscoverFeed = social.refreshDiscoverFeed;
+export const refreshDiscover = social.refreshDiscover;
 export const sendLike = social.sendLike;
 export const sendMessageRequest = social.sendMessageRequest;
 export const acceptRequest = social.acceptRequest;

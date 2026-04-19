@@ -118,7 +118,7 @@ export const updateSocialSettings = functions.https.onCall(async (data, context)
 });
 
 // 4. Refresh Discover Feed
-export const refreshDiscoverFeed = functions.https.onCall(async (data, context) => {
+export const refreshDiscover = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   const userRef = db.collection("users").doc(userId);
@@ -132,15 +132,28 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
     const gender = userData.social?.gender || userData.gender || "";
     const targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
     const recentIds = userData.social?.recentDiscoverIds || [];
-    const swipesSnap = await db.collection("swipes").where("fromUserId", "==", userId).get();
+    
+    // Perform swipes check outside transaction to gather exclusion context rapidly
+    const swipesSnap = await db.collection("swipes")
+      .where("fromUserId", "==", userId)
+      .limit(500) // Safety limit for query efficiency
+      .get();
     const swipedUserIds = swipesSnap.docs.map(d => d.data().toUserId);
     const exclusionList = new Set([userId, ...recentIds, ...swipedUserIds]);
 
-    let usersQuery = db.collection("users").where("social.enabled", "==", true).where("social.visible", "==", true);
-    if (targetGender) usersQuery = usersQuery.where("social.gender", "==", targetGender);
+    let usersQuery = db.collection("users")
+      .where("social.enabled", "==", true)
+      .where("social.visible", "==", true);
+      
+    if (targetGender) {
+      usersQuery = usersQuery.where("social.gender", "==", targetGender);
+    }
 
-    const usersSnap = await usersQuery.limit(100).get();
-    return await db.runTransaction(async (transaction) => {
+    // Optimization: Use a slightly larger limit to account for exclusions, but keep it tight
+    const queryLimit = 60; 
+    const usersSnap = await usersQuery.limit(queryLimit).get();
+    
+    const result = await db.runTransaction(async (transaction) => {
       const tUserSnap = await transaction.get(userRef);
       if (!tUserSnap.exists) throw new Error("Kullanıcı bulunamadı.");
       const tUserData = tUserSnap.data() as any;
@@ -149,28 +162,43 @@ export const refreshDiscoverFeed = functions.https.onCall(async (data, context) 
       
       let status = 'SUCCESS';
       let updates: any = { "social.lastDiscoverRefreshAt": nowIso };
+      
       if (isFreeAvailable) {
-        status = 'FREE_REFRESH_USED'; updates["social.lastFreeRefreshAt"] = nowIso;
+        status = 'FREE_REFRESH_USED'; 
+        updates["social.lastFreeRefreshAt"] = nowIso;
       } else {
         if ((tUserData.refreshCount || 0) <= 0) return { success: false, status: 'INSUFFICIENT_FUNDS' };
-        status = 'PAID_REFRESH_USED'; updates["refreshCount"] = FieldValue.increment(-1);
+        status = 'PAID_REFRESH_USED'; 
+        updates["refreshCount"] = FieldValue.increment(-1);
       }
 
-      let available = usersSnap.docs.filter(doc => !exclusionList.has(doc.id)).map(doc => ({ id: doc.id, ...doc.data() }));
-      if (available.length < 10) {
+      let available = usersSnap.docs
+        .filter(doc => !exclusionList.has(doc.id))
+        .map(doc => ({ id: doc.id, ...doc.data() }));
+        
+      if (available.length < 5) {
         const absoluteExclusion = new Set([userId, ...swipedUserIds]);
-        available = usersSnap.docs.filter(doc => !absoluteExclusion.has(doc.id)).map(doc => ({ id: doc.id, ...doc.data() }));
+        available = usersSnap.docs
+          .filter(doc => !absoluteExclusion.has(doc.id))
+          .map(doc => ({ id: doc.id, ...doc.data() }));
       }
+      
       available = available.sort(() => Math.random() - 0.5).slice(0, 20);
+      
       updates["social.recentDiscoverIds"] = Array.from(new Set([...recentIds, ...available.map(u => u.id)])).slice(-100);
       transaction.update(userRef, updates);
+      
       return { success: true, status, users: available };
     });
+
+    return result;
   } catch (error: any) {
-    console.error("[refreshDiscoverFeed] Error:", error);
+    console.error("[refreshDiscover] Error:", error);
     return { success: false, status: 'ERROR', message: error.message };
   }
 });
+
+export const refreshDiscoverFeed = refreshDiscover;
 
 // 5. Send Like
 export const sendLike = functions.https.onCall(async (data, context) => {
@@ -220,8 +248,14 @@ export const sendLike = functions.https.onCall(async (data, context) => {
       return { status: 'SUCCESS', targetUserId, type, senderNickname: fromData.social?.nickname || fromData.displayName };
     });
 
+    // Performance: Don't await push notification, return result immediately
     if (result.status === 'SUCCESS' && (type === 'like' || type === 'super_like')) {
-      await sendPushToUser(result.targetUserId, { title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!", body: `${result.senderNickname} seni beğendi! ❤️`, category: 'social', senderId: fromUserId });
+      sendPushToUser(result.targetUserId, { 
+        title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!", 
+        body: `${result.senderNickname} seni beğendi! ❤️`, 
+        category: 'social', 
+        senderId: fromUserId 
+      }).catch(e => console.error("Push failed:", e));
     }
     return result;
   } catch (error: any) {
@@ -256,8 +290,9 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
       return { status: 'SUCCESS', toUserId, senderNickname: fromSnap.data()?.social?.nickname || fromSnap.data()?.displayName };
     });
 
+    // Performance: Async push
     if (result.status === 'SUCCESS') {
-      await sendPushToUser(result.toUserId, { title: "Yeni Mesaj İsteği", body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`, category: 'social', senderId: fromUserId });
+      sendPushToUser(result.toUserId, { title: "Yeni Mesaj İsteği", body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`, category: 'social', senderId: fromUserId }).catch(e => console.error("Push failed:", e));
     }
     return result;
   } catch (error: any) {
@@ -299,8 +334,15 @@ export const acceptRequest = functions.https.onCall(async (data, context) => {
     return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName };
   });
 
+  // Performance: Async push
   if (result.status === 'SUCCESS') {
-    await sendPushToUser(result.fromUserId, { title: "İstek Kabul Edildi!", body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`, data: { screen: 'chat', chatId: result.chatId }, category: 'social', senderId: result.toUserId });
+    sendPushToUser(result.fromUserId, { 
+      title: "İstek Kabul Edildi!", 
+      body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`, 
+      data: { screen: 'chat', chatId: result.chatId }, 
+      category: 'social', 
+      senderId: result.toUserId 
+    }).catch(e => console.error("Push failed:", e));
   }
   return result;
 });
@@ -343,8 +385,9 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
       return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName, lastMsgText };
     });
 
+    // Performance: Async push
     if (result.status === 'SUCCESS') {
-      await sendPushToUser(result.receiverId, { title: result.senderNickname, body: result.lastMsgText, data: { screen: 'chat', chatId: result.chatId }, category: 'messages', senderId });
+      sendPushToUser(result.receiverId, { title: result.senderNickname, body: result.lastMsgText, data: { screen: 'chat', chatId: result.chatId }, category: 'messages', senderId }).catch(e => console.error("Push failed:", e));
     }
     return result;
   } catch (error: any) {
