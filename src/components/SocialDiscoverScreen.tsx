@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
-import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
+import { getTargetGender, isEligibleSocialUser, isSocialProfileReady } from "../lib/socialUtils";
 import { toast } from "sonner";
 import { Sparkles, Users, RefreshCw, Plus, Lock, Eye } from "lucide-react";
 import SocialProfilePopup from "./SocialProfilePopup";
@@ -136,7 +136,7 @@ export default function SocialDiscoverScreen({
   const refreshTimer = externalRefreshTimer || internalRefreshTimer;
 
   const fetchData = async (forceRefresh = false, isLoadMore = false) => {
-    if (!uid) return;
+    if (!uid || !isSocialProfileReady(currentUser)) return;
     
     // 0. Avoid redundant fetches if data is already in state and not forced
     if (!forceRefresh && !isLoadMore && allUsers.length > 0) return;

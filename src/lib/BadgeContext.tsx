@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { UserProfile } from '../types';
@@ -35,7 +35,8 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode, userProfile: U
           collection(db, "readings"),
           where("userId", "==", userProfile.uid),
           where("status", "==", "completed"),
-          where("isSeenByUser", "==", false)
+          where("isSeenByUser", "==", false),
+          limit(20) // Optimization: limit enough for badge
         );
         const snapshot = await getDocs(readingsQuery);
         setUnseenReadingsCount(snapshot.size);

@@ -196,14 +196,15 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
+                {isSocialEnabled ? (
                   <SocialMatchScreen 
                     currentUser={userProfile} 
                     onNavigate={onNavigate}
                     isActive={activeTopTab === 'match'}
                   />
-                </div>
-                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+                ) : (
+                  <SocialDisabledView onNavigate={onNavigate} />
+                )}
               </div>
             </motion.div>
           )}
@@ -218,18 +219,21 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className={`relative h-full w-full ${isSocialEnabled ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full pb-32"}>
-                  <SocialDiscoverScreen 
-                    key={`discover-${refreshKey}`}
-                    currentUser={userProfile} 
-                    onNavigate={onNavigate}
-                    config={config}
-                    onRefresh={handleRefreshDiscover}
-                    refreshTimer={refreshTimer}
-                    isActive={activeTopTab === 'discover'}
-                  />
-                </div>
-                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+                {isSocialEnabled ? (
+                  <div className="h-full w-full pb-32">
+                    <SocialDiscoverScreen 
+                      key={`discover-${refreshKey}`}
+                      currentUser={userProfile} 
+                      onNavigate={onNavigate}
+                      config={config}
+                      onRefresh={handleRefreshDiscover}
+                      refreshTimer={refreshTimer}
+                      isActive={activeTopTab === 'discover'}
+                    />
+                  </div>
+                ) : (
+                  <SocialDisabledView onNavigate={onNavigate} />
+                )}
               </div>
             </motion.div>
           )}
@@ -244,16 +248,17 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
+                {isSocialEnabled ? (
                   <SocialCompatibilityHistory 
                     currentUser={userProfile} 
                     onBack={() => setActiveTopTab('match')}
                     isTab={true}
                     isActive={activeTopTab === 'compatibility'}
-                    isMock={!isSocialEnabled}
+                    isMock={false}
                   />
-                </div>
-                {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
+                ) : (
+                  <SocialDisabledView onNavigate={onNavigate} />
+                )}
               </div>
             </motion.div>
           )}

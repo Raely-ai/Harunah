@@ -91,7 +91,7 @@ export default function SocialMessagesScreen({
 
   // Real-time data fetching based on active tab
   useEffect(() => {
-    if (!currentUser.uid) return;
+    if (!currentUser.uid || !isSocialProfileReady(currentUser)) return;
 
     let unsubscribe: () => void = () => {};
 
@@ -118,16 +118,25 @@ export default function SocialMessagesScreen({
             .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
             .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
           
-          const chatList = await Promise.all(chatDocs.map(async (chatData) => {
+          // Batch fetch user profiles to avoid N+1
+          const otherUserIds = Array.from(new Set(chatDocs.map(c => c.participants.find(id => id !== currentUser.uid)).filter(Boolean))) as string[];
+          const missingUserIds = otherUserIds.filter(id => !profilesCache.current[id]);
+          
+          if (missingUserIds.length > 0) {
+            // Firestore 'in' query limit is 30, which perfectly matches our chat limit
+            const usersQ = query(collection(db, "users"), where("uid", "in", missingUserIds));
+            const usersSnap = await getDocs(usersQ);
+            usersSnap.forEach(uDoc => {
+              const uData = uDoc.data();
+              profilesCache.current[uDoc.id] = normalizeUserProfile(uData, uDoc.id);
+            });
+          }
+
+          const chatList = chatDocs.map((chatData) => {
             const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
-            let otherUser = profilesCache.current[otherUserId!];
-            if (!otherUser) {
-              const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
-              otherUser = normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id);
-              profilesCache.current[otherUserId!] = otherUser;
-            }
+            const otherUser = profilesCache.current[otherUserId!];
             return { ...chatData, otherUser };
-          }));
+          });
           
           chatList.sort((a, b) => {
             const timeA = toSafeDate(a.lastMessageAt).getTime();

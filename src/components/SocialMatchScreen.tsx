@@ -29,7 +29,7 @@ import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, normalizeUserProfile } from "../types";
 import { toast } from "sonner";
 import { calculateCompatibility } from "../lib/compatibilityEngine";
-import { getTargetGender, isEligibleSocialUser } from "../lib/socialUtils";
+import { getTargetGender, isEligibleSocialUser, isSocialProfileReady } from "../lib/socialUtils";
 import { canSwipe, getRemainingSwipes, getDailySwipeLimit } from "../lib/swipeHelper";
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
@@ -78,6 +78,8 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     if (hasFetchedRef.current) return;
     
     const fetchData = async () => {
+      if (!isActive || !isSocialProfileReady(currentUser)) return;
+      
       hasFetchedRef.current = true;
       // 1. Cache-First: Try to load from cache and update UI immediately
       let hasCache = false;
