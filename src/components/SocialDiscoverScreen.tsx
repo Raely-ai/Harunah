@@ -289,7 +289,7 @@ export default function SocialDiscoverScreen({
 
   // Initial Fetch - Only if cache is empty or activation changes
   useEffect(() => {
-    if (!uid || !isActive) {
+    if (!uid || !isActive || !isSocialProfileReady(currentUser)) {
       if (!isActive) hasFetchedRef.current = false;
       return;
     }

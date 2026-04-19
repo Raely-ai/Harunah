@@ -69,7 +69,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
 
   // Fetch swipes and potential matches (One-time fetch per activation with cache)
   useEffect(() => {
-    if (!uid || !isActive) {
+    if (!uid || !isActive || !isSocialProfileReady(currentUser)) {
       if (!isActive) hasFetchedRef.current = false; // Reset when tab inactive
       return;
     }
