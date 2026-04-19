@@ -382,30 +382,36 @@ export default function SocialProfilePopup({
       {/* Fixed Bottom Action Bar */}
       <div className="absolute bottom-0 left-0 right-0 p-6 pt-10 bg-gradient-to-t from-[#F6F4F8] via-[#F6F4F8]/95 to-transparent z-40">
         <div className="max-w-md mx-auto flex flex-col gap-3">
-          <button 
-            onClick={handleCompatibilityCheck}
-            disabled={isProcessing || isPending}
-            className={`flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-900/10 border border-rose-400/20 active:scale-[0.98] transition-all ${isProcessing || isPending ? 'opacity-50' : ''}`}
-          >
-            <Heart className="w-4 h-4 fill-white" />
-            <span>
-              {analysisResult 
-                ? 'Tekrar Analiz Et' 
-                : isPending 
-                  ? 'Analiz Hazırlanıyor...' 
-                  : `Uyumunu Gör (${credits})`
-              }
-            </span>
-          </button>
-          
-          <button 
-            onClick={handleAction}
-            disabled={isProcessing}
-            className={`flex items-center justify-center gap-3 py-4 bg-white border border-black/5 text-heading rounded-2xl font-bold text-sm shadow-sm hover:bg-black/5 transition-all active:scale-[0.98] ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <MessageCircle className="w-4 h-4" />
-            <span>{context === 'likers' ? 'Sohbet Başlat' : 'Mesaj Gönder'}</span>
-          </button>
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        disabled={isProcessing || isPending}
+        animate={isProcessing || isPending ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+        onClick={handleCompatibilityCheck}
+        className="flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-900/10 border border-rose-400/20 active:scale-[0.98] transition-all"
+      >
+        <Heart className="w-4 h-4 fill-white" />
+        <span>
+          {analysisResult 
+            ? 'Tekrar Analiz Et' 
+            : isPending 
+              ? 'Analiz Hazırlanıyor...' 
+              : `Uyumunu Gör (${credits})`
+          }
+        </span>
+      </motion.button>
+      
+      <motion.button 
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        disabled={isProcessing}
+        animate={isProcessing ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+        onClick={handleAction}
+        className="flex items-center justify-center gap-3 py-4 bg-white border border-black/5 text-heading rounded-2xl font-bold text-sm shadow-sm hover:bg-black/5 transition-all active:scale-[0.98]"
+      >
+        <MessageCircle className="w-4 h-4" />
+        <span>{context === 'likers' ? 'Sohbet Başlat' : 'Mesaj Gönder'}</span>
+      </motion.button>
         </div>
       </div>
     </motion.div>

@@ -25,6 +25,7 @@ interface SocialDiscoverScreenProps {
   config: AppConfig | null;
   onRefresh?: () => void;
   refreshTimer?: string;
+  isActive?: boolean;
 }
 
 const EMOTIONAL_LABELS = [
@@ -100,7 +101,7 @@ function DiscoverCard({ user, onClick, variant = 'medium', compatibility }: { us
 }
 
 // Simple Memory Cache for Social Discover
-const DISCOVER_CACHE_KEY = "socialDiscoverData";
+const DISCOVER_CACHE_KEY = "discover_feed";
 const DISCOVER_CACHE_TTL = 86400; // 24 hours - we only refresh manually
 
 export default function SocialDiscoverScreen({ 
@@ -109,7 +110,8 @@ export default function SocialDiscoverScreen({
   onBack, 
   config, 
   onRefresh,
-  refreshTimer: externalRefreshTimer
+  refreshTimer: externalRefreshTimer,
+  isActive
 }: SocialDiscoverScreenProps) {
   // Safe access with fallbacks
   const uid = currentUser?.uid || "";
@@ -136,37 +138,56 @@ export default function SocialDiscoverScreen({
   const fetchData = async (forceRefresh = false, isLoadMore = false) => {
     if (!uid) return;
     
-    // Check Cache First (unless forced or loading more)
+    // 0. Avoid redundant fetches if data is already in state and not forced
+    if (!forceRefresh && !isLoadMore && allUsers.length > 0) return;
+
+    // 1. Cache-First: Try to load from cache and update UI immediately
+    let hasCache = false;
     if (!forceRefresh && !isLoadMore) {
       const cached = cacheManager.get<any>(DISCOVER_CACHE_KEY);
       if (cached) {
-        setFeaturedUsers(cached.featuredUsers);
-        setActiveUsers(cached.activeUsers);
-        setCompatibleUsers(cached.compatibleUsers);
-        setFeelingEnergyUsers(cached.feelingEnergyUsers);
-        setNewFrequencyUsers(cached.newFrequencyUsers);
-        setCompatibilityHistory(cached.compatibilityHistory);
+        setFeaturedUsers(cached.featuredUsers || []);
+        setActiveUsers(cached.activeUsers || []);
+        setCompatibleUsers(cached.compatibleUsers || []);
+        setFeelingEnergyUsers(cached.feelingEnergyUsers || []);
+        setNewFrequencyUsers(cached.newFrequencyUsers || []);
+        setCompatibilityHistory(cached.compatibilityHistory || []);
         setSwipedUserIds(new Set(cached.swipedUserIds || []));
         setAllUsers(cached.allUsers || []);
         setLastVisible(cached.lastVisible || null);
         setHasMore(cached.hasMore ?? true);
         setLoading(false);
-        return;
+        hasCache = true;
+        // Continue to background fetch for sync
       }
     }
 
-    setLoading(true);
+    // Only show loading state if we have no cache and it's not a background refresh
+    if (!hasCache && !isLoadMore) {
+      setLoading(true);
+    }
+
     try {
       // 1. Fetch Compatibility History & Swipes
-      const [histSnap, swipedIds] = await Promise.all([
-        getDocs(query(collection(db, "compatibilityHistory"), where("userId", "==", uid))),
-        socialService.getSwipedUserIds(uid)
+      // Use socialSwipedIds cache if available
+      let swipedIds = cacheManager.get<string[]>("socialSwipedIds");
+      
+      const fetchHistory = getDocs(query(collection(db, "compatibilityHistory"), where("userId", "==", uid)));
+      const fetchSwipes = swipedIds ? Promise.resolve(swipedIds) : socialService.getSwipedUserIds(uid);
+
+      const [histSnap, finalSwipedIds] = await Promise.all([
+        fetchHistory,
+        fetchSwipes
       ]);
 
+      if (!swipedIds) {
+        cacheManager.set("socialSwipedIds", finalSwipedIds, 300);
+      }
+      
       const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
       setCompatibilityHistory(history);
       
-      const swipedSet = new Set([uid, ...swipedIds]);
+      const swipedSet = new Set([uid, ...finalSwipedIds]);
       setSwipedUserIds(swipedSet);
 
       // 2. Fetch Discover Users
@@ -264,10 +285,20 @@ export default function SocialDiscoverScreen({
     }
   };
 
-  // Initial Fetch - Only if cache is empty
+  const hasFetchedRef = React.useRef(false);
+
+  // Initial Fetch - Only if cache is empty or activation changes
   useEffect(() => {
+    if (!uid || !isActive) {
+      if (!isActive) hasFetchedRef.current = false;
+      return;
+    }
+    
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+    
     fetchData();
-  }, [uid]);
+  }, [uid, isActive]);
 
   // Local Timer for Refresh Button
   useEffect(() => {
@@ -317,47 +348,45 @@ export default function SocialDiscoverScreen({
 
   const handleSendMessage = async (targetUser: UserProfile) => {
     if (isProcessing) return;
+    
+    // 1. Optimistic UI: Close the modal immediately
+    setSelectedUser(null);
     setIsProcessing(true);
+    
+    // 2. Background process
     try {
       const result = await socialService.sendMessageRequest(currentUser, targetUser);
       switch (result) {
         case 'SUCCESS':
           toast.success("İstek gönderildi");
-          setSelectedUser(null);
           break;
         case 'ALREADY_CHATTING':
           toast.info("Zaten sohbetiniz var.");
-          setSelectedUser(null);
           break;
         case 'ALREADY_REQUESTED':
           toast.info("Zaten istek gönderdin.");
-          setSelectedUser(null);
           break;
         case 'BLOCKED':
           toast.error("Bu kullanıcıyla iletişim kuramazsınız.");
-          setSelectedUser(null);
           break;
         case 'SELF_ACTION':
           toast.error("Kendinize istek gönderemezsiniz.");
-          setSelectedUser(null);
           break;
         case 'TARGET_NOT_FOUND':
           toast.error("Kullanıcı bulunamadı.");
-          setSelectedUser(null);
           break;
         case 'TECHNICAL_ERROR':
-          toast.error("Bir teknik hata oluştu. Lütfen sonra tekrar deneyin.");
-          setSelectedUser(null);
+          toast.error("Bir teknik hata oluştu. Lüften daha sonra tekrar deneyin.");
           break;
         default:
-          console.error("SocialDiscoverScreen: Unexpected result from sendMessageRequest:", result);
-          toast.error("İşlem sırasında beklenmedik bir hata oluştu.");
-          setSelectedUser(null);
+          console.error("SocialDiscoverScreen: Unexpected result:", result);
+          toast.error("İşlem sırasında bir hata oluştu.");
           break;
       }
     } catch (error) {
-      console.error("SocialDiscoverScreen: Error in handleSendMessage:", error);
-      toast.error("İstek gönderilirken bir hata oluştu.");
+      console.error("SocialDiscoverScreen: Background error:", error);
+      toast.error("İstek gönderilirken bir hata oluştu, lütfen tekrar deneyin.");
+      // Rollback: Not strictly necessary for a simple close, but we could re-open if needed.
     } finally {
       setIsProcessing(false);
     }
@@ -372,7 +401,7 @@ export default function SocialDiscoverScreen({
       if (result.success) {
         // Clear both caches and force re-fetch
         cacheManager.clear(DISCOVER_CACHE_KEY);
-        cacheManager.clear("socialMatchData");
+        cacheManager.clear("match_feed");
         setLastVisible(null);
         setHasMore(true);
         await fetchData(true);
@@ -576,13 +605,10 @@ export default function SocialDiscoverScreen({
               whileTap={{ scale: 0.95 }}
               onClick={handleLoadMore}
               disabled={loading}
-              className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/10 hover:bg-indigo-700 transition-all disabled:opacity-50"
+              animate={loading ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+              className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/10 hover:bg-indigo-700 transition-all"
             >
-              {loading ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4" />
-              )}
+              <Plus className="w-4 h-4" />
               <span className="text-xs font-black uppercase tracking-widest">
                 {loading ? 'Yükleniyor...' : 'Daha Fazla Gör'}
               </span>
@@ -601,9 +627,10 @@ export default function SocialDiscoverScreen({
             whileTap={{ scale: 0.95 }}
             onClick={handleRefresh}
             disabled={isProcessing}
-            className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-black text-white shadow-xl shadow-black/10 hover:bg-black/90 transition-all disabled:opacity-50"
+            animate={isProcessing ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+            className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-black text-white shadow-xl shadow-black/10 hover:bg-black/90 transition-all"
           >
-            <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-4 h-4" />
             <span className="text-xs font-black uppercase tracking-widest">
               {refreshTimer === 'Yenile' ? 'Yenile' : refreshTimer}
             </span>

@@ -28,20 +28,15 @@ export default function HomeScreen({
   config 
 }: HomeScreenProps) {
   // 1. Default Tab & State Safety
-  const [activeTopTab, setActiveTopTab] = useState<'match' | 'discover' | 'compatibility'>('match');
+  const [activeTopTab, setActiveTopTab] = useState<'match' | 'discover' | 'compatibility'>('discover');
   const [refreshTimer, setRefreshTimer] = useState<string>('');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // 2. Navigation Reset: Ensure we start at 'match' when this component mounts
-  useEffect(() => {
-    setActiveTopTab('match');
-  }, []);
-
-  // 3. Tab State Safety Fallback
+  // 2. Tab State Safety Fallback
   useEffect(() => {
     const validTabs = ['match', 'discover', 'compatibility'];
     if (!activeTopTab || !validTabs.includes(activeTopTab)) {
-      setActiveTopTab('match');
+      setActiveTopTab('discover');
     }
   }, [activeTopTab]);
 
@@ -205,6 +200,7 @@ export default function HomeScreen({
                   <SocialMatchScreen 
                     currentUser={userProfile} 
                     onNavigate={onNavigate}
+                    isActive={activeTopTab === 'match'}
                   />
                 </div>
                 {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
@@ -219,10 +215,10 @@ export default function HomeScreen({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="h-full w-full overflow-y-auto pb-32"
+              className="h-full w-full"
             >
-              <div className="relative h-full w-full overflow-y-auto pb-32">
-                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full"}>
+              <div className={`relative h-full w-full ${isSocialEnabled ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+                <div className={!isSocialEnabled ? "blur-[25px] opacity-40 pointer-events-none h-full w-full" : "h-full w-full pb-32"}>
                   <SocialDiscoverScreen 
                     key={`discover-${refreshKey}`}
                     currentUser={userProfile} 
@@ -230,6 +226,7 @@ export default function HomeScreen({
                     config={config}
                     onRefresh={handleRefreshDiscover}
                     refreshTimer={refreshTimer}
+                    isActive={activeTopTab === 'discover'}
                   />
                 </div>
                 {!isSocialEnabled && <SocialDisabledView onNavigate={onNavigate} />}
@@ -252,6 +249,7 @@ export default function HomeScreen({
                     currentUser={userProfile} 
                     onBack={() => setActiveTopTab('match')}
                     isTab={true}
+                    isActive={activeTopTab === 'compatibility'}
                     isMock={!isSocialEnabled}
                   />
                 </div>

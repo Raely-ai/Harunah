@@ -37,10 +37,11 @@ interface SocialCompatibilityHistoryProps {
   currentUser: UserProfile;
   onBack: () => void;
   isTab?: boolean;
+  isActive?: boolean;
   isMock?: boolean;
 }
 
-export default function SocialCompatibilityHistory({ currentUser, onBack, isTab, isMock }: SocialCompatibilityHistoryProps) {
+export default function SocialCompatibilityHistory({ currentUser, onBack, isTab, isActive, isMock }: SocialCompatibilityHistoryProps) {
   // Safe access with fallbacks
   const uid = currentUser?.uid || "";
 
@@ -216,8 +217,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   };
 
   useEffect(() => {
-    fetchHistory();
-  }, [uid]);
+    if (isActive) {
+      fetchHistory();
+    }
+  }, [uid, isActive]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();

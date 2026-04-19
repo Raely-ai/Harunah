@@ -44,7 +44,7 @@ const matchCache = {
   lastFetched: 0
 };
 
-export default function SocialMatchScreen({ currentUser, onNavigate }: { currentUser: UserProfile, onNavigate: (tab: any) => void }) {
+export default function SocialMatchScreen({ currentUser, onNavigate, isActive }: { currentUser: UserProfile, onNavigate: (tab: any) => void, isActive?: boolean }) {
   // Safe access with fallbacks
   const uid = currentUser?.uid || "";
   const superLikes = currentUser?.superLikes || 0;
@@ -65,24 +65,45 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
 
   const activeUser = displayMatches[0];
 
-  // Fetch swipes and potential matches (One-time fetch with cache)
+  const hasFetchedRef = React.useRef(false);
+
+  // Fetch swipes and potential matches (One-time fetch per activation with cache)
   useEffect(() => {
-    if (!uid) return;
+    if (!uid || !isActive) {
+      if (!isActive) hasFetchedRef.current = false; // Reset when tab inactive
+      return;
+    }
+    
+    // Prevent redundant fetches within the same active session
+    if (hasFetchedRef.current) return;
     
     const fetchData = async () => {
-      // Check Cache First
-      const cached = cacheManager.get<any>("socialMatchData");
+      hasFetchedRef.current = true;
+      // 1. Cache-First: Try to load from cache and update UI immediately
+      let hasCache = false;
+      const cached = cacheManager.get<any>("match_feed");
       if (cached) {
-        setPotentialMatches(cached.potentialMatches);
-        setSwipedUserIds(cached.swipedUserIds);
+        setPotentialMatches(cached.potentialMatches || []);
+        setSwipedUserIds(new Set(cached.swipedUserIds || [uid]));
         setLoading(false);
-        return;
+        hasCache = true;
+        // If cache is fresh (e.g. < 1 min), don't even background fetch
+        if (Date.now() - (cached._timestamp || 0) < 60000) {
+          return;
+        }
       }
 
-      setLoading(true);
+      if (!hasCache) {
+        setLoading(true);
+      }
       try {
-        // 1. Fetch Swipes
-        const swipedIds = await socialService.getSwipedUserIds(uid);
+        // 1. Get Swipes (Use local cache first to avoid re-fetching)
+        let swipedIds = cacheManager.get<string[]>("socialSwipedIds");
+        if (!swipedIds) {
+          swipedIds = await socialService.getSwipedUserIds(uid);
+          // Cache the swipes globally for this session
+          cacheManager.set("socialSwipedIds", swipedIds, 300); 
+        }
         const newSwipedIds = new Set([uid, ...swipedIds]);
         setSwipedUserIds(newSwipedIds);
 
@@ -96,7 +117,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
           where("social.profileCompleted", "==", true),
           where("social.visible", "==", true),
           where("social.gender", "==", targetGender),
-          limit(100) // Increased limit
+          limit(20) // Reduced from 100 to 20 for better performance
         );
 
         const snapshot = await getDocs(matchQ);
@@ -117,13 +138,21 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
           return scoreB - scoreA;
         });
 
-        setPotentialMatches(fetchedUsers);
+        // Optimization: Show first card immediately, prepare others in background
+        if (fetchedUsers.length > 0) {
+          setPotentialMatches([fetchedUsers[0]]);
+          setTimeout(() => {
+            setPotentialMatches(fetchedUsers);
+          }, 200);
+        } else {
+          setPotentialMatches([]);
+        }
         
         // Update Cache
-        cacheManager.set("socialMatchData", {
+        cacheManager.set("match_feed", {
           potentialMatches: fetchedUsers,
-          swipedUserIds: newSwipedIds
-        }, 600); // Cache for 10 minutes
+          swipedUserIds: Array.from(newSwipedIds)
+        }, 600, true);
 
       } catch (error) {
         console.error("Match fetch error:", error);
@@ -133,7 +162,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     };
 
     fetchData();
-  }, [uid]);
+  }, [uid, isActive]);
 
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
     if (!activeUser || isAnimating || isProcessing) return;
@@ -151,94 +180,73 @@ export default function SocialMatchScreen({ currentUser, onNavigate }: { current
     }
 
     setIsProcessing(true);
+    const targetUser = activeUser;
+    const oldSwipedUserIds = new Set(swipedUserIds);
+    
+    // 1. Optimistic UI Update: Move to next card and animate Card immediately
+    setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
     setIsAnimating(true);
     if (type === 'pass') setExitDirection('left');
     else if (type === 'like') setExitDirection('right');
     else setExitDirection('up');
 
-    const targetUser = activeUser;
-    
-    // Optimistic update local state after animation
+    // 2. Clear animation state after transition
     setTimeout(() => {
-      setSwipedUserIds(prev => {
-        const next = new Set(prev).add(targetUser.uid);
-        
-        // Update Cache to persist swiped IDs
-        const cached = cacheManager.get<any>("socialMatchData");
-        if (cached) {
-          cacheManager.set("socialMatchData", {
-            ...cached,
-            swipedUserIds: next
-          }, 600);
-        }
-        
-        // Clear Discover cache to ensure consistency when switching tabs
-        cacheManager.clear("socialDiscoverData");
-        
-        return next;
-      });
       setExitDirection(null);
       setIsAnimating(false);
       setIsProcessing(false);
+      
+      // Update Cache (Arka planda)
+      const cached = cacheManager.get<any>("match_feed");
+      if (cached) {
+        cacheManager.set("match_feed", {
+          ...cached,
+          swipedUserIds: Array.from(new Set([...cached.swipedUserIds || [], targetUser.uid]))
+        }, 600, true);
+      }
+      cacheManager.clear("discover_feed");
     }, 400);
 
-    try {
-      if (type === 'super_like') {
-        const res = await walletService.consumeSocialFeature(uid, 'superLike');
-        if (!res.success) {
-          toast.error("Süper Like hakkın bitti!");
-          onNavigate('wallet');
-          return;
-        }
-        if (res.consumedFrom === 'daily_bonus') {
-          toast.success("Günlük ücretsiz Süper Like hakkın kullanıldı! ✨");
-        }
-      } else {
-        // Both 'like' and 'pass' consume a swipe credit
-        const res = await walletService.consumeSocialFeature(uid, 'swipe');
-        if (!res.success) {
-          toast.error("Günlük kaydırma hakkın bitti!");
-          onNavigate('wallet');
-          return;
-        }
-      }
-      
-      const result = await socialService.sendLike(currentUser, targetUser.uid, type);
-      
-      switch (result) {
-        case 'SUCCESS':
-          if (type === 'super_like') {
-            toast.success("Süper Like gönderildi! ✨");
-          } else if (type === 'like') {
-            toast.success("Beğeni gönderildi! ❤️");
+    // 3. Background API Call
+    (async () => {
+      try {
+        if (type === 'super_like') {
+          const res = await walletService.consumeSocialFeature(uid, 'superLike');
+          if (!res.success) {
+            // Rollback
+            setSwipedUserIds(oldSwipedUserIds);
+            toast.error("Süper Like hakkın bitti!");
+            onNavigate('wallet');
+            return;
           }
-          break;
-        case 'ALREADY_LIKED':
-          toast.info("Bu kullanıcıyı zaten beğenmiştin.");
-          break;
-        case 'BLOCKED':
-          toast.error("Bu kullanıcıyla iletişim kuramazsınız.");
-          break;
-        case 'SELF_ACTION':
-          toast.error("Kendinizi beğenemezsiniz.");
-          break;
-        case 'TARGET_NOT_FOUND':
-          toast.error("Kullanıcı bulunamadı.");
-          break;
-        case 'TECHNICAL_ERROR':
-          toast.error("Bir teknik hata oluştu. Lütfen sonra tekrar deneyin.");
-          break;
-        default:
-          if (type !== 'pass') {
-            toast.error("İşlem sırasında bir hata oluştu.");
+        } else {
+          const res = await walletService.consumeSocialFeature(uid, 'swipe');
+          if (!res.success) {
+            // Rollback
+            setSwipedUserIds(oldSwipedUserIds);
+            toast.error("Günlük kaydırma hakkın bitti!");
+            onNavigate('wallet');
+            return;
           }
-          break;
+        }
+        
+        const result = await socialService.sendLike(currentUser, targetUser.uid, type);
+        
+        if (result !== 'SUCCESS' && type !== 'pass') {
+          // If it's a critical failure (not just a pass), alert user but don't necessarily rollback swipes 
+          // unless it's a specific "already swiped" etc.
+          // For simplicity, we only rollback if limits are hit or technical error occurs.
+          if (result === 'TECHNICAL_ERROR') {
+             setSwipedUserIds(oldSwipedUserIds);
+             toast.error("İşlem gerçekleştirilemedi.");
+          }
+        }
+      } catch (error: any) {
+        console.error("Background swipe error:", error);
+        setSwipedUserIds(oldSwipedUserIds);
+        toast.error("Bir hata oluştu, geri alınıyor.");
       }
-    } catch (error: any) {
-      console.error("Swipe error:", error);
-      toast.error(error.message || "İşlem sırasında bir hata oluştu.");
-      setIsProcessing(false);
-    }
+    })();
   };
 
   const handleReport = async (reason: string) => {

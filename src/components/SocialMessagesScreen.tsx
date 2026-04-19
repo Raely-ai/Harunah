@@ -95,10 +95,14 @@ export default function SocialMessagesScreen({
 
     let unsubscribe: () => void = () => {};
 
-    const handleFetch = async (force = false) => {
+    const handleFetch = async () => {
       if (activeTab === 'chats') {
         const cached = cacheManager.get<any>(CHAT_LIST_CACHE_KEY);
-        if (cached) setChats(cached);
+        if (cached) {
+          setChats(cached);
+          // If cache is fresh (< 30s), don't background fetch
+          if (Date.now() - (cached._timestamp || 0) < 30000) return;
+        }
 
         setLoading(true);
         try {
@@ -143,7 +147,10 @@ export default function SocialMessagesScreen({
         }
       } else if (activeTab === 'requests') {
         const cached = cacheManager.get<any>(REQUESTS_CACHE_KEY);
-        if (cached) setRequests(cached);
+        if (cached) {
+          setRequests(cached);
+          if (Date.now() - (cached._timestamp || 0) < 30000) return;
+        }
 
         setLoading(true);
         try {
@@ -166,14 +173,18 @@ export default function SocialMessagesScreen({
         }
       } else if (activeTab === 'likers') {
         const cached = cacheManager.get<any>(LIKERS_CACHE_KEY);
-        if (cached) setLikers(cached);
+        if (cached) {
+          setLikers(cached);
+          if (Date.now() - (cached._timestamp || 0) < 60000) return;
+        }
 
         setLoading(true);
         try {
           const q = query(
             collection(db, "swipes"),
             where("toUserId", "==", currentUser.uid),
-            where("type", "in", ["like", "super_like"])
+            where("type", "in", ["like", "super_like"]),
+            limit(40)
           );
           
           const snapshot = await getDocs(q);
