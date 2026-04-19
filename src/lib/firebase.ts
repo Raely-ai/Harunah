@@ -1,25 +1,22 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
-import firebaseConfig from "../../firebase-applet-config.json";
-
-console.log("Firebase config loaded:", firebaseConfig);
+const firebaseConfig = {
+  apiKey: "AIzaSyDy4qcu0_-dW1a_bml90fxeqfPZcqNy39I",
+  authDomain: "lasya-app.firebaseapp.com",
+  projectId: "lasya-app",
+  storageBucket: "lasya-app.firebasestorage.app",
+  messagingSenderId: "654177015558",
+  appId: "1:654177015558:web:d16b0b23704b2b3501b087",
+};
 
 const app = initializeApp(firebaseConfig);
+
+export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const functions = getFunctions(app, 'us-central1');
-
-// Initialize Firestore with specific settings to stabilize connection
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  }), 
-  experimentalForceLongPolling: true // Stabilize network connection in restricted environments
-}, firebaseConfig.firestoreDatabaseId);
-
-console.log("Firestore initialized with databaseId:", firebaseConfig.firestoreDatabaseId);
+export const functions = getFunctions(app, "europe-west2");
 
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
