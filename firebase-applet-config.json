@@ -3,6 +3,7 @@
   "appId": "1:654177015558:web:d16b0b23704b2b3501b087",
   "apiKey": "AIzaSyDy4qcu0_-dW1a_bml90fxeqfPZcqNy39I",
   "authDomain": "lasya-app.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
   "storageBucket": "lasya-app.firebasestorage.app",
   "messagingSenderId": "654177015558",
   "measurementId": ""

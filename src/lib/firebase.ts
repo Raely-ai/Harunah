@@ -9,13 +9,13 @@ const firebaseConfig = {
   projectId: "lasya-app",
   storageBucket: "lasya-app.firebasestorage.app",
   messagingSenderId: "654177015558",
-  appId: "1:654177015558:web:668b283d84a069d901b087",
+  appId: "1:654177015558:web:d16b0b23704b2b3501b087",
 };
 
 const app = initializeApp(firebaseConfig);
 
-// Use the explicit database ID from the platform config
-export const db = getFirestore(app, "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
+// Use the default database
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const functions = getFunctions(app, "us-central1");
 
