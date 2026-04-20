@@ -52,15 +52,25 @@ exports.messaging = (0, messaging_1.getMessaging)();
 exports.FieldValue = admin.firestore.FieldValue;
 exports.openAiKey = (0, params_1.defineSecret)("OPENAI_API_KEY");
 let _openai = null;
+/**
+ * Lazy initialization of OpenAI.
+ * Accessing .value() at module load time is dangerous.
+ */
 function getOpenAI() {
-    if (!_openai) {
+    try {
         const key = exports.openAiKey.value();
         if (!key) {
             throw new Error("OPENAI_API_KEY is not set in environment/secrets.");
         }
-        _openai = new openai_1.default({ apiKey: key });
+        if (!_openai) {
+            _openai = new openai_1.default({ apiKey: key });
+        }
+        return _openai;
     }
-    return _openai;
+    catch (error) {
+        console.error("OpenAI Access Error:", error);
+        throw new functions.https.HttpsError('failed-precondition', 'AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyiniz.');
+    }
 }
 async function sendPushToUser(userId, payload) {
     try {

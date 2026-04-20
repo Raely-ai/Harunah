@@ -323,17 +323,13 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
       enabled: data.socialEnabled || false,
       profileCompleted: data.socialProfileCompleted || false,
       nickname: data.nickname || data.displayName || "Gezgin",
-      gender: (data.gender as any) || (data.social?.gender as any) || 'erkek',
+      gender: (data.gender as any) || 'erkek',
       lookingFor: data.lookingFor || 'arkadaş',
       bio: data.bio || '',
       photos: data.photos || [],
       interests: data.interests || [],
       visible: data.socialVisible !== undefined ? data.socialVisible : true,
       banned: data.socialBan || false,
-      lastFreeRefreshAt: data.social?.lastFreeRefreshAt || "",
-      recentDiscoverIds: data.social?.recentDiscoverIds || [],
-      blockedUserIds: data.social?.blockedUserIds || [],
-      mutedUserIds: data.social?.mutedUserIds || [],
       settings: {
         whoCanMessage: 'everyone',
         whoCanAddFriend: 'everyone',
@@ -345,9 +341,25 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
         }
       }
     };
-  } else if (!profile.social.gender) {
-    // Ensure gender exists even if social object was partially present
-    profile.social.gender = (data.gender as any) || (data.social?.gender as any) || 'erkek';
+  }
+
+  // Property-level backfill from legacy root fields (backward compatibility)
+  const social = profile.social;
+  if (!social.nickname) social.nickname = data.nickname || data.displayName || "Gezgin";
+  if (!social.gender) social.gender = (data.gender as any) || 'erkek';
+  if (!social.lookingFor) social.lookingFor = data.lookingFor || 'arkadaş';
+  if (!social.bio) social.bio = data.bio || '';
+  if (!social.photos || social.photos.length === 0) social.photos = data.photos || [];
+  if (!social.interests || social.interests.length === 0) social.interests = data.interests || [];
+  if (social.enabled === undefined) social.enabled = data.socialEnabled || false;
+  if (social.visible === undefined) social.visible = data.socialVisible !== undefined ? data.socialVisible : true;
+
+  // Auto-complete profile flag if basic requirements are met after merge
+  if (!social.profileCompleted) {
+    const hasCore = !!(social.nickname && social.gender && social.photos && social.photos.length > 0);
+    if (hasCore) {
+      social.profileCompleted = true;
+    }
   }
 
   if (!profile.notificationSettings) {

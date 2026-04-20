@@ -13,19 +13,29 @@ export const db = getFirestore();
 export const messaging = getMessaging();
 export const FieldValue = admin.firestore.FieldValue;
 
-// Define OpenAI Secret
+// Define OpenAI Secret - Declaration only
 export const openAiKey = defineSecret("OPENAI_API_KEY");
 
 let _openai: OpenAI | null = null;
-export function getOpenAI() {
-  if (!_openai) {
+
+/**
+ * Lazy initialization of OpenAI.
+ * Accessing .value() at module load time is dangerous.
+ */
+export function getOpenAI(): OpenAI {
+  try {
     const key = openAiKey.value();
     if (!key) {
       throw new Error("OPENAI_API_KEY is not set in environment/secrets.");
     }
-    _openai = new OpenAI({ apiKey: key });
+    if (!_openai) {
+      _openai = new OpenAI({ apiKey: key });
+    }
+    return _openai;
+  } catch (error: any) {
+    console.error("OpenAI Access Error:", error);
+    throw new functions.https.HttpsError('failed-precondition', 'AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyiniz.');
   }
-  return _openai;
 }
 
 /**

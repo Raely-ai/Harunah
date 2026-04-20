@@ -52,19 +52,24 @@ export const isEligibleSocialUser = (user: UserProfile, currentUserId: string, t
 export const isSocialProfileReady = (user: UserProfile | null | undefined): boolean => {
   if (!user) return false;
   
-  // 1. Primary check: The explicit flag
-  if (user.social?.profileCompleted) return true;
-  
-  // 2. Fallback check: Do they have the minimum required data?
-  // This handles legacy users or cases where the flag wasn't set correctly.
   const social = user.social;
   
-  // A profile is considered ready if it has the core identity fields
-  const hasNickname = !!(social?.nickname || user.nickname);
-  const hasPhotos = (social?.photos?.length || 0) > 0 || (user.photos?.length || 0) > 0;
-  const hasGender = !!(social?.gender || user.gender);
+  // 1. Primary check: The explicit flag or deep merge readiness
+  if (social?.profileCompleted) return true;
   
-  // If they have these 3, they are basically "in", even if some details are missing.
-  // We want to be permissive here to avoid the "profile not found" bug.
-  return !!(hasNickname && hasPhotos && hasGender);
+  // 2. Fallback check: Minimum viable profile identification
+  // A profile is considered ready if it has the core identity fields
+  // even if the boolean flag is missing (legacy sync case)
+  const nickname = social?.nickname || (user as any).nickname;
+  const gender = social?.gender || (user as any).gender;
+  const photos = social?.photos || (user as any).photos;
+  const hasPhotos = (photos?.length || 0) > 0;
+  
+  const isReady = !!(nickname && gender && hasPhotos);
+  
+  if (isReady) {
+    console.log(`[SocialUtils] User ${user.uid} profile is ready via legacy data check.`);
+  }
+
+  return isReady;
 };

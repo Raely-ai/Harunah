@@ -758,7 +758,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
 });
 
 // 23. Process Compatibility Requests
-export const processCompatibilityRequests = functions.pubsub.schedule('every 2 minutes').onRun(async (context) => {
+export const processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
   const now = new Date().toISOString();
   const pendings = await db.collection("compatibilityRequests").where("status", "==", "pending").where("readyAt", "<=", now).limit(20).get();
   if (pendings.empty) return null;
