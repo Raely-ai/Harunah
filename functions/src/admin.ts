@@ -5,85 +5,102 @@ import { db, FieldValue, sendPushToUser } from "./base";
 export const adminBroadcastNotification = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
-  // Check if admin
-  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
-  if (adminSnap.data()?.role !== 'admin') {
-    throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
-  }
+  try {
+    // Check if admin
+    const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+    const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                    (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
 
-  const { title, body, screen, data: extraData } = data;
-  if (!title || !body) throw new functions.https.HttpsError('invalid-argument', 'Başlık ve mesaj zorunludur.');
-
-  // Fetch all users with FCM tokens
-  const usersSnap = await db.collection("users").where("fcmToken", "!=", null).get();
-  
-  console.log(`Broadcasting to ${usersSnap.size} users...`);
-
-  const results = {
-    successCount: 0,
-    failureCount: 0
-  };
-
-  // Batch send
-  for (const userDoc of usersSnap.docs) {
-    try {
-      await sendPushToUser(userDoc.id, {
-        title,
-        body,
-        data: { ...extraData, screen: screen || 'home' },
-        category: 'system'
-      });
-      results.successCount++;
-    } catch (err) {
-      results.failureCount++;
+    if (!isAdmin) {
+      throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
     }
-  }
 
-  return { success: true, results };
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { title, body, screen, data: extraData } = data;
+    if (!title || !body) throw new functions.https.HttpsError('invalid-argument', 'Başlık ve mesaj zorunludur.');
+
+    // Fetch all users with FCM tokens
+    const usersSnap = await db.collection("users").where("fcmToken", "!=", null).get();
+    
+    console.log(`Broadcasting to ${usersSnap.size} users...`);
+
+    const results = {
+      successCount: 0,
+      failureCount: 0
+    };
+
+    // Batch send
+    for (const userDoc of usersSnap.docs) {
+      try {
+        await sendPushToUser(userDoc.id, {
+          title,
+          body,
+          data: { ...extraData, screen: screen || 'home' },
+          category: 'system'
+        });
+        results.successCount++;
+      } catch (err) {
+        results.failureCount++;
+      }
+    }
+
+    return { success: true, results };
+  } catch (error: any) {
+    console.error("adminBroadcastNotification error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Duyuru gönderilirken hata oluştu.');
+  }
 });
 
 // 2. Admin Grant Wallet Reward
 export const adminGrantWalletReward = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
-  // Verify Admin
-  const adminSnap = await db.collection("users").doc(context.auth.uid).get();
-  const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
-                  (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
-  
-  if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
-
-  const { targetUserId, amount, balanceType, description } = data;
-
-  // Input Validation
-  if (typeof amount !== 'number' || amount === 0) {
-    throw new functions.https.HttpsError('invalid-argument', 'Miktar sıfırdan farklı olmalıdır.');
-  }
-
-  const userRef = db.collection("users").doc(targetUserId);
-  
-  await db.runTransaction(async (transaction) => {
-    const updates: any = {};
-    if (balanceType === 'main') updates.mainCoins = FieldValue.increment(amount);
-    else updates.energy = FieldValue.increment(amount);
+  try {
+    // Verify Admin
+    const adminSnap = await db.collection("users").doc(context.auth.uid).get();
+    const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') || 
+                    (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
     
-    transaction.update(userRef, updates);
+    if (!isAdmin) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz işlem.');
 
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId: targetUserId,
-      type: amount > 0 ? 'earn' : 'spend',
-      source: 'admin_grant',
-      amount,
-      balanceType,
-      createdAt: new Date().toISOString(),
-      status: 'active',
-      description: `Admin İşlemi: ${description}`
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { targetUserId, amount, balanceType, description } = data;
+
+    // Input Validation
+    if (typeof amount !== 'number' || amount === 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'Miktar sıfırdan farklı olmalıdır.');
+    }
+
+    const userRef = db.collection("users").doc(targetUserId);
+    
+    await db.runTransaction(async (transaction) => {
+      const updates: any = {};
+      if (balanceType === 'main') updates.mainCoins = FieldValue.increment(amount);
+      else updates.energy = FieldValue.increment(amount);
+      
+      transaction.update(userRef, updates);
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId: targetUserId,
+        type: amount > 0 ? 'earn' : 'spend',
+        source: 'admin_grant',
+        amount,
+        balanceType,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        description: `Admin İşlemi: ${description}`
+      });
     });
-  });
 
-  return { success: true };
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminGrantWalletReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Ödül verilirken hata oluştu.');
+  }
 });
 
 // 3. Admin Get User Chats

@@ -154,52 +154,51 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
 export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const openai = getOpenAI();
-  const { readingId } = data;
-  if (!readingId) throw new functions.https.HttpsError('invalid-argument', 'Reading ID gerekli.');
-
-  const readingRef = db.collection("readings").doc(readingId);
-  const result = await db.runTransaction(async (transaction) => {
-    const snap = await transaction.get(readingRef);
-    if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
-    const reading = snap.data() as any;
-    if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
-    if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
-    if (reading.status === 'processing_ai') return { alreadyProcessing: true };
-    transaction.update(readingRef, { isAIGenerating: true, updatedAt: new Date().toISOString() });
-    return { reading, proceed: true };
-  }).catch(err => {
-    throw new functions.https.HttpsError('internal', `AI Process Error: ${err.message}`);
-  });
-
-  if (result.alreadyCompleted) return { success: true, content: result.content };
-  if (result.alreadyProcessing) return { success: true, message: "Falınız zaten hazırlanıyor..." };
   
-  const reading = result.reading;
-  const economySnap = await db.collection("adminSettings").doc("economy").get();
-  const economy = economySnap.data() as any;
-  const aiConfig = economy?.aiSettings?.[reading.type] || {
-    systemPrompt: "Sen LASYA isminde mistik bir kahinsin.",
-    templatePrompt: "Kullanıcı {adsoyad}, {dogumtarihi} doğumlu, {iliskidurumu}. Soruları: {sorular}. Lütfen yorumla.",
-    tone: "Karizmatik", mysticLevel: 9
-  };
-
-  const placeholders: Record<string, string> = {
-    adsoyad: reading.formData.adSoyad || "Canım", dogumtarihi: reading.formData.dogumTarihi || "Bilinmiyor",
-    iliskidurumu: reading.formData.iliskiDurumu || "Bilinmiyor", anneadi: reading.formData.motherName || "Bilinmiyor",
-    babaadi: reading.formData.fatherName || "Bilinmiyor", sorular: Array.isArray(reading.questions) ? reading.questions.join(", ") : "Genel yorum",
-    tur: reading.type, isim: reading.formData.adSoyad?.split(" ")[0] || "Canım"
-  };
-
-  let systemPrompt = `Sen Ahlas adında, karizmatik, gizemli ve hafif flörtöz bir erkek falcısın... ` + aiConfig.systemPrompt;
-  let templatePrompt = aiConfig.templatePrompt;
-  Object.entries(placeholders).forEach(([key, value]) => {
-    const regex = new RegExp(`{${key}}`, 'g');
-    systemPrompt = systemPrompt.replace(regex, value);
-    templatePrompt = templatePrompt.replace(regex, value);
-  });
-
   try {
+    const openai = getOpenAI();
+    if (!data || !data.readingId) throw new functions.https.HttpsError('invalid-argument', 'Reading ID gerekli.');
+    const { readingId } = data;
+
+    const readingRef = db.collection("readings").doc(readingId);
+    const result = await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(readingRef);
+      if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
+      const reading = snap.data() as any;
+      if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
+      if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
+      if (reading.status === 'processing_ai') return { alreadyProcessing: true };
+      transaction.update(readingRef, { isAIGenerating: true, updatedAt: new Date().toISOString() });
+      return { reading, proceed: true };
+    });
+
+    if (result.alreadyCompleted) return { success: true, content: result.content };
+    if (result.alreadyProcessing) return { success: true, message: "Falınız zaten hazırlanıyor..." };
+    
+    const reading = result.reading;
+    const economySnap = await db.collection("adminSettings").doc("economy").get();
+    const economy = economySnap.data() as any;
+    const aiConfig = economy?.aiSettings?.[reading.type] || {
+      systemPrompt: "Sen LASYA isminde mistik bir kahinsin.",
+      templatePrompt: "Kullanıcı {adsoyad}, {dogumtarihi} doğumlu, {iliskidurumu}. Soruları: {sorular}. Lütfen yorumla.",
+      tone: "Karizmatik", mysticLevel: 9
+    };
+
+    const placeholders: Record<string, string> = {
+      adsoyad: reading.formData.adSoyad || "Canım", dogumtarihi: reading.formData.dogumTarihi || "Bilinmiyor",
+      iliskidurumu: reading.formData.iliskiDurumu || "Bilinmiyor", anneadi: reading.formData.motherName || "Bilinmiyor",
+      babaadi: reading.formData.fatherName || "Bilinmiyor", sorular: Array.isArray(reading.questions) ? reading.questions.join(", ") : "Genel yorum",
+      tur: reading.type, isim: reading.formData.adSoyad?.split(" ")[0] || "Canım"
+    };
+
+    let systemPrompt = `Sen Ahlas adında, karizmatik, gizemli ve hafif flörtöz bir erkek falcısın... ` + aiConfig.systemPrompt;
+    let templatePrompt = aiConfig.templatePrompt;
+    Object.entries(placeholders).forEach(([key, value]) => {
+      const regex = new RegExp(`{${key}}`, 'g');
+      systemPrompt = systemPrompt.replace(regex, value);
+      templatePrompt = templatePrompt.replace(regex, value);
+    });
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: templatePrompt }],
@@ -211,8 +210,9 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
     await readingRef.update({ hiddenResult: content, isAIGenerated: true, isAIGenerating: false, updatedAt: new Date().toISOString() });
     return { success: true };
   } catch (error: any) {
-    await readingRef.update({ status: 'error', error: `AI Hatası: ${error.message}`, updatedAt: new Date().toISOString() });
-    throw new functions.https.HttpsError('internal', `AI üretimi sırasında hata oluştu: ${error.message}`);
+    console.error("processFortuneAI error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'AI üretimi sırasında hata oluştu.');
   }
 });
 
@@ -220,33 +220,42 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
 export const upgradeFortunePriority = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { readingId } = data;
-  if (!readingId) throw new functions.https.HttpsError('invalid-argument', 'Reading ID gerekli.');
+  
+  try {
+    if (!data || !data.readingId) throw new functions.https.HttpsError('invalid-argument', 'Reading ID gerekli.');
+    const { readingId } = data;
 
-  const readingRef = db.collection("readings").doc(readingId);
-  return await db.runTransaction(async (transaction) => {
-    const snap = await transaction.get(readingRef);
-    if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
-    const reading = snap.data() as any;
-    if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
-    
-    const economySnap = await db.collection("adminSettings").doc("economy").get();
-    const priorityFee = economySnap.data()?.fortunePricing?.priorityFee || 100;
+    const readingRef = db.collection("readings").doc(readingId);
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(readingRef);
+      if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
+      const reading = snap.data() as any;
+      if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
+      
+      const economySnap = await db.collection("adminSettings").doc("economy").get();
+      const priorityFee = economySnap.data()?.fortunePricing?.priorityFee || 100;
 
-    const userRef = db.collection("users").doc(userId);
-    const userSnap = await transaction.get(userRef);
-    if ((userSnap.data()?.mainCoins || 0) < priorityFee) throw new Error('Yetersiz bakiye.');
+      const userRef = db.collection("users").doc(userId);
+      const userSnap = await transaction.get(userRef);
+      if ((userSnap.data()?.mainCoins || 0) < priorityFee) throw new Error('Yetersiz bakiye.');
 
-    transaction.update(userRef, { mainCoins: FieldValue.increment(-priorityFee) });
-    transaction.update(readingRef, { priorityMode: true, updatedAt: new Date().toISOString() });
-    return { success: true };
-  });
+      transaction.update(userRef, { mainCoins: FieldValue.increment(-priorityFee) });
+      transaction.update(readingRef, { priorityMode: true, updatedAt: new Date().toISOString() });
+      return { success: true };
+    });
+  } catch (error: any) {
+    console.error("upgradeFortunePriority error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Önceliği yükseltirken hata oluştu.');
+  }
 });
 
 // 4. Generate Daily Message
 export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
-  const openai = getOpenAI();
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
   try {
+    const openai = getOpenAI();
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -256,7 +265,8 @@ export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KE
       temperature: 0.8, max_tokens: 100
     });
     return { text: response.choices[0].message.content || "Yıldızlar seninle.", category: 'general' };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("generateDailyMessage error:", error);
     return { text: "Yıldızlar bugün senin için parlıyor.", category: 'general' };
   }
 });

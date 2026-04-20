@@ -4,120 +4,133 @@ import { db, FieldValue } from "./base";
 // 1. Watch Ad Reward
 export const watchAdReward = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
   
-  // HARDENING: Fetch config from Firestore, don't trust client
-  const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-  const economy = configSnap.data() as any;
-  const adRewardEnergy = economy.rewards?.adRewardEnergy || 10;
-  const maxDailyAds = economy.rewards?.maxDailyAds || 5;
-  const adRewardExpiryDays = economy.rewards?.adRewardExpiryDays || 7;
-  
-  const userRef = db.collection("users").doc(userId);
-  
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+  try {
+    // HARDENING: Fetch config from Firestore, don't trust client
+    const configSnap = await db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
+    const economy = configSnap.data() as any;
+    const adRewardEnergy = economy.rewards?.adRewardEnergy || 10;
+    const maxDailyAds = economy.rewards?.maxDailyAds || 5;
+    const adRewardExpiryDays = economy.rewards?.adRewardExpiryDays || 7;
     
-    const userData = userSnap.data() as any;
-    const today = new Date().toISOString().split('T')[0];
-    const lastReset = userData.lastAdReset ? userData.lastAdReset.split('T')[0] : "";
+    const userRef = db.collection("users").doc(userId);
     
-    let dailyCount = userData.dailyAdWatchCount || 0;
-    if (today !== lastReset) dailyCount = 0;
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      
+      const userData = userSnap.data() as any;
+      const today = new Date().toISOString().split('T')[0];
+      const lastReset = userData.lastAdReset ? userData.lastAdReset.split('T')[0] : "";
+      
+      let dailyCount = userData.dailyAdWatchCount || 0;
+      if (today !== lastReset) dailyCount = 0;
 
-    if (dailyCount >= maxDailyAds) {
-      throw new functions.https.HttpsError('failed-precondition', 'Günlük reklam sınırı aşıldı.');
-    }
+      if (dailyCount >= maxDailyAds) {
+        throw new Error('Günlük reklam sınırı aşıldı.');
+      }
 
-    const now = new Date();
-    const expiresAt = new Date();
-    expiresAt.setDate(now.getDate() + adRewardExpiryDays);
+      const now = new Date();
+      const expiresAt = new Date();
+      expiresAt.setDate(now.getDate() + adRewardExpiryDays);
 
-    transaction.update(userRef, {
-      energy: FieldValue.increment(adRewardEnergy),
-      dailyAdWatchCount: dailyCount + 1,
-      lastAdReset: now.toISOString()
+      transaction.update(userRef, {
+        energy: FieldValue.increment(adRewardEnergy),
+        dailyAdWatchCount: dailyCount + 1,
+        lastAdReset: now.toISOString()
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'earn',
+        source: 'ad',
+        amount: adRewardEnergy,
+        balanceType: 'energy',
+        createdAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        remainingAmount: adRewardEnergy,
+        status: 'active',
+        description: 'Reklam izleme ödülü (Sistem Onaylı)'
+      });
+
+      return { success: true };
     });
-
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'earn',
-      source: 'ad',
-      amount: adRewardEnergy,
-      balanceType: 'energy',
-      createdAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      remainingAmount: adRewardEnergy,
-      status: 'active',
-      description: 'Reklam izleme ödülü (Sistem Onaylı)'
-    });
-
-    return { success: true };
-  });
+  } catch (error: any) {
+    console.error("watchAdReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Reklam ödülü işlenirken hata oluştu.');
+  }
 });
 
 // 2. Purchase Coins
 export const purchaseCoins = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { amount, packageId, balanceType = 'main' } = data;
+  
+  try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { amount, packageId, balanceType = 'main' } = data;
 
-  // Input Validation
-  if (typeof amount !== 'number' || amount <= 0) {
-    throw new functions.https.HttpsError('invalid-argument', 'Miktar pozitif bir sayı olmalıdır.');
-  }
-  
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date();
-  
-  await db.runTransaction(async (transaction) => {
-    const updates: any = {};
-    if (balanceType === 'main') updates.mainCoins = FieldValue.increment(amount);
-    else updates.energy = FieldValue.increment(amount);
+    // Input Validation
+    if (typeof amount !== 'number' || amount <= 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'Miktar pozitif bir sayı olmalıdır.');
+    }
     
-    transaction.update(userRef, updates);
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date();
+    
+    await db.runTransaction(async (transaction) => {
+      const updates: any = {};
+      if (balanceType === 'main') updates.mainCoins = FieldValue.increment(amount);
+      else updates.energy = FieldValue.increment(amount);
+      
+      transaction.update(userRef, updates);
 
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'purchase',
-      source: 'purchase',
-      amount: amount,
-      balanceType,
-      createdAt: now.toISOString(),
-      expiresAt: null,
-      remainingAmount: amount,
-      status: 'active',
-      description: `Satın alım onaylandı: ${packageId}`
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'purchase',
+        source: 'purchase',
+        amount: amount,
+        balanceType,
+        createdAt: now.toISOString(),
+        expiresAt: null,
+        remainingAmount: amount,
+        status: 'active',
+        description: `Satın alım onaylandı: ${packageId}`
+      });
     });
-  });
 
-  return { success: true };
+    return { success: true };
+  } catch (error: any) {
+    console.error("purchaseCoins error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Satın alım sırasında hata oluştu.');
+  }
 });
 
 // 3. Spend Balance
 export const spendBalance = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { balanceType, amount, source, description } = data;
-
-  // Input Validation
-  if (typeof amount !== 'number' || amount <= 0) {
-    throw new functions.https.HttpsError('invalid-argument', 'Harcama miktarı pozitif olmalıdır.');
-  }
-  
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date().toISOString();
   
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { balanceType, amount, source, description } = data;
+
+    // Input Validation
+    if (typeof amount !== 'number' || amount <= 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'Harcama miktarı pozitif olmalıdır.');
+    }
+    
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date().toISOString();
+    
     let energyTxs: any[] = [];
     if (balanceType === 'energy') {
       const snaps = await db.collection("walletTransactions")
@@ -175,147 +188,164 @@ export const spendBalance = functions.https.onCall(async (data, context) => {
       return { success: true };
     });
   } catch (error: any) {
-    throw new functions.https.HttpsError('internal', error.message);
+    console.error("spendBalance error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
   }
 });
 
 // 4. Buy Fortune Subscription
 export const buyFortuneSubscription = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { type } = data;
   
-  // HARDENING: Fetch config from Firestore
-  const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-  const economy = configSnap.data() as any;
-  const subConfig = economy.fortuneSubscriptions[type];
-  if (!subConfig) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz abonelik tipi.');
+  try {
+    if (!data || !data.type) throw new functions.https.HttpsError('invalid-argument', 'Abonelik tipi gerekli.');
+    const { type } = data;
+    
+    // HARDENING: Fetch config from Firestore
+    const configSnap = await db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
+    const economy = configSnap.data() as any;
+    const subConfig = economy.fortuneSubscriptions[type];
+    if (!subConfig) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz abonelik tipi.');
 
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date();
-  let expiresAt = new Date();
-  
-  if (type === 'daily') expiresAt.setDate(now.getDate() + 1);
-  else if (type === 'weekly') expiresAt.setDate(now.getDate() + 7);
-  else if (type === 'monthly') expiresAt.setDate(now.getDate() + 30);
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date();
+    let expiresAt = new Date();
+    
+    if (type === 'daily') expiresAt.setDate(now.getDate() + 1);
+    else if (type === 'weekly') expiresAt.setDate(now.getDate() + 7);
+    else if (type === 'monthly') expiresAt.setDate(now.getDate() + 30);
 
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-    const userData = userSnap.data() as any;
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
 
-    // Check Balance
-    const price = subConfig.priceTRY || subConfig.price;
-    if ((userData.mainCoins || 0) < price) {
-      throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
-    }
-
-    // Check for active subscription
-    if (userData.subscription && userData.subscription.status === 'active') {
-      const currentExpires = new Date(userData.subscription.expiresAt);
-      if (currentExpires > now) {
-        throw new functions.https.HttpsError('failed-precondition', 'Zaten aktif bir fal aboneliğiniz var.');
+      // Check Balance
+      const price = subConfig.priceTRY || subConfig.price;
+      if ((userData.mainCoins || 0) < price) {
+        throw new Error('Yetersiz bakiye.');
       }
-    }
 
-    transaction.update(userRef, {
-      mainCoins: FieldValue.increment(-price),
-      subscription: {
-        type,
-        status: 'active',
-        expiresAt: expiresAt.toISOString(),
-        dailyLimit: subConfig.dailyLimit,
-        dailyLimitUsed: 0,
-        lastResetAt: now.toISOString().split('T')[0],
-        dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
+      // Check for active subscription
+      if (userData.subscription && userData.subscription.status === 'active') {
+        const currentExpires = new Date(userData.subscription.expiresAt);
+        if (currentExpires > now) {
+          throw new Error('Zaten aktif bir fal aboneliğiniz var.');
+        }
       }
-    });
 
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'spend',
-      source: 'subscription',
-      amount: -price,
-      balanceType: 'main',
-      createdAt: now.toISOString(),
-      status: 'spent',
-      description: `Fal Aboneliği (${type})`
-    });
+      transaction.update(userRef, {
+        mainCoins: FieldValue.increment(-price),
+        subscription: {
+          type,
+          status: 'active',
+          expiresAt: expiresAt.toISOString(),
+          dailyLimit: subConfig.dailyLimit,
+          dailyLimitUsed: 0,
+          lastResetAt: now.toISOString().split('T')[0],
+          dailyReadingsUsed: { coffee: 0, tarot: 0, advanced: 0 }
+        }
+      });
 
-    return { success: true };
-  });
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'spend',
+        source: 'subscription',
+        amount: -price,
+        balanceType: 'main',
+        createdAt: now.toISOString(),
+        status: 'spent',
+        description: `Fal Aboneliği (${type})`
+      });
+
+      return { success: true };
+    });
+  } catch (error: any) {
+    console.error("buyFortuneSubscription error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Abonelik sırasında hata oluştu.');
+  }
 });
 
 // 5. Purchase Boost Package (TL-based)
 export const purchaseBoostPackage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { type } = data; // 'weekly' or 'monthly'
   
-  // HARDENING: Fetch config from Firestore
-  const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-  const economy = configSnap.data() as any;
-  
-  // Boost packages are defined in economy.boostPackages or similar
-  const boostConfig = economy.boostPackages?.[type] || (type === 'weekly' ? { days: 7, priceTRY: 49.99 } : { days: 30, priceTRY: 149.99 });
+  try {
+    if (!data || !data.type) throw new functions.https.HttpsError('invalid-argument', 'Boost tipi gerekli.');
+    const { type } = data; // 'weekly' or 'monthly'
+    
+    // HARDENING: Fetch config from Firestore
+    const configSnap = await db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
+    const economy = configSnap.data() as any;
+    
+    // Boost packages are defined in economy.boostPackages or similar
+    const boostConfig = economy.boostPackages?.[type] || (type === 'weekly' ? { days: 7, priceTRY: 49.99 } : { days: 30, priceTRY: 149.99 });
 
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date();
-  
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-    const userData = userSnap.data() as any;
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date();
+    
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
 
-    const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
-    const baseDate = currentBoost > now ? currentBoost : now;
-    baseDate.setDate(baseDate.getDate() + boostConfig.days);
+      const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
+      const baseDate = currentBoost > now ? currentBoost : now;
+      baseDate.setDate(baseDate.getDate() + boostConfig.days);
 
-    transaction.update(userRef, {
-      boostExpiresAt: baseDate.toISOString()
+      transaction.update(userRef, {
+        boostExpiresAt: baseDate.toISOString()
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'purchase',
+        source: 'boost',
+        amount: boostConfig.priceTRY,
+        balanceType: 'fiat',
+        createdAt: now.toISOString(),
+        status: 'active',
+        description: `Boost Paketi (${type})`
+      });
+
+      return { success: true, boostExpiresAt: baseDate.toISOString() };
     });
-
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'purchase',
-      source: 'boost',
-      amount: boostConfig.priceTRY,
-      balanceType: 'fiat',
-      createdAt: now.toISOString(),
-      status: 'active',
-      description: `Boost Paketi (${type})`
-    });
-
-    return { success: true, boostExpiresAt: baseDate.toISOString() };
-  });
+  } catch (error: any) {
+    console.error("purchaseBoostPackage error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 6. Purchase Social Item
 export const purchaseSocialItem = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { type, description, quantity } = data;
-
-  console.log(`[purchaseSocialItem] User: ${userId}, Type: ${type}, Qty: ${quantity}`);
-
+  
   try {
+    if (!data || !data.type) throw new functions.https.HttpsError('invalid-argument', 'Öğe tipi gerekli.');
+    const { type, description, quantity } = data;
+
+    console.log(`[purchaseSocialItem] User: ${userId}, Type: ${type}, Qty: ${quantity}`);
+
     // 1. Fetch config
     const configSnap = await db.collection("adminSettings").doc("economy").get();
-    if (!configSnap.exists) throw new Error("CONFIG_NOT_FOUND");
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', "Sistem yapılandırması bulunamadı.");
     const economy = configSnap.data() as any;
     
     // 2. Determine Price (Try to find matching package, fallback to unit price)
     const priceKey = type === 'superLike' ? 'superLike' : type === 'refresh' ? 'refresh' : 'compatibility';
-    if (!economy.socialPricing || !economy.socialPricing[priceKey]) throw new Error("INVALID_ITEM");
+    if (!economy.socialPricing || !economy.socialPricing[priceKey]) throw new functions.https.HttpsError('invalid-argument', "Geçersiz öğe.");
     
     const pricingArray = economy.socialPricing[priceKey] || [];
     const qty = Math.max(1, parseInt(quantity) || 1);
@@ -373,73 +403,67 @@ export const purchaseSocialItem = functions.https.onCall(async (data, context) =
     return result;
   } catch (error: any) {
     console.error("[purchaseSocialItem] Error:", error);
-    if (error.message === "CONFIG_NOT_FOUND") return { success: false, status: 'ERROR', message: 'Sistem yapılandırması bulunamadı.' };
-    if (error.message === "INVALID_ITEM") return { success: false, status: 'INVALID_ITEM' };
-    if (error.message === "USER_NOT_FOUND") return { success: false, status: 'ERROR', message: 'Kullanıcı bulunamadı.' };
-    
-    return { success: false, status: 'ERROR', message: error.message };
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
   }
 });
 
 // 12. Purchase Social Bundle
 export const purchaseSocialBundle = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  
   const userId = context.auth.uid;
-  const { bundleId } = data;
+  
+  try {
+    if (!data || !data.bundleId) throw new functions.https.HttpsError('invalid-argument', 'Paket ID gerekli.');
+    const { bundleId } = data;
 
-  // HARDENING: Fetch config from Firestore
-  const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-  const economy = configSnap.data() as any;
-  
-  // Find bundle in config (assuming it's in economy.socialBundles or similar)
-  // For now we use the default bundles if not found in DB
-  const bundles = economy.socialBundles || [
-    {
-      id: "starter_bundle",
-      name: "Başlangıç Paketi",
-      price: 150,
-      contents: { superLikes: 5, refreshes: 5, compatibility: 5, boostDays: 7 }
-    }
-  ];
-  
-  const bundle = bundles.find((b: any) => b.id === bundleId);
-  if (!bundle) throw new functions.https.HttpsError('not-found', 'Paket bulunamadı.');
-
-  const userRef = db.collection("users").doc(userId);
-  
-  return await db.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
-    const userData = userSnap.data() as any;
+    // HARDENING: Fetch config from Firestore
+    const configSnap = await db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
+    const economy = configSnap.data() as any;
     
-    if ((userData.mainCoins || 0) < bundle.price) throw new Error("Yetersiz bakiye.");
+    const bundles = economy.socialBundles || [];
+    const bundle = bundles.find((b: any) => b.id === bundleId);
+    if (!bundle) throw new functions.https.HttpsError('not-found', 'Paket bulunamadı.');
 
-    const now = new Date();
+    const userRef = db.collection("users").doc(userId);
+    
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
+      
+      if ((userData.mainCoins || 0) < bundle.price) throw new Error("Yetersiz bakiye.");
 
-    transaction.update(userRef, {
-      mainCoins: FieldValue.increment(-bundle.price),
-      superLikes: FieldValue.increment(bundle.contents.superLikes),
-      refreshCount: FieldValue.increment(bundle.contents.refreshes),
-      compatibilityCount: FieldValue.increment(bundle.contents.compatibility)
+      const now = new Date();
+
+      transaction.update(userRef, {
+        mainCoins: FieldValue.increment(-bundle.price),
+        superLikes: FieldValue.increment(bundle.contents.superLikes),
+        refreshCount: FieldValue.increment(bundle.contents.refreshes),
+        compatibilityCount: FieldValue.increment(bundle.contents.compatibility)
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'spend',
+        source: 'social_action',
+        amount: -bundle.price,
+        balanceType: 'main',
+        createdAt: now.toISOString(),
+        status: 'spent',
+        description: `${bundle.name} satın alımı`
+      });
+
+      return { success: true };
     });
-
-    const txRef = db.collection("walletTransactions").doc();
-    transaction.set(txRef, {
-      id: txRef.id,
-      userId,
-      type: 'spend',
-      source: 'social_action',
-      amount: -bundle.price,
-      balanceType: 'main',
-      createdAt: now.toISOString(),
-      status: 'spent',
-      description: `${bundle.name} satın alımı`
-    });
-
-    return { success: true };
-  });
+  } catch (error: any) {
+    console.error("purchaseSocialBundle error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 7. Consume Social Feature

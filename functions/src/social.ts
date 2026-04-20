@@ -6,20 +6,23 @@ import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 export const completeSocialOnboarding = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { 
-    nickname, gender, lookingFor, birthDate, interests, photos, bio,
-    zodiacSign, element, rulingPlanet, planet, friendlySign, enemySign,
-    age, mysticAnimal, luckyNumber, luckyColor
-  } = data;
-
-  if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
-    throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
-  }
-
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date().toISOString();
-
+  
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    
+    const { 
+      nickname, gender, lookingFor, birthDate, interests, photos, bio,
+      zodiacSign, element, rulingPlanet, planet, friendlySign, enemySign,
+      age, mysticAnimal, luckyNumber, luckyColor
+    } = data;
+
+    if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
+      throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
+    }
+
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date().toISOString();
+
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
       const socialData = {
@@ -67,34 +70,38 @@ export const updateSocialProfile = functions.https.onCall(async (data, context) 
     const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
     const userRef = db.collection("users").doc(userId);
     const updates: any = {};
-    if (nickname !== undefined) {
+    
+    // Explicit guards to prevent undefined writes and maintain structure
+    if (nickname !== undefined && nickname !== null) {
+      if (typeof nickname !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Nickname geçersiz.');
       if (nickname.length > 50) throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
       updates["social.nickname"] = nickname;
     }
-    if (bio !== undefined) {
+    if (bio !== undefined && bio !== null) {
+      if (typeof bio !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Bio geçersiz.');
       if (bio.length > 500) throw new functions.https.HttpsError('invalid-argument', 'Bio çok uzun.');
       updates["social.bio"] = bio;
     }
-    if (gender !== undefined) updates["social.gender"] = gender;
-    if (zodiacSign !== undefined) updates["social.zodiacSign"] = zodiacSign;
-    if (photos !== undefined) {
+    if (gender !== undefined && gender !== null) updates["social.gender"] = gender;
+    if (zodiacSign !== undefined && zodiacSign !== null) updates["social.zodiacSign"] = zodiacSign;
+    if (photos !== undefined && photos !== null) {
       if (!Array.isArray(photos) || photos.length > 6) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz fotoğraf listesi.');
       updates["social.photos"] = photos;
     }
-    if (interests !== undefined) updates["social.interests"] = interests;
-    if (birthDate !== undefined) updates["social.birthDate"] = birthDate;
-    if (isOnline !== undefined) updates["social.isOnline"] = isOnline;
-    if (lastSeen !== undefined) updates["social.lastSeen"] = FieldValue.serverTimestamp();
+    if (interests !== undefined && interests !== null) updates["social.interests"] = interests;
+    if (birthDate !== undefined && birthDate !== null) updates["social.birthDate"] = birthDate;
+    if (isOnline !== undefined && isOnline !== null) updates["social.isOnline"] = !!isOnline;
+    if (lastSeen !== undefined && lastSeen !== null) updates["social.lastSeen"] = FieldValue.serverTimestamp();
 
-    if (Object.keys(updates).length === 0) return { status: 'SUCCESS', message: 'No changes' };
+    if (Object.keys(updates).length === 0) return { success: true, status: 'SUCCESS', message: 'No changes' };
 
     updates["updatedAt"] = FieldValue.serverTimestamp();
     await userRef.update(updates);
-    return { status: 'SUCCESS' };
+    return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("updateSocialProfile error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    return { status: 'TECHNICAL_ERROR', message: error.message };
+    throw new functions.https.HttpsError('internal', error.message || 'Profil güncellenirken bir hata oluştu.');
   }
 });
 
@@ -102,32 +109,40 @@ export const updateSocialProfile = functions.https.onCall(async (data, context) 
 export const updateSocialSettings = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { settings } = data;
-  if (!settings) throw new functions.https.HttpsError('invalid-argument', 'Ayarlar gerekli.');
-  const userRef = db.collection("users").doc(userId);
-  const allowedFields = ['visibility', 'discoveryEnabled', 'notificationsEnabled', 'genderPreference', 'minAge', 'maxAge', 'whoCanMessage', 'whoCanAddFriend', 'notifications', 'enabled', 'visible'];
-  const updates: any = {};
-  Object.keys(settings).forEach(key => {
-    if (allowedFields.includes(key)) {
-      if (key === 'enabled' || key === 'visible') updates[`social.${key}`] = settings[key];
-      else updates[`social.settings.${key}`] = settings[key];
-    }
-  });
-  if (Object.keys(updates).length > 0) await userRef.update(updates);
-  return { success: true };
+  
+  try {
+    if (!data || !data.settings) throw new functions.https.HttpsError('invalid-argument', 'Ayarlar gerekli.');
+    const { settings } = data;
+    const userRef = db.collection("users").doc(userId);
+    const allowedFields = ['visibility', 'discoveryEnabled', 'notificationsEnabled', 'genderPreference', 'minAge', 'maxAge', 'whoCanMessage', 'whoCanAddFriend', 'notifications', 'enabled', 'visible'];
+    const updates: any = {};
+    Object.keys(settings).forEach(key => {
+      if (allowedFields.includes(key)) {
+        if (key === 'enabled' || key === 'visible') updates[`social.${key}`] = settings[key];
+        else updates[`social.settings.${key}`] = settings[key];
+      }
+    });
+    if (Object.keys(updates).length > 0) await userRef.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    console.error("updateSocialSettings error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Ayarlar güncellenirken hata oluştu.');
+  }
 });
 
 // 4. Refresh Discover Feed
 export const refreshDiscover = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const userRef = db.collection("users").doc(userId);
-  const now = new Date();
-  const nowIso = now.toISOString();
-
+  
   try {
+    const userRef = db.collection("users").doc(userId);
+    const now = new Date();
+    const nowIso = now.toISOString();
+
     const userSnap = await userRef.get();
-    if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+    if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
     const userData = userSnap.data() as any;
     const gender = userData.social?.gender || userData.gender || "";
     const targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
@@ -194,7 +209,8 @@ export const refreshDiscover = functions.https.onCall(async (data, context) => {
     return result;
   } catch (error: any) {
     console.error("[refreshDiscover] Error:", error);
-    return { success: false, status: 'ERROR', message: error.message };
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Keşfet yenilenirken hata oluştu.');
   }
 });
 
@@ -204,15 +220,17 @@ export const refreshDiscoverFeed = refreshDiscover;
 export const sendLike = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const fromUserId = context.auth.uid;
-  const { targetUserId, type } = data || {};
-  if (!targetUserId || !['like', 'super_like', 'pass'].includes(type) || fromUserId === targetUserId) {
-    return { status: 'INVALID_ARGUMENT' };
-  }
-
-  const fromUserRef = db.collection("users").doc(fromUserId);
-  const toUserRef = db.collection("users").doc(targetUserId);
 
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { targetUserId, type } = data;
+    if (!targetUserId || !['like', 'super_like', 'pass'].includes(type) || fromUserId === targetUserId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Geçersiz işlem parametreleri.');
+    }
+
+    const fromUserRef = db.collection("users").doc(fromUserId);
+    const toUserRef = db.collection("users").doc(targetUserId);
+
     const result = await db.runTransaction(async (transaction) => {
       const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
       if (!fromSnap.exists || !toSnap.exists) return { status: 'TARGET_NOT_FOUND' };
@@ -267,10 +285,12 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 export const sendMessageRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const fromUserId = context.auth.uid;
-  const toUserId = data?.toUserId || data?.targetUserId;
-  if (!toUserId || fromUserId === toUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-
+  
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const toUserId = data.toUserId || data.targetUserId;
+    if (!toUserId || fromUserId === toUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+
     const result = await db.runTransaction(async (transaction) => {
       const fromUserRef = db.collection("users").doc(fromUserId);
       const toUserRef = db.collection("users").doc(toUserId);
@@ -303,67 +323,86 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
 export const acceptRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { requestId } = data;
-  if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
+  
+  try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { requestId } = data;
+    if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
 
-  const requestRef = db.collection("interactionRequests").doc(requestId);
-  const result = await db.runTransaction(async (transaction) => {
-    const requestSnap = await transaction.get(requestRef);
-    if (!requestSnap.exists) throw new Error('NOT_FOUND');
-    const request = requestSnap.data() as any;
-    if (request.toUserId !== userId || request.status !== 'pending') throw new Error('INVALID_STATUS');
+    const requestRef = db.collection("interactionRequests").doc(requestId);
+    const result = await db.runTransaction(async (transaction) => {
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists) throw new Error('NOT_FOUND');
+      const request = requestSnap.data() as any;
+      if (request.toUserId !== userId || request.status !== 'pending') throw new Error('INVALID_STATUS');
 
-    const fromUserId = request.fromUserId;
-    const [fromSnap, toSnap] = await Promise.all([transaction.get(db.collection("users").doc(fromUserId)), transaction.get(db.collection("users").doc(userId))]);
-    if (!fromSnap.exists || !toSnap.exists) throw new Error('USER_NOT_FOUND');
+      const fromUserId = request.fromUserId;
+      const [fromSnap, toSnap] = await Promise.all([transaction.get(db.collection("users").doc(fromUserId)), transaction.get(db.collection("users").doc(userId))]);
+      if (!fromSnap.exists || !toSnap.exists) throw new Error('USER_NOT_FOUND');
 
-    const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
-    const chatRef = db.collection("chats").doc(chatId);
-    const now = FieldValue.serverTimestamp();
+      const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
+      const chatRef = db.collection("chats").doc(chatId);
+      const now = FieldValue.serverTimestamp();
 
-    transaction.update(requestRef, { status: 'accepted', updatedAt: now });
-    transaction.set(chatRef, { id: chatId, participants: [fromUserId, userId], createdAt: now, lastMessage: "Sohbet başladı! 👋", lastMessageAt: now, status: 'active', unreadCount: { [fromUserId]: 0, [userId]: 0 } }, { merge: true });
-    
-    const msgRef = db.collection("messages").doc();
-    transaction.set(msgRef, { id: msgRef.id, chatId, participants: [fromUserId, userId], senderId: "system", text: "Sohbet başlayabilir.", createdAt: now, status: 'sent', type: 'system' });
+      transaction.update(requestRef, { status: 'accepted', updatedAt: now });
+      transaction.set(chatRef, { id: chatId, participants: [fromUserId, userId], createdAt: now, lastMessage: "Sohbet başladı! 👋", lastMessageAt: now, status: 'active', unreadCount: { [fromUserId]: 0, [userId]: 0 } }, { merge: true });
+      
+      const msgRef = db.collection("messages").doc();
+      transaction.set(msgRef, { id: msgRef.id, chatId, participants: [fromUserId, userId], senderId: "system", text: "Sohbet başlayabilir.", createdAt: now, status: 'sent', type: 'system' });
 
-    const notifRef = db.collection("notifications").doc();
-    transaction.set(notifRef, { userId: fromUserId, type: "request_accepted", title: "İstek Kabul Edildi!", message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, data: { chatId }, read: false, createdAt: now });
+      const notifRef = db.collection("notifications").doc();
+      transaction.set(notifRef, { userId: fromUserId, type: "request_accepted", title: "İstek Kabul Edildi!", message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, data: { chatId }, read: false, createdAt: now });
 
-    return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName };
-  });
+      return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName };
+    });
 
-  // Performance: Async push
-  if (result.status === 'SUCCESS') {
-    sendPushToUser(result.fromUserId, { 
-      title: "İstek Kabul Edildi!", 
-      body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`, 
-      data: { screen: 'chat', chatId: result.chatId }, 
-      category: 'social', 
-      senderId: result.toUserId 
-    }).catch(e => console.error("Push failed:", e));
+    // Performance: Async push
+    if (result.status === 'SUCCESS') {
+      sendPushToUser(result.fromUserId, { 
+        title: "İstek Kabul Edildi!", 
+        body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`, 
+        data: { screen: 'chat', chatId: result.chatId }, 
+        category: 'social', 
+        senderId: result.toUserId 
+      }).catch(e => console.error("Push failed:", e));
+    }
+    return result;
+  } catch (error: any) {
+    console.error("acceptRequest error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İstek kabul edilirken hata oluştu.');
   }
-  return result;
 });
 
 // 8. Reject Request
 export const rejectRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { requestId } = data;
-  const requestRef = db.collection("interactionRequests").doc(requestId);
-  await requestRef.update({ status: 'rejected', updatedAt: FieldValue.serverTimestamp() });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
+    const { requestId } = data;
+    const requestRef = db.collection("interactionRequests").doc(requestId);
+    await requestRef.update({ status: 'rejected', updatedAt: FieldValue.serverTimestamp() });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("rejectRequest error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 9. Send Message
 export const sendMessage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const senderId = context.auth.uid;
-  const { chatId, text, mediaUrl, mediaType } = data;
-  if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
-
-  const chatRef = db.collection("chats").doc(chatId);
+  
   try {
+    if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const { chatId, text, mediaUrl, mediaType } = data;
+    if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+
+    const chatRef = db.collection("chats").doc(chatId);
+    
     const result = await db.runTransaction(async (transaction) => {
       const chatSnap = await transaction.get(chatRef);
       if (!chatSnap.exists) throw new Error('NOT_FOUND');
@@ -376,7 +415,7 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
       const now = FieldValue.serverTimestamp();
       const msgRef = db.collection("messages").doc();
       const type = mediaType || 'text';
-      const lastMsgText = type === 'text' ? text : (type === 'image' ? "📷 Görsel" : "🎥 Video");
+      const lastMsgText = type === 'text' ? (text || "") : (type === 'image' ? "📷 Görsel" : "🎥 Video");
 
       transaction.set(msgRef, { id: msgRef.id, chatId, participants: [senderId, receiverId], senderId, receiverId, text: text || "", mediaUrl: mediaUrl || null, mediaType: mediaType || null, createdAt: now, status: 'sent', seen: false, type });
       transaction.update(chatRef, { lastMessage: lastMsgText, lastMessageAt: now, lastMessageSenderId: senderId, lastMessageStatus: 'sent', [`unreadCount.${receiverId}`]: FieldValue.increment(1) });
@@ -389,7 +428,9 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
     }
     return result;
   } catch (error: any) {
-    return { status: 'TECHNICAL_ERROR', message: error.message };
+    console.error("sendMessage error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Mesaj gönderilirken hata oluştu.');
   }
 });
 
@@ -397,156 +438,261 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
 export const markAsSeen = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { chatId } = data;
-  const unreads = await db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "!=", "seen").limit(100).get();
-  if (unreads.empty) {
-    await db.collection("chats").doc(chatId).update({ [`unreadCount.${userId}`]: 0 });
-    return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+    const { chatId } = data;
+    const unreads = await db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "!=", "seen").limit(100).get();
+    if (unreads.empty) {
+      await db.collection("chats").doc(chatId).update({ [`unreadCount.${userId}`]: 0 });
+      return { success: true, status: 'SUCCESS' };
+    }
+    const batch = db.batch();
+    unreads.docs.forEach(doc => batch.update(doc.ref, { status: 'seen', seen: true }));
+    batch.update(db.collection("chats").doc(chatId), { [`unreadCount.${userId}`]: 0, lastMessageStatus: 'seen' });
+    batch.update(db.collection("users").doc(userId), { unreadMessagesCount: FieldValue.increment(-unreads.size) });
+    await batch.commit();
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("markAsSeen error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
   }
-  const batch = db.batch();
-  unreads.docs.forEach(doc => batch.update(doc.ref, { status: 'seen', seen: true }));
-  batch.update(db.collection("chats").doc(chatId), { [`unreadCount.${userId}`]: 0, lastMessageStatus: 'seen' });
-  batch.update(db.collection("users").doc(userId), { unreadMessagesCount: FieldValue.increment(-unreads.size) });
-  await batch.commit();
-  return { status: 'SUCCESS' };
 });
 
 // 11. Mark As Delivered
 export const markAsDelivered = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { chatId } = data;
-  const sents = await db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "==", "sent").limit(100).get();
-  if (sents.empty) return { success: true };
-  const batch = db.batch();
-  sents.docs.forEach(doc => batch.update(doc.ref, { status: 'delivered' }));
-  await batch.commit();
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+    const { chatId } = data;
+    const sents = await db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "==", "sent").limit(100).get();
+    if (sents.empty) return { success: true, status: 'SUCCESS' };
+    const batch = db.batch();
+    sents.docs.forEach(doc => batch.update(doc.ref, { status: 'delivered' }));
+    await batch.commit();
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("markAsDelivered error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 12. Delete Chat
 export const deleteChat = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { chatId } = data;
-  await db.collection("chats").doc(chatId).update({ deletedFor: FieldValue.arrayUnion(userId) });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+    const { chatId } = data;
+    await db.collection("chats").doc(chatId).update({ deletedFor: FieldValue.arrayUnion(userId) });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("deleteChat error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 13. Delete Message
 export const deleteMessage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { messageId, forEveryone } = data;
-  const msgRef = db.collection("messages").doc(messageId);
-  const snap = await msgRef.get();
-  if (snap.exists && snap.data()?.senderId === userId) {
-    if (forEveryone) await msgRef.update({ isDeleted: true, deletedForEveryone: true, text: "Bu mesaj silindi.", mediaUrl: null, mediaType: null });
-    else await msgRef.update({ isDeleted: true });
+  
+  try {
+    if (!data || !data.messageId) throw new functions.https.HttpsError('invalid-argument', 'Message ID gerekli.');
+    const { messageId, forEveryone } = data;
+    const msgRef = db.collection("messages").doc(messageId);
+    const snap = await msgRef.get();
+    if (snap.exists && snap.data()?.senderId === userId) {
+      if (forEveryone) await msgRef.update({ isDeleted: true, deletedForEveryone: true, text: "Bu mesaj silindi.", mediaUrl: null, mediaType: null });
+      else await msgRef.update({ isDeleted: true });
+    }
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("deleteMessage error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Mesaj silinirken hata oluştu.');
   }
-  return { status: 'SUCCESS' };
 });
 
 // 14. Edit Message
 export const editMessage = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { messageId, newText } = data;
-  const msgRef = db.collection("messages").doc(messageId);
-  const snap = await msgRef.get();
-  if (snap.exists && snap.data()?.senderId === userId) {
-    await msgRef.update({ text: newText, editedAt: FieldValue.serverTimestamp() });
+  
+  try {
+    if (!data || !data.messageId) throw new functions.https.HttpsError('invalid-argument', 'Mesaj ID ve yeni metin gerekli.');
+    const { messageId, newText } = data;
+    const msgRef = db.collection("messages").doc(messageId);
+    const snap = await msgRef.get();
+    if (snap.exists && snap.data()?.senderId === userId) {
+      await msgRef.update({ text: newText, editedAt: FieldValue.serverTimestamp() });
+    }
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("editMessage error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Mesaj düzenlenirken hata oluştu.');
   }
-  return { status: 'SUCCESS' };
 });
 
 // 15. Set Typing Status
 export const setTypingStatus = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { chatId, isTyping } = data;
-  await db.collection("chats").doc(chatId).update({ [`typing.${userId}`]: !!isTyping });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
+    const { chatId, isTyping } = data;
+    await db.collection("chats").doc(chatId).update({ [`typing.${userId}`]: !!isTyping });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("setTypingStatus error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
 });
 
 // 16. Block User
 export const blockUser = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { targetUid } = data;
-  await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayUnion(targetUid) });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
+    const { targetUid } = data;
+    await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayUnion(targetUid) });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("blockUser error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Engelleme sırasında hata oluştu.');
+  }
 });
 
 // 17. Unblock User
 export const unblockUser = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { targetUid } = data;
-  await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayRemove(targetUid) });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
+    const { targetUid } = data;
+    await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayRemove(targetUid) });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("unblockUser error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Engeli kaldırırken hata oluştu.');
+  }
 });
 
 // 18. Mute User
 export const muteUser = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { targetUid } = data;
-  await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayUnion(targetUid) });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
+    const { targetUid } = data;
+    await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayUnion(targetUid) });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("muteUser error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Sessize alma sırasında hata oluştu.');
+  }
 });
 
 // 19. Unmute User
 export const unmuteUser = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { targetUid } = data;
-  await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayRemove(targetUid) });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
+    const { targetUid } = data;
+    await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayRemove(targetUid) });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("unmuteUser error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Sessizden çıkarma sırasında hata oluştu.');
+  }
 });
 
 // 20. Create Report
 export const createReport = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const { reportedUserId, source, reason, description, metadata } = data;
-  const ref = db.collection("reports").doc();
-  await ref.set({ id: ref.id, reporterId: context.auth.uid, reportedUserId, source, reason, description: description || "", metadata: metadata || {}, createdAt: FieldValue.serverTimestamp(), status: 'pending' });
-  return { status: 'SUCCESS' };
+  
+  try {
+    if (!data || !data.reportedUserId) throw new functions.https.HttpsError('invalid-argument', 'Raporlanan kullanıcı ID gerekli.');
+    const { reportedUserId, source, reason, description, metadata } = data;
+    const ref = db.collection("reports").doc();
+    await ref.set({ id: ref.id, reporterId: context.auth.uid, reportedUserId, source, reason, description: description || "", metadata: metadata || {}, createdAt: FieldValue.serverTimestamp(), status: 'pending' });
+    return { success: true, status: 'SUCCESS' };
+  } catch (error: any) {
+    console.error("createReport error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Rapor oluşturulurken hata oluştu.');
+  }
 });
 
 // 21. Create Chat
 export const createChat = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { targetUserId } = data;
-  const chatId = `chat_${[userId, targetUserId].sort().join('_')}`;
-  const now = FieldValue.serverTimestamp();
-  await db.collection("chats").doc(chatId).set({ id: chatId, participants: [userId, targetUserId], createdAt: now, lastMessage: "Sohbet başladı! 👋", lastMessageAt: now, status: 'active', unreadCount: { [userId]: 0, [targetUserId]: 0 } }, { merge: true });
-  return { status: 'SUCCESS', chatId };
+  
+  try {
+    if (!data || !data.targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+    const { targetUserId } = data;
+    const chatId = `chat_${[userId, targetUserId].sort().join('_')}`;
+    const now = FieldValue.serverTimestamp();
+    await db.collection("chats").doc(chatId).set({ id: chatId, participants: [userId, targetUserId], createdAt: now, lastMessage: "Sohbet başladı! 👋", lastMessageAt: now, status: 'active', unreadCount: { [userId]: 0, [targetUserId]: 0 } }, { merge: true });
+    return { success: true, status: 'SUCCESS', chatId };
+  } catch (error: any) {
+    console.error("createChat error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Sohbet oluşturulurken hata oluştu.');
+  }
 });
 
 // 22. Compatibility Analysis
 export const runDiscoverCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { targetUserId, relationshipType } = data;
-  const cacheKey = `${userId}_${targetUserId}_${relationshipType}`;
-  const history = await db.collection("compatibilityHistory").where("cacheKey", "==", cacheKey).limit(1).get();
-  if (!history.empty) return { success: true, analysis: history.docs[0].data(), cached: true };
+  
+  try {
+    if (!data || !data.targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+    const { targetUserId, relationshipType } = data;
+    const cacheKey = `${userId}_${targetUserId}_${relationshipType}`;
+    const history = await db.collection("compatibilityHistory").where("cacheKey", "==", cacheKey).limit(1).get();
+    if (!history.empty) return { success: true, analysis: history.docs[0].data(), cached: true };
 
-  const userRef = db.collection("users").doc(userId);
-  const targetRef = db.collection("users").doc(targetUserId);
-  return await db.runTransaction(async (transaction) => {
-    const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
-    const uData = uSnap.data() as any;
-    if ((uData.compatibilityCount || 0) <= 0) throw new Error("INSUFFICIENT_FUNDS");
+    const userRef = db.collection("users").doc(userId);
+    const targetRef = db.collection("users").doc(targetUserId);
+    return await db.runTransaction(async (transaction) => {
+      const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
+      if (!uSnap.exists || !tSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      const uData = uSnap.data() as any;
+      if ((uData.compatibilityCount || 0) <= 0) throw new Error("INSUFFICIENT_FUNDS");
 
-    transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
-    const requestRef = db.collection("compatibilityRequests").doc();
-    const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    transaction.set(requestRef, { 
-      id: requestRef.id, userId, source: 'discover', targetUserId, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt, cacheKey,
-      person1: { name: uData.social?.nickname || uData.displayName, photo: uData.social?.photos?.[0], birthDate: uData.social?.birthDate },
-      person2: { name: tSnap.data()?.social?.nickname || tSnap.data()?.displayName, photo: tSnap.data()?.social?.photos?.[0], birthDate: tSnap.data()?.social?.birthDate }
+      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      const requestRef = db.collection("compatibilityRequests").doc();
+      const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      transaction.set(requestRef, { 
+        id: requestRef.id, userId, source: 'discover', targetUserId, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt, cacheKey,
+        person1: { name: uData.social?.nickname || uData.displayName, photo: uData.social?.photos?.[0], birthDate: uData.social?.birthDate },
+        person2: { name: tSnap.data()?.social?.nickname || tSnap.data()?.displayName, photo: tSnap.data()?.social?.photos?.[0], birthDate: tSnap.data()?.social?.birthDate }
+      });
+      return { success: true, requestId: requestRef.id, readyAt };
     });
-    return { success: true, requestId: requestRef.id, readyAt };
-  });
+  } catch (error: any) {
+    console.error("runDiscoverCompatibilityAnalysis error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
+  }
 });
 
 // 23. Process Compatibility Requests
@@ -579,17 +725,26 @@ export const processCompatibilityRequests = functions.pubsub.schedule('every 2 m
 export const runManualCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
-  const { person1, person2, relationshipType } = data;
-  const userRef = db.collection("users").doc(userId);
-  return await db.runTransaction(async (transaction) => {
-    const snap = await transaction.get(userRef);
-    if ((snap.data()?.compatibilityCount || 0) <= 0) throw new Error("INSUFFICIENT_FUNDS");
-    transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
-    const ref = db.collection("compatibilityRequests").doc();
-    const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    transaction.set(ref, { id: ref.id, userId, person1, person2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
-    return { success: true, requestId: ref.id, readyAt };
-  });
+  
+  try {
+    if (!data || !data.person1 || !data.person2) throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
+    const { person1, person2, relationshipType } = data;
+    const userRef = db.collection("users").doc(userId);
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new Error("User not found");
+      if ((snap.data()?.compatibilityCount || 0) <= 0) throw new Error("INSUFFICIENT_FUNDS");
+      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      const ref = db.collection("compatibilityRequests").doc();
+      const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      transaction.set(ref, { id: ref.id, userId, person1, person2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
+      return { success: true, requestId: ref.id, readyAt };
+    });
+  } catch (error: any) {
+    console.error("runManualCompatibilityAnalysis error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
+  }
 });
 
 export const checkDailyReminders = functions.pubsub.schedule('every 24 hours').onRun(async (context) => { return null; });
