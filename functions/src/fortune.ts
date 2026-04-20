@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 
 // 1. Create Fortune Reading (Backend Controlled)
-export const createFortuneReading = functions.https.onCall(async (data, context) => {
+export const createFortuneReading = functions.region('us-central1').https.onCall(async (data, context) => {
   console.log("createFortuneReading called for type:", data?.type);
   try {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
@@ -151,7 +151,7 @@ export const createFortuneReading = functions.https.onCall(async (data, context)
 });
 
 // 2. Process Fortune AI
-export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+export const processFortuneAI = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -217,7 +217,7 @@ export const processFortuneAI = functions.runWith({ secrets: ["OPENAI_API_KEY"] 
 });
 
 // 3. Upgrade Fortune Priority
-export const upgradeFortunePriority = functions.https.onCall(async (data, context) => {
+export const upgradeFortunePriority = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -251,7 +251,7 @@ export const upgradeFortunePriority = functions.https.onCall(async (data, contex
 });
 
 // 4. Generate Daily Message
-export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+export const generateDailyMessage = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
@@ -272,7 +272,7 @@ export const generateDailyMessage = functions.runWith({ secrets: ["OPENAI_API_KE
 });
 
 // 5. Background Status Updater
-export const updateReadingStatuses = functions.pubsub.schedule('every 1 minutes').onRun(async (context) => {
+export const updateReadingStatuses = functions.region('us-central1').pubsub.schedule('every 1 minutes').onRun(async (context) => {
   const now = new Date().toISOString();
   const searchings = await db.collection("readings").where("status", "==", "searching").where("expectedReaderFoundAt", "<=", now).limit(50).get();
   for (const doc of searchings.docs) {

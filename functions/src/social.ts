@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 
 // 1. Complete Social Onboarding
-export const completeSocialOnboarding = functions.https.onCall(async (data, context) => {
+export const completeSocialOnboarding = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -61,7 +61,10 @@ export const completeSocialOnboarding = functions.https.onCall(async (data, cont
 });
 
 // 2. Update Social Profile
-export const updateSocialProfile = functions.https.onCall(async (data, context) => {
+export const updateSocialProfile = functions.region('us-central1').https.onCall(async (data, context) => {
+  // STEP 3: Log auth for debugging
+  console.log("updateSocialProfile AUTH CONTEXT:", context.auth ? { uid: context.auth.uid, email: context.auth.token.email } : "NULL");
+
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -76,37 +79,64 @@ export const updateSocialProfile = functions.https.onCall(async (data, context) 
       if (typeof nickname !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Nickname geçersiz.');
       if (nickname.length > 50) throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
       updates["social.nickname"] = nickname;
+      updates["nickname"] = nickname;
+      updates["displayName"] = nickname;
     }
     if (bio !== undefined && bio !== null) {
       if (typeof bio !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Bio geçersiz.');
       if (bio.length > 500) throw new functions.https.HttpsError('invalid-argument', 'Bio çok uzun.');
       updates["social.bio"] = bio;
+      updates["bio"] = bio;
     }
-    if (gender !== undefined && gender !== null) updates["social.gender"] = gender;
-    if (zodiacSign !== undefined && zodiacSign !== null) updates["social.zodiacSign"] = zodiacSign;
+    if (gender !== undefined && gender !== null) {
+      updates["social.gender"] = gender;
+      updates["gender"] = gender;
+    }
+    if (zodiacSign !== undefined && zodiacSign !== null) {
+      updates["social.zodiacSign"] = zodiacSign;
+      updates["zodiacSign"] = zodiacSign;
+    }
     if (photos !== undefined && photos !== null) {
       if (!Array.isArray(photos) || photos.length > 6) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz fotoğraf listesi.');
       updates["social.photos"] = photos;
+      updates["photos"] = photos;
+      if (photos.length > 0) updates["photoURL"] = photos[0];
     }
-    if (interests !== undefined && interests !== null) updates["social.interests"] = interests;
-    if (birthDate !== undefined && birthDate !== null) updates["social.birthDate"] = birthDate;
+    if (interests !== undefined && interests !== null) {
+      updates["social.interests"] = interests;
+      updates["interests"] = interests;
+    }
+    if (birthDate !== undefined && birthDate !== null) {
+      updates["social.birthDate"] = birthDate;
+      updates["birthDate"] = birthDate;
+    }
     if (isOnline !== undefined && isOnline !== null) updates["social.isOnline"] = !!isOnline;
-    if (lastSeen !== undefined && lastSeen !== null) updates["social.lastSeen"] = FieldValue.serverTimestamp();
+    if (lastSeen !== undefined && lastSeen !== null) {
+      updates["social.lastSeen"] = FieldValue.serverTimestamp();
+      updates["lastSeenAt"] = FieldValue.serverTimestamp();
+    }
 
     if (Object.keys(updates).length === 0) return { success: true, status: 'SUCCESS', message: 'No changes' };
 
     updates["updatedAt"] = FieldValue.serverTimestamp();
-    await userRef.update(updates);
+    
+    // Use set with merge: true instead of update() to avoid errors if the document doesn't exist
+    await userRef.set(updates, { merge: true });
+    
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
-    console.error("updateSocialProfile error:", error);
+    // STEP 4: Log detailed error
+    console.error("REAL ERROR in updateSocialProfile:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Profil güncellenirken bir hata oluştu.');
+    
+    // Log details and throw internal error with safe message
+    const message = error.message || 'Profil güncellenirken bir hata oluştu.';
+    throw new functions.https.HttpsError('internal', message, error.stack);
   }
 });
 
 // 3. Update Social Settings
-export const updateSocialSettings = functions.https.onCall(async (data, context) => {
+export const updateSocialSettings = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -122,7 +152,10 @@ export const updateSocialSettings = functions.https.onCall(async (data, context)
         else updates[`social.settings.${key}`] = settings[key];
       }
     });
-    if (Object.keys(updates).length > 0) await userRef.update(updates);
+    if (Object.keys(updates).length > 0) {
+      updates["updatedAt"] = FieldValue.serverTimestamp();
+      await userRef.set(updates, { merge: true });
+    }
     return { success: true };
   } catch (error: any) {
     console.error("updateSocialSettings error:", error);
@@ -132,7 +165,7 @@ export const updateSocialSettings = functions.https.onCall(async (data, context)
 });
 
 // 4. Refresh Discover Feed
-export const refreshDiscover = functions.https.onCall(async (data, context) => {
+export const refreshDiscover = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -217,7 +250,7 @@ export const refreshDiscover = functions.https.onCall(async (data, context) => {
 export const refreshDiscoverFeed = refreshDiscover;
 
 // 5. Send Like
-export const sendLike = functions.https.onCall(async (data, context) => {
+export const sendLike = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const fromUserId = context.auth.uid;
 
@@ -282,7 +315,7 @@ export const sendLike = functions.https.onCall(async (data, context) => {
 });
 
 // 6. Send Message Request
-export const sendMessageRequest = functions.https.onCall(async (data, context) => {
+export const sendMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const fromUserId = context.auth.uid;
   
@@ -320,7 +353,7 @@ export const sendMessageRequest = functions.https.onCall(async (data, context) =
 });
 
 // 7. Accept Request
-export const acceptRequest = functions.https.onCall(async (data, context) => {
+export const acceptRequest = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -375,14 +408,14 @@ export const acceptRequest = functions.https.onCall(async (data, context) => {
 });
 
 // 8. Reject Request
-export const rejectRequest = functions.https.onCall(async (data, context) => {
+export const rejectRequest = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
     if (!data || !data.requestId) throw new functions.https.HttpsError('invalid-argument', 'Request ID gerekli.');
     const { requestId } = data;
     const requestRef = db.collection("interactionRequests").doc(requestId);
-    await requestRef.update({ status: 'rejected', updatedAt: FieldValue.serverTimestamp() });
+    await requestRef.set({ status: 'rejected', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("rejectRequest error:", error);
@@ -392,7 +425,7 @@ export const rejectRequest = functions.https.onCall(async (data, context) => {
 });
 
 // 9. Send Message
-export const sendMessage = functions.https.onCall(async (data, context) => {
+export const sendMessage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const senderId = context.auth.uid;
   
@@ -435,7 +468,7 @@ export const sendMessage = functions.https.onCall(async (data, context) => {
 });
 
 // 10. Mark As Seen
-export const markAsSeen = functions.https.onCall(async (data, context) => {
+export const markAsSeen = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -461,7 +494,7 @@ export const markAsSeen = functions.https.onCall(async (data, context) => {
 });
 
 // 11. Mark As Delivered
-export const markAsDelivered = functions.https.onCall(async (data, context) => {
+export const markAsDelivered = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -482,7 +515,7 @@ export const markAsDelivered = functions.https.onCall(async (data, context) => {
 });
 
 // 12. Delete Chat
-export const deleteChat = functions.https.onCall(async (data, context) => {
+export const deleteChat = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -499,7 +532,7 @@ export const deleteChat = functions.https.onCall(async (data, context) => {
 });
 
 // 13. Delete Message
-export const deleteMessage = functions.https.onCall(async (data, context) => {
+export const deleteMessage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -521,7 +554,7 @@ export const deleteMessage = functions.https.onCall(async (data, context) => {
 });
 
 // 14. Edit Message
-export const editMessage = functions.https.onCall(async (data, context) => {
+export const editMessage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -542,14 +575,14 @@ export const editMessage = functions.https.onCall(async (data, context) => {
 });
 
 // 15. Set Typing Status
-export const setTypingStatus = functions.https.onCall(async (data, context) => {
+export const setTypingStatus = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
   try {
     if (!data || !data.chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
     const { chatId, isTyping } = data;
-    await db.collection("chats").doc(chatId).update({ [`typing.${userId}`]: !!isTyping });
+    await db.collection("chats").doc(chatId).set({ [`typing.${userId}`]: !!isTyping }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("setTypingStatus error:", error);
@@ -559,13 +592,13 @@ export const setTypingStatus = functions.https.onCall(async (data, context) => {
 });
 
 // 16. Block User
-export const blockUser = functions.https.onCall(async (data, context) => {
+export const blockUser = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
     if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
     const { targetUid } = data;
-    await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayUnion(targetUid) });
+    await db.collection("users").doc(context.auth.uid).set({ "social.blockedUserIds": FieldValue.arrayUnion(targetUid) }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("blockUser error:", error);
@@ -575,13 +608,13 @@ export const blockUser = functions.https.onCall(async (data, context) => {
 });
 
 // 17. Unblock User
-export const unblockUser = functions.https.onCall(async (data, context) => {
+export const unblockUser = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
     if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
     const { targetUid } = data;
-    await db.collection("users").doc(context.auth.uid).update({ "social.blockedUserIds": FieldValue.arrayRemove(targetUid) });
+    await db.collection("users").doc(context.auth.uid).set({ "social.blockedUserIds": FieldValue.arrayRemove(targetUid) }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("unblockUser error:", error);
@@ -591,13 +624,13 @@ export const unblockUser = functions.https.onCall(async (data, context) => {
 });
 
 // 18. Mute User
-export const muteUser = functions.https.onCall(async (data, context) => {
+export const muteUser = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
     if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
     const { targetUid } = data;
-    await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayUnion(targetUid) });
+    await db.collection("users").doc(context.auth.uid).set({ "social.mutedUserIds": FieldValue.arrayUnion(targetUid) }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("muteUser error:", error);
@@ -607,13 +640,13 @@ export const muteUser = functions.https.onCall(async (data, context) => {
 });
 
 // 19. Unmute User
-export const unmuteUser = functions.https.onCall(async (data, context) => {
+export const unmuteUser = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
     if (!data || !data.targetUid) throw new functions.https.HttpsError('invalid-argument', 'Target UID gerekli.');
     const { targetUid } = data;
-    await db.collection("users").doc(context.auth.uid).update({ "social.mutedUserIds": FieldValue.arrayRemove(targetUid) });
+    await db.collection("users").doc(context.auth.uid).set({ "social.mutedUserIds": FieldValue.arrayRemove(targetUid) }, { merge: true });
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     console.error("unmuteUser error:", error);
@@ -623,7 +656,7 @@ export const unmuteUser = functions.https.onCall(async (data, context) => {
 });
 
 // 20. Create Report
-export const createReport = functions.https.onCall(async (data, context) => {
+export const createReport = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
@@ -640,7 +673,7 @@ export const createReport = functions.https.onCall(async (data, context) => {
 });
 
 // 21. Create Chat
-export const createChat = functions.https.onCall(async (data, context) => {
+export const createChat = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -659,7 +692,7 @@ export const createChat = functions.https.onCall(async (data, context) => {
 });
 
 // 22. Compatibility Analysis
-export const runDiscoverCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
+export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -722,7 +755,7 @@ export const processCompatibilityRequests = functions.pubsub.schedule('every 2 m
   return null;
 });
 
-export const runManualCompatibilityAnalysis = functions.https.onCall(async (data, context) => {
+export const runManualCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -747,4 +780,4 @@ export const runManualCompatibilityAnalysis = functions.https.onCall(async (data
   }
 });
 
-export const checkDailyReminders = functions.pubsub.schedule('every 24 hours').onRun(async (context) => { return null; });
+export const checkDailyReminders = functions.region('us-central1').pubsub.schedule('every 24 hours').onRun(async (context) => { return null; });

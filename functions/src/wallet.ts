@@ -2,7 +2,7 @@ import * as functions from "firebase-functions";
 import { db, FieldValue } from "./base";
 
 // 1. Watch Ad Reward
-export const watchAdReward = functions.https.onCall(async (data, context) => {
+export const watchAdReward = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -67,7 +67,7 @@ export const watchAdReward = functions.https.onCall(async (data, context) => {
 });
 
 // 2. Purchase Coins
-export const purchaseCoins = functions.https.onCall(async (data, context) => {
+export const purchaseCoins = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -115,7 +115,7 @@ export const purchaseCoins = functions.https.onCall(async (data, context) => {
 });
 
 // 3. Spend Balance
-export const spendBalance = functions.https.onCall(async (data, context) => {
+export const spendBalance = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -195,7 +195,7 @@ export const spendBalance = functions.https.onCall(async (data, context) => {
 });
 
 // 4. Buy Fortune Subscription
-export const buyFortuneSubscription = functions.https.onCall(async (data, context) => {
+export const buyFortuneSubscription = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -273,7 +273,7 @@ export const buyFortuneSubscription = functions.https.onCall(async (data, contex
 });
 
 // 5. Purchase Boost Package (TL-based)
-export const purchaseBoostPackage = functions.https.onCall(async (data, context) => {
+export const purchaseBoostPackage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -328,7 +328,7 @@ export const purchaseBoostPackage = functions.https.onCall(async (data, context)
 });
 
 // 6. Purchase Social Item
-export const purchaseSocialItem = functions.https.onCall(async (data, context) => {
+export const purchaseSocialItem = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -409,7 +409,7 @@ export const purchaseSocialItem = functions.https.onCall(async (data, context) =
 });
 
 // 12. Purchase Social Bundle
-export const purchaseSocialBundle = functions.https.onCall(async (data, context) => {
+export const purchaseSocialBundle = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -467,7 +467,7 @@ export const purchaseSocialBundle = functions.https.onCall(async (data, context)
 });
 
 // 7. Consume Social Feature
-export const consumeSocialFeature = functions.https.onCall(async (data, context) => {
+export const consumeSocialFeature = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const userId = context.auth.uid;
@@ -537,7 +537,7 @@ export const consumeSocialFeature = functions.https.onCall(async (data, context)
 });
 
 // 12. Redeem Promo Code
-export const redeemPromoCode = functions.https.onCall(async (data, context) => {
+export const redeemPromoCode = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const userId = context.auth.uid;

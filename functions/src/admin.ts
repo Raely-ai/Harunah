@@ -2,7 +2,7 @@ import * as functions from "firebase-functions";
 import { db, FieldValue, sendPushToUser } from "./base";
 
 // 1. Admin Broadcast Notification
-export const adminBroadcastNotification = functions.https.onCall(async (data, context) => {
+export const adminBroadcastNotification = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
@@ -53,7 +53,7 @@ export const adminBroadcastNotification = functions.https.onCall(async (data, co
 });
 
 // 2. Admin Grant Wallet Reward
-export const adminGrantWalletReward = functions.https.onCall(async (data, context) => {
+export const adminGrantWalletReward = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {
@@ -104,7 +104,7 @@ export const adminGrantWalletReward = functions.https.onCall(async (data, contex
 });
 
 // 3. Admin Get User Chats
-export const getAdminUserChats = functions.https.onCall(async (data, context) => {
+export const getAdminUserChats = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -145,7 +145,7 @@ export const getAdminUserChats = functions.https.onCall(async (data, context) =>
 });
 
 // 4. Admin Get Chat Messages
-export const getAdminChatMessages = functions.https.onCall(async (data, context) => {
+export const getAdminChatMessages = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -189,7 +189,7 @@ export const getAdminChatMessages = functions.https.onCall(async (data, context)
 });
 
 // 5. Admin Moderation Action
-export const adminModerationAction = functions.https.onCall(async (data, context) => {
+export const adminModerationAction = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -229,7 +229,7 @@ export const adminModerationAction = functions.https.onCall(async (data, context
 });
 
 // 6. Admin Set Wallet (Direct Set)
-export const adminSetWallet = functions.https.onCall(async (data, context) => {
+export const adminSetWallet = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -280,7 +280,7 @@ export const adminSetWallet = functions.https.onCall(async (data, context) => {
 });
 
 // 7. Admin Adjust Wallet (Relative Change)
-export const adminAdjustWallet = functions.https.onCall(async (data, context) => {
+export const adminAdjustWallet = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -327,7 +327,7 @@ export const adminAdjustWallet = functions.https.onCall(async (data, context) =>
 });
 
 // 8. Admin Update User
-export const adminUpdateUser = functions.https.onCall(async (data, context) => {
+export const adminUpdateUser = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -361,7 +361,7 @@ export const adminUpdateUser = functions.https.onCall(async (data, context) => {
 });
 
 // 9. Admin Update Config
-export const adminUpdateConfig = functions.https.onCall(async (data, context) => {
+export const adminUpdateConfig = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -406,7 +406,7 @@ export const adminUpdateConfig = functions.https.onCall(async (data, context) =>
 });
 
 // 10. Admin Update Report
-export const adminUpdateReport = functions.https.onCall(async (data, context) => {
+export const adminUpdateReport = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
@@ -433,7 +433,7 @@ export const adminUpdateReport = functions.https.onCall(async (data, context) =>
 });
 
 // 11. Admin Manage Promo Code
-export const adminManagePromoCode = functions.https.onCall(async (data, context) => {
+export const adminManagePromoCode = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   const adminSnap = await db.collection("users").doc(context.auth.uid).get();
