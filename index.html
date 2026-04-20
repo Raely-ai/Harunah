@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Clear specific stale service workers known to interfere with Firebase Functions
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            // Check for the problematic _service-worker.js or other stale workers
+            const scriptUrl = registration.active?.scriptURL || registration.installing?.scriptURL || registration.waiting?.scriptURL || "";
+            if (scriptUrl.includes('_service-worker.js')) {
+              registration.unregister();
+              console.log('Problematic service worker unregistered:', scriptUrl);
+            }
+          }
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
