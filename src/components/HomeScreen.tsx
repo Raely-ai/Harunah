@@ -90,21 +90,6 @@ export default function HomeScreen({
     return () => clearInterval(interval);
   }, [userProfile.social?.lastDiscoverRefreshAt]);
 
-  useEffect(() => {
-    // Auto-fix: If profile is completed but not enabled, enable it.
-    // This fixes the bug where users without custom photos were disabled.
-    if (userProfile.social?.profileCompleted && !userProfile.social?.enabled) {
-      const fixEnabled = async () => {
-        try {
-          await walletService.updateSocialSettings({ enabled: true });
-        } catch (error) {
-          console.error("Auto-fix enabled error:", error);
-        }
-      };
-      fixEnabled();
-    }
-  }, [userProfile.social?.profileCompleted, userProfile.social?.enabled, userProfile.uid]);
-
   // 4. Safe Render Check
   if (!userProfile || !userProfile.social) {
     return (
