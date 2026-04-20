@@ -109,11 +109,15 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
           finalPhotos = [formData.gender === 'erkek' ? DEFAULT_AVATARS.erkek : DEFAULT_AVATARS.kadın];
         }
 
-        const result = await walletService.completeSocialOnboarding({
+        const payload = {
           ...formData,
           ...mysticProfile,
           photos: finalPhotos
-        });
+        };
+
+        console.log("AUDIT: completeSocialOnboarding payload sent:", JSON.stringify(payload, null, 2));
+
+        const result = await walletService.completeSocialOnboarding(payload);
 
         if (result.success) {
           console.log("Final onboarding step: success");

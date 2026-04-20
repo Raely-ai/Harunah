@@ -4,6 +4,7 @@ import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 
 // 1. Complete Social Onboarding
 export const completeSocialOnboarding = functions.region('us-central1').https.onCall(async (data, context) => {
+  console.log("AUDIT: completeSocialOnboarding started. Data received:", JSON.stringify(data));
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -16,58 +17,103 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
       zodiacSign = "", element = "", rulingPlanet = "", planet = "", 
       friendlySign = "", enemySign = "",
       age = 0, mysticAnimal = "", luckyNumber = "", luckyColor = ""
-    } = data;
+    } = data || {};
 
-    if (!nickname || !gender || !lookingFor || !birthDate || !interests.length || !photos.length || !bio) {
+    // Explicitly handle nulls and ensure arrays
+    const finalInterests = Array.isArray(interests) ? interests : [];
+    const finalPhotos = Array.isArray(photos) ? photos : [];
+    const finalAge = (typeof age === 'number' && !isNaN(age)) ? age : Number(age) || 0;
+
+    console.log("AUDIT: Hardened fields:", { 
+      nickname, gender, lookingFor, birthDate, 
+      interestsCount: finalInterests.length, 
+      photosCount: finalPhotos.length, 
+      bioLength: bio?.length,
+      finalAge
+    });
+
+    if (!nickname || !gender || !lookingFor || !birthDate || finalInterests.length < 5 || finalPhotos.length === 0 || !bio) {
+      console.log("AUDIT: Validation failed hardening.");
       throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
     }
 
     const userRef = db.collection("users").doc(userId);
 
     return await db.runTransaction(async (transaction) => {
+      console.log("AUDIT: Transaction started.");
       const userSnap = await transaction.get(userRef);
-      const socialData = {
-        nickname, gender, lookingFor, interests, photos, bio,
-        enabled: true, profileCompleted: true, visible: true,
-        banned: false, lastOnboardingAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      
+      const socialData: any = {
+        nickname: String(nickname),
+        gender: String(gender),
+        lookingFor: String(lookingFor),
+        interests: finalInterests,
+        photos: finalPhotos,
+        bio: String(bio),
+        enabled: true,
+        profileCompleted: true,
+        visible: true,
+        banned: false,
+        lastOnboardingAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         settings: {
-          whoCanMessage: 'everyone', whoCanAddFriend: 'everyone',
+          whoCanMessage: 'everyone',
+          whoCanAddFriend: 'everyone',
           notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true }
         }
       };
 
       const baseData: any = {
-        nickname, gender, lookingFor, interests, photos, bio, birthDate,
-        zodiacSign: zodiacSign || "", element: element || "", rulingPlanet: rulingPlanet || planet || "",
-        friendlySign: friendlySign || "", enemySign: enemySign || "", age: Number(age) || 0,
-        mysticAnimal: mysticAnimal || "", luckyNumber: luckyNumber || "", luckyColor: luckyColor || "",
-        updatedAt: FieldValue.serverTimestamp(), social: socialData
+        nickname: String(nickname),
+        gender: String(gender),
+        lookingFor: String(lookingFor),
+        interests: finalInterests,
+        photos: finalPhotos,
+        bio: String(bio),
+        birthDate: String(birthDate),
+        zodiacSign: String(zodiacSign || ""),
+        element: String(element || ""),
+        rulingPlanet: String(rulingPlanet || planet || ""),
+        friendlySign: String(friendlySign || ""),
+        enemySign: String(enemySign || ""),
+        age: finalAge,
+        mysticAnimal: String(mysticAnimal || ""),
+        luckyNumber: String(luckyNumber || ""),
+        luckyColor: String(luckyColor || ""),
+        updatedAt: FieldValue.serverTimestamp(),
+        social: socialData
       };
+
+      console.log("AUDIT: baseData before cleaning:", JSON.stringify(baseData));
+
+      // Deep clean function
+      const cleanData = (obj: any) => {
+        Object.keys(obj).forEach(key => {
+          if (obj[key] === undefined) delete obj[key];
+          else if (obj[key] && typeof obj[key] === 'object' && !(obj[key] instanceof admin.firestore.FieldValue)) {
+            cleanData(obj[key]);
+          }
+        });
+      };
+
+      cleanData(baseData);
 
       if (!userSnap.exists) {
         baseData.createdAt = FieldValue.serverTimestamp(); 
         baseData.uid = userId; 
         baseData.email = context.auth?.token.email || "";
-        baseData.displayName = nickname; 
-        baseData.photoURL = photos[0] || "";
+        baseData.displayName = String(nickname); 
+        baseData.photoURL = finalPhotos[0] || "";
         baseData.energy = 50; 
         baseData.mainCoins = 0;
         baseData.superLikes = 0; 
         baseData.refreshCount = 0; 
         baseData.compatibilityCount = 0;
         
-        // Final sanity check for undefined values
-        Object.keys(baseData).forEach(key => {
-          if (baseData[key] === undefined) delete baseData[key];
-        });
-
+        console.log("AUDIT: transaction.set (new user)");
         transaction.set(userRef, baseData);
       } else {
-        // Final sanity check for undefined values
-        Object.keys(baseData).forEach(key => {
-          if (baseData[key] === undefined) delete baseData[key];
-        });
-
+        console.log("AUDIT: transaction.set (merge)");
         transaction.set(userRef, baseData, { merge: true });
       }
       return { success: true };
