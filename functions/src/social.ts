@@ -11,17 +11,18 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
     if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
     
     const { 
-      nickname, gender, lookingFor, birthDate, interests, photos, bio,
-      zodiacSign, element, rulingPlanet, planet, friendlySign, enemySign,
-      age, mysticAnimal, luckyNumber, luckyColor
+      nickname = "", gender = "erkek", lookingFor = "", birthDate = "", 
+      interests = [], photos = [], bio = "",
+      zodiacSign = "", element = "", rulingPlanet = "", planet = "", 
+      friendlySign = "", enemySign = "",
+      age = 0, mysticAnimal = "", luckyNumber = "", luckyColor = ""
     } = data;
 
-    if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
+    if (!nickname || !gender || !lookingFor || !birthDate || !interests.length || !photos.length || !bio) {
       throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
     }
 
     const userRef = db.collection("users").doc(userId);
-    const now = new Date().toISOString();
 
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
@@ -38,18 +39,35 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
       const baseData: any = {
         nickname, gender, lookingFor, interests, photos, bio, birthDate,
         zodiacSign: zodiacSign || "", element: element || "", rulingPlanet: rulingPlanet || planet || "",
-        friendlySign: friendlySign || "", enemySign: enemySign || "", age: age || 0,
+        friendlySign: friendlySign || "", enemySign: enemySign || "", age: Number(age) || 0,
         mysticAnimal: mysticAnimal || "", luckyNumber: luckyNumber || "", luckyColor: luckyColor || "",
         updatedAt: FieldValue.serverTimestamp(), social: socialData
       };
 
       if (!userSnap.exists) {
-        baseData.createdAt = FieldValue.serverTimestamp(); baseData.uid = userId; baseData.email = context.auth?.token.email || "";
-        baseData.displayName = nickname; baseData.photoURL = photos[0] || "";
-        baseData.energy = 50; baseData.mainCoins = 0;
-        baseData.superLikes = 0; baseData.refreshCount = 0; baseData.compatibilityCount = 0;
+        baseData.createdAt = FieldValue.serverTimestamp(); 
+        baseData.uid = userId; 
+        baseData.email = context.auth?.token.email || "";
+        baseData.displayName = nickname; 
+        baseData.photoURL = photos[0] || "";
+        baseData.energy = 50; 
+        baseData.mainCoins = 0;
+        baseData.superLikes = 0; 
+        baseData.refreshCount = 0; 
+        baseData.compatibilityCount = 0;
+        
+        // Final sanity check for undefined values
+        Object.keys(baseData).forEach(key => {
+          if (baseData[key] === undefined) delete baseData[key];
+        });
+
         transaction.set(userRef, baseData);
       } else {
+        // Final sanity check for undefined values
+        Object.keys(baseData).forEach(key => {
+          if (baseData[key] === undefined) delete baseData[key];
+        });
+
         transaction.set(userRef, baseData, { merge: true });
       }
       return { success: true };
