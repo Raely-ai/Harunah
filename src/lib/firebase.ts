@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, FacebookAuthProvider, onAuthStateChanged, User } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
@@ -9,18 +9,51 @@ const firebaseConfig = {
   projectId: "lasya-app",
   storageBucket: "lasya-app.firebasestorage.app",
   messagingSenderId: "654177015558",
-  appId: "1:654177015558:web:d16b0b23704b2b3501b087",
+  appId: "1:654177015558:web:668b283d84a069d901b087",
 };
 
 const app = initializeApp(firebaseConfig);
 
-export const db = getFirestore(app);
+// Use the explicit database ID from the platform config
+export const db = getFirestore(app, "ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 export const auth = getAuth(app);
 export const functions = getFunctions(app, "us-central1");
 
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 export const facebookProvider = new FacebookAuthProvider();
+
+/**
+ * Ensures the auth state is fully initialized.
+ * Returns the User object if authenticated, or null if not.
+ */
+export function waitForAuth(): Promise<User | null> {
+  return new Promise((resolve, reject) => {
+    // If already initialized and we have a user, ensure token is ready
+    if (auth.currentUser) {
+      auth.currentUser.getIdToken(false)
+        .then(() => resolve(auth.currentUser))
+        .catch(() => resolve(auth.currentUser)); // Resolve anyway, callable will fail gracefully
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      unsubscribe();
+      if (user) {
+        // Force token refresh/verification to ensure it's valid for callable functions
+        try {
+          await user.getIdToken(true);
+        } catch (e) {
+          console.warn("Token initialization warning:", e);
+        }
+      }
+      resolve(user);
+    }, (error) => {
+      unsubscribe();
+      reject(error);
+    });
+  });
+}
 
 // Error handling helper
 export enum OperationType {

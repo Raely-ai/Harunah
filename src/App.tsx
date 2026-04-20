@@ -36,7 +36,7 @@ import { SubscriptionScreen } from "./components/SubscriptionScreen";
 import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, EconomyConfig, normalizeUserProfile } from "./types";
 import { DEFAULT_ECONOMY_CONFIG } from "./constants";
 import { socialService } from "./lib/socialService";
-import { walletService } from "./lib/walletService";
+import { walletService, callFunction } from "./lib/walletService";
 import { isSocialProfileReady } from "./lib/socialUtils";
 import { notificationService } from "./services/notificationService";
 
@@ -569,8 +569,7 @@ function AppContent() {
     });
 
     try {
-      const createFortuneFunc = httpsCallable(functions, 'createFortuneReading');
-      const result: any = await createFortuneFunc({
+      const result = await callFunction('createFortuneReading', {
         type: data.type,
         formData: {
           adSoyad: data.adSoyad,
@@ -587,14 +586,14 @@ function AppContent() {
         priorityMode: data.priorityMode
       });
 
-      const { readingId } = result.data || {};
+      const { readingId } = result || {};
 
       if (!readingId) {
         throw new Error("Mistik bağlantı şu an kurulamadı. Lütfen bakiye kontrolü yapın.");
       }
 
       // Background AI Trigger (Non-blocking)
-      httpsCallable(functions, 'processFortuneAI')({ readingId }).catch(e => {
+      callFunction('processFortuneAI', { readingId }).catch(e => {
         console.warn("AI background trigger failed:", e);
       });
 
@@ -631,8 +630,7 @@ function AppContent() {
     const loadingToast = toast.loading("Öncelikli yorum talebiniz işleniyor...");
     
     try {
-      const upgradePriority = httpsCallable(functions, 'upgradeFortunePriority');
-      await upgradePriority({ readingId: id });
+      await callFunction('upgradeFortunePriority', { readingId: id });
 
       toast.dismiss(loadingToast);
       toast.success("Öncelikli yorum aktif edildi!", {

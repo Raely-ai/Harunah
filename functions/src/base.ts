@@ -9,7 +9,7 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-export const db = getFirestore();
+export const db = getFirestore("ai-studio-71aa84b8-dbfc-4fbb-ab63-365a3c94301c");
 export const messaging = getMessaging();
 export const FieldValue = admin.firestore.FieldValue;
 

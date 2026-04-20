@@ -10,19 +10,32 @@ import {
   getDoc
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import { db, functions, handleFirestoreError, OperationType } from "./firebase";
+import { db, functions, handleFirestoreError, OperationType, waitForAuth } from "./firebase";
 import { AdminWalletConfig, WalletTransaction, EconomyConfig, RefreshActionResult, PurchaseActionResult } from "../types";
 
 import { cacheManager } from "./cacheManager";
 
 // Helper to call Firebase Functions
 export const callFunction = async (name: string, data?: any) => {
-  const func = httpsCallable(functions, name);
   try {
+    // 1. Ensure authentication is fully initialized
+    const user = await waitForAuth();
+    
+    // 2. Skip if no authenticated session is present
+    if (!user) {
+      console.log(`[Firebase] Skipping callable function ${name}: No authenticated session.`);
+      return { success: false, status: 'SKIPPED_UNAUTHENTICATED' };
+    }
+    
+    // 3. Setup function reference
+    const func = httpsCallable(functions, name);
+    
+    // 4. Invoke
     const result = await func(data);
     return result.data as any;
   } catch (error: any) {
-    // Determine if this is a quota error or internal error
+    // 5. Handle errors
+    // Quota errors
     const isQuotaError = error.message?.toLowerCase().includes('quota') || 
                          error.code === 'resource-exhausted';
     
