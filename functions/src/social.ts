@@ -28,7 +28,7 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
       const socialData = {
         nickname, gender, lookingFor, interests, photos, bio,
         enabled: true, profileCompleted: true, visible: true,
-        banned: false, lastOnboardingAt: now, updatedAt: now,
+        banned: false, lastOnboardingAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         settings: {
           whoCanMessage: 'everyone', whoCanAddFriend: 'everyone',
           notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true }
@@ -40,23 +40,24 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
         zodiacSign: zodiacSign || "", element: element || "", rulingPlanet: rulingPlanet || planet || "",
         friendlySign: friendlySign || "", enemySign: enemySign || "", age: age || 0,
         mysticAnimal: mysticAnimal || "", luckyNumber: luckyNumber || "", luckyColor: luckyColor || "",
-        updatedAt: now, social: socialData
+        updatedAt: FieldValue.serverTimestamp(), social: socialData
       };
 
       if (!userSnap.exists) {
-        baseData.createdAt = now; baseData.uid = userId; baseData.email = context.auth?.token.email || "";
+        baseData.createdAt = FieldValue.serverTimestamp(); baseData.uid = userId; baseData.email = context.auth?.token.email || "";
         baseData.displayName = nickname; baseData.photoURL = photos[0] || "";
         baseData.energy = 50; baseData.mainCoins = 0;
         baseData.superLikes = 0; baseData.refreshCount = 0; baseData.compatibilityCount = 0;
         transaction.set(userRef, baseData);
       } else {
-        transaction.update(userRef, baseData);
+        transaction.set(userRef, baseData, { merge: true });
       }
       return { success: true };
     });
   } catch (error: any) {
-    console.error("completeSocialOnboarding error:", error);
-    throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken bir hata oluştu.');
+    console.error("completeSocialOnboarding failure:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken teknik bir hata oluştu.', error);
   }
 });
 
@@ -72,55 +73,65 @@ export const updateSocialProfile = functions.region('us-central1').https.onCall(
     if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
     const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
     const userRef = db.collection("users").doc(userId);
-    const updates: any = {};
+    
+    // Construct a clean update object for nested merging
+    const baseUpdates: any = {};
+    const socialUpdates: any = {};
     
     // Explicit guards to prevent undefined writes and maintain structure
     if (nickname !== undefined && nickname !== null) {
       if (typeof nickname !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Nickname geçersiz.');
       if (nickname.length > 50) throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
-      updates["social.nickname"] = nickname;
-      updates["nickname"] = nickname;
-      updates["displayName"] = nickname;
+      socialUpdates.nickname = nickname;
+      baseUpdates.nickname = nickname;
+      baseUpdates.displayName = nickname;
     }
     if (bio !== undefined && bio !== null) {
       if (typeof bio !== 'string') throw new functions.https.HttpsError('invalid-argument', 'Bio geçersiz.');
       if (bio.length > 500) throw new functions.https.HttpsError('invalid-argument', 'Bio çok uzun.');
-      updates["social.bio"] = bio;
-      updates["bio"] = bio;
+      socialUpdates.bio = bio;
+      baseUpdates.bio = bio;
     }
     if (gender !== undefined && gender !== null) {
-      updates["social.gender"] = gender;
-      updates["gender"] = gender;
+      socialUpdates.gender = gender;
+      baseUpdates.gender = gender;
     }
     if (zodiacSign !== undefined && zodiacSign !== null) {
-      updates["social.zodiacSign"] = zodiacSign;
-      updates["zodiacSign"] = zodiacSign;
+      socialUpdates.zodiacSign = zodiacSign;
+      baseUpdates.zodiacSign = zodiacSign;
     }
     if (photos !== undefined && photos !== null) {
       if (!Array.isArray(photos) || photos.length > 6) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz fotoğraf listesi.');
-      updates["social.photos"] = photos;
-      updates["photos"] = photos;
-      if (photos.length > 0) updates["photoURL"] = photos[0];
+      socialUpdates.photos = photos;
+      baseUpdates.photos = photos;
+      if (photos.length > 0) baseUpdates.photoURL = photos[0];
     }
     if (interests !== undefined && interests !== null) {
-      updates["social.interests"] = interests;
-      updates["interests"] = interests;
+      if (!Array.isArray(interests)) throw new functions.https.HttpsError('invalid-argument', 'İlgi alanları geçersiz.');
+      socialUpdates.interests = interests;
+      baseUpdates.interests = interests;
     }
     if (birthDate !== undefined && birthDate !== null) {
-      updates["social.birthDate"] = birthDate;
-      updates["birthDate"] = birthDate;
+      socialUpdates.birthDate = birthDate;
+      baseUpdates.birthDate = birthDate;
     }
-    if (isOnline !== undefined && isOnline !== null) updates["social.isOnline"] = !!isOnline;
+    
+    if (isOnline !== undefined && isOnline !== null) socialUpdates.isOnline = !!isOnline;
     if (lastSeen !== undefined && lastSeen !== null) {
-      updates["social.lastSeen"] = FieldValue.serverTimestamp();
-      updates["lastSeenAt"] = FieldValue.serverTimestamp();
+      socialUpdates.lastSeen = FieldValue.serverTimestamp();
+      baseUpdates.lastSeenAt = FieldValue.serverTimestamp();
+    }
+
+    const updates: any = { ...baseUpdates };
+    if (Object.keys(socialUpdates).length > 0) {
+      updates.social = socialUpdates;
     }
 
     if (Object.keys(updates).length === 0) return { success: true, status: 'SUCCESS', message: 'No changes' };
 
     updates["updatedAt"] = FieldValue.serverTimestamp();
     
-    // Use set with merge: true instead of update() to avoid errors if the document doesn't exist
+    // Use set with merge: true for nested object blending
     await userRef.set(updates, { merge: true });
     
     return { success: true, status: 'SUCCESS' };

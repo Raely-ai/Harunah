@@ -37,7 +37,8 @@ export const callFunction = async (name: string, data?: any) => {
     // 5. Handle errors
     // Quota errors
     const isQuotaError = error.message?.toLowerCase().includes('quota') || 
-                         error.code === 'resource-exhausted';
+                         error.code === 'resource-exhausted' ||
+                         error.code === 'functions/resource-exhausted';
     
     if (isQuotaError) {
       console.warn(`Firebase Function ${name} hit quota limit. Falling back.`);
@@ -45,6 +46,9 @@ export const callFunction = async (name: string, data?: any) => {
     }
 
     console.error(`Firebase Function ${name} error:`, error);
+    if (error.details) {
+      console.error(`[Firebase] Function ${name} detail:`, error.details);
+    }
     
     // Extract meaningful error message
     let message = "Bir hata oluştu.";
@@ -52,8 +56,13 @@ export const callFunction = async (name: string, data?: any) => {
       message = error.message;
     }
     
-    if (error.code === 'internal' && error.details) {
-      message = typeof error.details === 'string' ? error.details : JSON.stringify(error.details);
+    if (error.code === 'functions/internal' || error.code === 'internal') {
+      const details = error.details ? (typeof error.details === 'string' ? error.details : JSON.stringify(error.details)) : "";
+      if (details) {
+        message = `Sunucu Hatası: ${message} (${details})`;
+      } else {
+        message = `Sunucu Hatası: ${message}`;
+      }
     }
 
     const enhancedError = new Error(message);
