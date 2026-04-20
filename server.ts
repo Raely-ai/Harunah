@@ -21,7 +21,7 @@ const firebaseApp = admin.initializeApp({
   projectId: firebaseConfig.projectId,
 });
 
-const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
 
 // Initialize OpenAI
