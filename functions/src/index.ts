@@ -61,3 +61,6 @@ export const runDiscoverCompatibilityAnalysis = social.runDiscoverCompatibilityA
 export const processCompatibilityRequests = social.processCompatibilityRequests;
 export const runManualCompatibilityAnalysis = social.runManualCompatibilityAnalysis;
 export const checkDailyReminders = social.checkDailyReminders;
+
+// Test Functions
+export * from "./test";
