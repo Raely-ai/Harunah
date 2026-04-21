@@ -269,17 +269,7 @@ export interface UserProfile {
     city: string;
     country: string;
   };
-  dailySwipeCount?: number;
-  lastSwipeDate?: string;
 
-  // Swipe Limit Fields
-  dailySwipeLimit?: number;
-  dailySwipeUsed?: number;
-  dailySwipeDate?: string;
-  dailyFreeRefreshUsed?: boolean;
-  dailyFreeSuperLikeUsed?: boolean;
-  extraSwipeLimit?: number;
-  
   // Social Wallet Fields
   boostExpiresAt?: string;
   
@@ -781,6 +771,7 @@ export type SocialActionResult =
   | 'INVALID_TARGET' 
   | 'TARGET_NOT_FOUND'
   | 'BLOCKED'
+  | 'INSUFFICIENT_FUNDS'
   | 'NOTIFICATION_FAILED'
   | 'TECHNICAL_ERROR';
 

@@ -473,12 +473,14 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
   const userId = context.auth.uid;
   const { type } = data;
   
+  console.log(`[consumeSocialFeature] Start: uid=${userId}, type=${type}`);
+  
   const userRef = db.collection("users").doc(userId);
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   
   try {
-    return await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
       if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
@@ -492,11 +494,17 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
         // Determine Limit
         let maxSwipes = 15; // Default Free
         const sub = userData.subscription;
-        if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now) {
-          if (sub.type === 'daily') maxSwipes = 100;
-          else if (sub.type === 'weekly') maxSwipes = 150;
-          else if (sub.type === 'monthly') maxSwipes = 200;
+        if (sub && sub.status === 'active' && sub.expiresAt) {
+          // Robust Date handling
+          const expiryDate = sub.expiresAt.toDate ? sub.expiresAt.toDate() : new Date(sub.expiresAt);
+          if (expiryDate > now) {
+            if (sub.type === 'daily') maxSwipes = 100;
+            else if (sub.type === 'weekly') maxSwipes = 150;
+            else if (sub.type === 'monthly') maxSwipes = 200;
+          }
         }
+
+        console.log(`[consumeSocialFeature] Swipe Check: used=${dailyUsed}, max=${maxSwipes}, lastDate=${lastDate}, today=${today}`);
 
         if (lastDate !== today) {
           transaction.update(userRef, { 
@@ -506,7 +514,10 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
             dailyFreeRefreshUsed: false
           });
         } else {
-          if (dailyUsed >= maxSwipes) throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${maxSwipes} hak).`);
+          if (dailyUsed >= maxSwipes) {
+            console.warn(`[consumeSocialFeature] Quota Hit: ${dailyUsed}/${maxSwipes}`);
+            throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${maxSwipes} hak).`);
+          }
           transaction.update(userRef, { dailySwipeUsed: FieldValue.increment(1) });
         }
       } else {
@@ -529,9 +540,18 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
 
       return { success: true, consumedFrom };
     });
+    
+    return result;
   } catch (error: any) {
     console.error("consumeSocialFeature error:", error);
-    if (error instanceof functions.https.HttpsError) throw error;
+    // Preserving original HttpsError properties if they exist
+    if (error.code && typeof error.code === 'string' && error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    // Fallback for wrapped errors
+    if (error.code && typeof error.code === 'string') {
+       throw new functions.https.HttpsError(error.code as any, error.message);
+    }
     throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
   }
 });
