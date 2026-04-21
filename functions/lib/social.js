@@ -35,60 +35,111 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkDailyReminders = exports.runManualCompatibilityAnalysis = exports.processCompatibilityRequests = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscoverFeed = exports.refreshDiscover = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = void 0;
 const functions = __importStar(require("firebase-functions"));
+const admin = __importStar(require("firebase-admin"));
 const base_1 = require("./base");
 exports.completeSocialOnboarding = functions.region('us-central1').https.onCall(async (data, context) => {
+    console.log("AUDIT: completeSocialOnboarding started. Data received:", JSON.stringify(data));
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
     try {
         if (!data)
             throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
-        const { nickname, gender, lookingFor, birthDate, interests, photos, bio, zodiacSign, element, rulingPlanet, planet, friendlySign, enemySign, age, mysticAnimal, luckyNumber, luckyColor } = data;
-        if (!nickname || !gender || !lookingFor || !birthDate || !interests || !photos || !bio) {
+        const { nickname = "", gender = "erkek", lookingFor = "", birthDate = "", interests = [], photos = [], bio = "", zodiacSign = "", element = "", rulingPlanet = "", planet = "", friendlySign = "", enemySign = "", age = 0, mysticAnimal = "", luckyNumber = "", luckyColor = "" } = data || {};
+        const finalInterests = Array.isArray(interests) ? interests : [];
+        const finalPhotos = Array.isArray(photos) ? photos : [];
+        const finalAge = (typeof age === 'number' && !isNaN(age)) ? age : Number(age) || 0;
+        console.log("AUDIT: Hardened fields:", {
+            nickname, gender, lookingFor, birthDate,
+            interestsCount: finalInterests.length,
+            photosCount: finalPhotos.length,
+            bioLength: bio?.length,
+            finalAge
+        });
+        if (!nickname || !gender || !lookingFor || !birthDate || finalInterests.length < 5 || finalPhotos.length === 0 || !bio) {
+            console.log("AUDIT: Validation failed hardening.");
             throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
         }
         const userRef = base_1.db.collection("users").doc(userId);
-        const now = new Date().toISOString();
         return await base_1.db.runTransaction(async (transaction) => {
+            console.log("AUDIT: Transaction started.");
             const userSnap = await transaction.get(userRef);
             const socialData = {
-                nickname, gender, lookingFor, interests, photos, bio,
-                enabled: true, profileCompleted: true, visible: true,
-                banned: false, lastOnboardingAt: now, updatedAt: now,
+                nickname: String(nickname),
+                gender: String(gender),
+                lookingFor: String(lookingFor),
+                interests: finalInterests,
+                photos: finalPhotos,
+                bio: String(bio),
+                enabled: true,
+                profileCompleted: true,
+                visible: true,
+                banned: false,
+                lastOnboardingAt: base_1.FieldValue.serverTimestamp(),
+                updatedAt: base_1.FieldValue.serverTimestamp(),
                 settings: {
-                    whoCanMessage: 'everyone', whoCanAddFriend: 'everyone',
+                    whoCanMessage: 'everyone',
+                    whoCanAddFriend: 'everyone',
                     notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true }
                 }
             };
             const baseData = {
-                nickname, gender, lookingFor, interests, photos, bio, birthDate,
-                zodiacSign: zodiacSign || "", element: element || "", rulingPlanet: rulingPlanet || planet || "",
-                friendlySign: friendlySign || "", enemySign: enemySign || "", age: age || 0,
-                mysticAnimal: mysticAnimal || "", luckyNumber: luckyNumber || "", luckyColor: luckyColor || "",
-                updatedAt: now, social: socialData
+                nickname: String(nickname),
+                gender: String(gender),
+                lookingFor: String(lookingFor),
+                interests: finalInterests,
+                photos: finalPhotos,
+                bio: String(bio),
+                birthDate: String(birthDate),
+                zodiacSign: String(zodiacSign || ""),
+                element: String(element || ""),
+                rulingPlanet: String(rulingPlanet || planet || ""),
+                friendlySign: String(friendlySign || ""),
+                enemySign: String(enemySign || ""),
+                age: finalAge,
+                mysticAnimal: String(mysticAnimal || ""),
+                luckyNumber: String(luckyNumber || ""),
+                luckyColor: String(luckyColor || ""),
+                updatedAt: base_1.FieldValue.serverTimestamp(),
+                social: socialData
             };
+            console.log("AUDIT: baseData before cleaning:", JSON.stringify(baseData));
+            const cleanData = (obj) => {
+                Object.keys(obj).forEach(key => {
+                    if (obj[key] === undefined)
+                        delete obj[key];
+                    else if (obj[key] && typeof obj[key] === 'object' && !(obj[key] instanceof admin.firestore.FieldValue)) {
+                        cleanData(obj[key]);
+                    }
+                });
+            };
+            cleanData(baseData);
             if (!userSnap.exists) {
-                baseData.createdAt = now;
+                baseData.createdAt = base_1.FieldValue.serverTimestamp();
                 baseData.uid = userId;
                 baseData.email = context.auth?.token.email || "";
-                baseData.displayName = nickname;
-                baseData.photoURL = photos[0] || "";
+                baseData.displayName = String(nickname);
+                baseData.photoURL = finalPhotos[0] || "";
                 baseData.energy = 50;
                 baseData.mainCoins = 0;
                 baseData.superLikes = 0;
                 baseData.refreshCount = 0;
                 baseData.compatibilityCount = 0;
+                console.log("AUDIT: transaction.set (new user)");
                 transaction.set(userRef, baseData);
             }
             else {
-                transaction.update(userRef, baseData);
+                console.log("AUDIT: transaction.set (merge)");
+                transaction.set(userRef, baseData, { merge: true });
             }
             return { success: true };
         });
     }
     catch (error) {
-        console.error("completeSocialOnboarding error:", error);
-        throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken bir hata oluştu.');
+        console.error("completeSocialOnboarding failure:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'Profil oluşturulurken teknik bir hata oluştu.', error);
     }
 });
 exports.updateSocialProfile = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -101,53 +152,60 @@ exports.updateSocialProfile = functions.region('us-central1').https.onCall(async
             throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
         const { nickname, bio, gender, zodiacSign, photos, interests, birthDate, isOnline, lastSeen } = data;
         const userRef = base_1.db.collection("users").doc(userId);
-        const updates = {};
+        const baseUpdates = {};
+        const socialUpdates = {};
         if (nickname !== undefined && nickname !== null) {
             if (typeof nickname !== 'string')
                 throw new functions.https.HttpsError('invalid-argument', 'Nickname geçersiz.');
             if (nickname.length > 50)
                 throw new functions.https.HttpsError('invalid-argument', 'Nickname çok uzun.');
-            updates["social.nickname"] = nickname;
-            updates["nickname"] = nickname;
-            updates["displayName"] = nickname;
+            socialUpdates.nickname = nickname;
+            baseUpdates.nickname = nickname;
+            baseUpdates.displayName = nickname;
         }
         if (bio !== undefined && bio !== null) {
             if (typeof bio !== 'string')
                 throw new functions.https.HttpsError('invalid-argument', 'Bio geçersiz.');
             if (bio.length > 500)
                 throw new functions.https.HttpsError('invalid-argument', 'Bio çok uzun.');
-            updates["social.bio"] = bio;
-            updates["bio"] = bio;
+            socialUpdates.bio = bio;
+            baseUpdates.bio = bio;
         }
         if (gender !== undefined && gender !== null) {
-            updates["social.gender"] = gender;
-            updates["gender"] = gender;
+            socialUpdates.gender = gender;
+            baseUpdates.gender = gender;
         }
         if (zodiacSign !== undefined && zodiacSign !== null) {
-            updates["social.zodiacSign"] = zodiacSign;
-            updates["zodiacSign"] = zodiacSign;
+            socialUpdates.zodiacSign = zodiacSign;
+            baseUpdates.zodiacSign = zodiacSign;
         }
         if (photos !== undefined && photos !== null) {
             if (!Array.isArray(photos) || photos.length > 6)
                 throw new functions.https.HttpsError('invalid-argument', 'Geçersiz fotoğraf listesi.');
-            updates["social.photos"] = photos;
-            updates["photos"] = photos;
+            socialUpdates.photos = photos;
+            baseUpdates.photos = photos;
             if (photos.length > 0)
-                updates["photoURL"] = photos[0];
+                baseUpdates.photoURL = photos[0];
         }
         if (interests !== undefined && interests !== null) {
-            updates["social.interests"] = interests;
-            updates["interests"] = interests;
+            if (!Array.isArray(interests))
+                throw new functions.https.HttpsError('invalid-argument', 'İlgi alanları geçersiz.');
+            socialUpdates.interests = interests;
+            baseUpdates.interests = interests;
         }
         if (birthDate !== undefined && birthDate !== null) {
-            updates["social.birthDate"] = birthDate;
-            updates["birthDate"] = birthDate;
+            socialUpdates.birthDate = birthDate;
+            baseUpdates.birthDate = birthDate;
         }
         if (isOnline !== undefined && isOnline !== null)
-            updates["social.isOnline"] = !!isOnline;
+            socialUpdates.isOnline = !!isOnline;
         if (lastSeen !== undefined && lastSeen !== null) {
-            updates["social.lastSeen"] = base_1.FieldValue.serverTimestamp();
-            updates["lastSeenAt"] = base_1.FieldValue.serverTimestamp();
+            socialUpdates.lastSeen = base_1.FieldValue.serverTimestamp();
+            baseUpdates.lastSeenAt = base_1.FieldValue.serverTimestamp();
+        }
+        const updates = { ...baseUpdates };
+        if (Object.keys(socialUpdates).length > 0) {
+            updates.social = socialUpdates;
         }
         if (Object.keys(updates).length === 0)
             return { success: true, status: 'SUCCESS', message: 'No changes' };
@@ -750,7 +808,7 @@ exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').https
         throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
     }
 });
-exports.processCompatibilityRequests = functions.pubsub.schedule('every 2 minutes').onRun(async (context) => {
+exports.processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
     const now = new Date().toISOString();
     const pendings = await base_1.db.collection("compatibilityRequests").where("status", "==", "pending").where("readyAt", "<=", now).limit(20).get();
     if (pendings.empty)

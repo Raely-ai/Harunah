@@ -113,6 +113,11 @@ export default function SocialDiscoverScreen({
   refreshTimer: externalRefreshTimer,
   isActive
 }: SocialDiscoverScreenProps) {
+  useEffect(() => {
+    if (isActive && currentUser?.uid) {
+      socialService.updateUserStatus(currentUser.uid, true);
+    }
+  }, [isActive, currentUser?.uid]);
   // Safe access with fallbacks
   const uid = currentUser?.uid || "";
   const social = currentUser?.social || { photos: [], nickname: "", bio: "", zodiacSign: "", lastDiscoverRefreshAt: undefined, lastFreeRefreshAt: undefined };

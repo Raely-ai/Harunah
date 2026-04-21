@@ -87,32 +87,6 @@ function AppContent() {
     return () => clearTimeout(timer);
   }, [quotaExceeded]);
   
-  // Presence Management (Gated)
-  useEffect(() => {
-    // 1. Must have authenticated user
-    // 2. Must have loaded real profile data (from cache or Firestore)
-    // 3. Must have completed social onboarding to avoid "online ghosts" for incomplete profiles
-    if (!user?.uid || isProfileLoading || !userProfile || !userProfile.social?.profileCompleted) {
-      return;
-    }
-
-    // Set online
-    socialService.updateUserStatus(user.uid, true);
-
-    // Set offline on tab close or navigation away
-    const handleUnload = () => {
-      if (user?.uid) socialService.updateUserStatus(user.uid, false);
-    };
-    
-    window.addEventListener('beforeunload', handleUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleUnload);
-      // Clean shutdown when component unmounts or status changes
-      if (user?.uid) socialService.updateUserStatus(user.uid, false);
-    };
-  }, [user?.uid, userProfile, isProfileLoading]);
-
   // Notification Service Setup
   useEffect(() => {
     if (!user?.uid) return;
@@ -170,19 +144,6 @@ function AppContent() {
 
   // Unified Startup Data Fetch (Config & Economy)
   useEffect(() => {
-    // Diagnostic Ping
-    const runPingTest = async () => {
-      try {
-        console.log("RUNNING TEST PING...");
-        const fn = httpsCallable(functions, "testPing");
-        const res = await fn({});
-        console.log("TEST RESPONSE:", res.data);
-      } catch (err) {
-        console.error("TEST PING FAILED:", err);
-      }
-    };
-    runPingTest();
-
     const fetchStartupData = async () => {
       // 1. App Config - Persistence Enabled
       let currentConfig = cacheManager.get<AppConfig>("appConfig");

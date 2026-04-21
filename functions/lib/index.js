@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runManualCompatibilityAnalysis = exports.processCompatibilityRequests = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscover = exports.refreshDiscoverFeed = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = exports.updateReadingStatuses = exports.generateDailyMessage = exports.upgradeFortunePriority = exports.processFortuneAI = exports.createFortuneReading = exports.adminManagePromoCode = exports.adminUpdateReport = exports.adminUpdateConfig = exports.adminUpdateUser = exports.adminAdjustWallet = exports.adminSetWallet = exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.adminBroadcastNotification = exports.redeemPromoCode = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.purchaseBoostPackage = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = void 0;
 exports.checkDailyReminders = void 0;
@@ -90,4 +93,5 @@ exports.runDiscoverCompatibilityAnalysis = social.runDiscoverCompatibilityAnalys
 exports.processCompatibilityRequests = social.processCompatibilityRequests;
 exports.runManualCompatibilityAnalysis = social.runManualCompatibilityAnalysis;
 exports.checkDailyReminders = social.checkDailyReminders;
+__exportStar(require("./test"), exports);
 //# sourceMappingURL=index.js.map

@@ -198,10 +198,6 @@ export const walletService = {
     return await callFunction('buyFortuneSubscription', { type });
   },
 
-  async completeSocialOnboarding(data: any): Promise<{ success: boolean; message?: string }> {
-    return await callFunction('completeSocialOnboarding', data);
-  },
-
   async getTransactions(userId: string, limitCount: number = 20): Promise<WalletTransaction[]> {
     const CACHE_KEY = `walletTransactions_${userId}`;
     const cached = cacheManager.get<WalletTransaction[]>(CACHE_KEY);

@@ -46,30 +46,7 @@ export const isEligibleSocialUser = (user: UserProfile, currentUserId: string, t
 
 /**
  * Checks if a user's social profile is considered "ready" or "completed".
- * This is used to decide whether to show the social features or the onboarding flow.
- * Required fields: nickname, at least 1 photo, gender, birthDate, lookingFor
  */
 export const isSocialProfileReady = (user: UserProfile | null | undefined): boolean => {
-  if (!user) return false;
-  
-  const social = user.social;
-  
-  // 1. Primary check: The explicit flag or deep merge readiness
-  if (social?.profileCompleted) return true;
-  
-  // 2. Fallback check: Minimum viable profile identification
-  // A profile is considered ready if it has the core identity fields
-  // even if the boolean flag is missing (legacy sync case)
-  const nickname = social?.nickname || (user as any).nickname;
-  const gender = social?.gender || (user as any).gender;
-  const photos = social?.photos || (user as any).photos;
-  const hasPhotos = (photos?.length || 0) > 0;
-  
-  const isReady = !!(nickname && gender && hasPhotos);
-  
-  if (isReady) {
-    console.log(`[SocialUtils] User ${user.uid} profile is ready via legacy data check.`);
-  }
-
-  return isReady;
+  return user?.social?.profileCompleted === true;
 };

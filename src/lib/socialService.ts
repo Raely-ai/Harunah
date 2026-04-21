@@ -4,6 +4,9 @@ import {
   doc, 
   getDoc, 
   updateDoc, 
+  setDoc,
+  increment,
+  writeBatch,
   query, 
   where, 
   getDocs,
@@ -155,17 +158,19 @@ export const socialService = {
     try {
       lastPresenceStatus = isOnline;
       
-      const payload: any = { isOnline };
-      // Only send lastSeen when going offline
+      const userRef = doc(db, "users", uid);
+      const payload: any = { 
+        "social.isOnline": isOnline,
+        "social.updatedAt": serverTimestamp()
+      };
+      
       if (!isOnline) {
-        payload.lastSeen = new Date().toISOString();
+        payload["social.lastSeen"] = serverTimestamp();
       }
       
-      // We use a background fire-and-forget style for status to not block
-      callFunction('updateSocialProfile', payload).catch(e => console.warn("Status update silent fail:", e));
+      await updateDoc(userRef, payload);
     } catch (error) {
       console.error("socialService: Error updating user status:", error);
-      // Reset guard on error to allow retry
       lastPresenceStatus = null;
     }
   },
@@ -173,8 +178,8 @@ export const socialService = {
   async updateSocialField(uid: string, field: string, value: any) {
     if (!uid) return;
     try {
-      const result = await callFunction('updateSocialProfile', { [field]: value });
-      if (result.status !== 'SUCCESS') throw new Error(result.message || "Güncelleme başarısız.");
+      const userRef = doc(db, "users", uid);
+      await updateDoc(userRef, { [`social.${field}`]: value, "social.updatedAt": serverTimestamp() });
     } catch (error: any) {
       console.error("socialService: Error updating social field:", error);
       toast.error(error.message || "Güncelleme başarısız.");
@@ -182,16 +187,70 @@ export const socialService = {
   },
 
   async updateFullProfile(data: any) {
+    if (!auth.currentUser) return;
     try {
-      const result = await callFunction('updateSocialProfile', data);
-      if (result.status === 'SUCCESS') {
-        toast.success("Profil güncellendi.");
-      } else {
-        throw new Error(result.message || "Güncelleme başarısız.");
-      }
+      const userRef = doc(db, "users", auth.currentUser.uid);
+      const updateData: any = {};
+      
+      // Map root-level data to social nested object if needed
+      Object.entries(data).forEach(([key, val]) => {
+        if (key === 'social') {
+          Object.entries(val as any).forEach(([sKey, sVal]) => {
+            updateData[`social.${sKey}`] = sVal;
+          });
+        } else {
+          updateData[`social.${key}`] = val;
+        }
+      });
+      
+      updateData["social.updatedAt"] = serverTimestamp();
+      await updateDoc(userRef, updateData);
+      toast.success("Profil güncellendi.");
     } catch (error: any) {
       console.error("socialService: Error updating profile:", error);
       toast.error(error.message || "Güncelleme başarısız.");
+    }
+  },
+
+  async completeSocialOnboarding(data: any) {
+    if (!auth.currentUser) return { success: false, message: "Giriş yapmalısınız." };
+    const uid = auth.currentUser.uid;
+    const userRef = doc(db, "users", uid);
+    
+    try {
+      const now = serverTimestamp();
+      // Ensure specific structure requested: social nested object
+      const payload = {
+        ...data,
+        social: {
+          ...(data.social || {}),
+          nickname: data.nickname || data.social?.nickname || "",
+          gender: data.gender || data.social?.gender || "erkek",
+          lookingFor: data.lookingFor || data.social?.lookingFor || "",
+          interests: data.interests || data.social?.interests || [],
+          photos: data.photos || data.social?.photos || [],
+          bio: data.bio || data.social?.bio || "",
+          birthDate: data.birthDate || data.social?.birthDate || "",
+          enabled: true,
+          profileCompleted: true,
+          visible: true,
+          banned: false,
+          updatedAt: now,
+          lastOnboardingAt: now,
+          settings: {
+            whoCanMessage: 'everyone',
+            whoCanAddFriend: 'everyone',
+            notifications: { messages: true, friendRequests: true, roomInvites: true, gifts: true }
+          }
+        },
+        updatedAt: now
+      };
+      
+      await setDoc(userRef, payload, { merge: true });
+      return { success: true };
+    } catch (error: any) {
+      console.error("completeSocialOnboarding error:", error);
+      return { success: false, message: error.message };
     }
   },
 
@@ -199,14 +258,44 @@ export const socialService = {
 
   async sendMessage(chatId: string, senderId: string, otherUserId: string, content: { text?: string, mediaUrl?: string, mediaType?: 'image' | 'video' }) {
     try {
-      const result = await callFunction('sendMessage', { 
-        chatId, 
-        text: content.text, 
-        mediaUrl: content.mediaUrl, 
-        mediaType: content.mediaType 
+      const batch = writeBatch(db);
+      const msgRef = doc(collection(db, "messages"));
+      const chatRef = doc(db, "chats", chatId);
+      const receiverRef = doc(db, "users", otherUserId);
+
+      const now = serverTimestamp();
+      const type = content.mediaType || 'text';
+      const lastMsgText = type === 'text' ? (content.text || "") : (type === 'image' ? "📷 Görsel" : "🎥 Video");
+
+      const messageDoc = {
+        id: msgRef.id,
+        chatId,
+        participants: [senderId, otherUserId],
+        senderId,
+        receiverId: otherUserId,
+        text: content.text || "",
+        mediaUrl: content.mediaUrl || null,
+        mediaType: content.mediaType || null,
+        createdAt: now,
+        status: 'sent',
+        seen: false,
+        type
+      };
+
+      batch.set(msgRef, messageDoc);
+      batch.update(chatRef, {
+        lastMessage: lastMsgText,
+        lastMessageAt: now,
+        lastMessageSenderId: senderId,
+        lastMessageStatus: 'sent',
+        [`unreadCount.${otherUserId}`]: increment(1)
       });
-      if (result.status === 'SUCCESS') return result.messageId;
-      throw new Error(result.message || "Mesaj gönderilemedi.");
+      // Note: Updating other user's document will fail without rules change. 
+      // We will skip it for now or rely on the chat's unreadCount.
+      // batch.update(receiverRef, { unreadMessagesCount: increment(1) });
+
+      await batch.commit();
+      return msgRef.id;
     } catch (error: any) {
       console.error("socialService: Error in sendMessage:", error);
       toast.error(error.message || "Mesaj gönderilemedi.");
@@ -239,19 +328,34 @@ export const socialService = {
     }
   },
 
-  async markAsSeen(chatId: string, _currentUserId: string, _otherUserId: string) {
+  async markAsSeen(chatId: string, currentUserId: string, _otherUserId: string) {
     try {
-      await callFunction('markAsSeen', { chatId });
+      const chatRef = doc(db, "chats", chatId);
+      await updateDoc(chatRef, {
+        [`unreadCount.${currentUserId}`]: 0,
+        lastMessageStatus: 'seen'
+      });
     } catch (error: any) {
       console.error("socialService: Error in markAsSeen:", error);
     }
   },
 
   async markAsDelivered(chatId: string, _currentUserId: string, _otherUserId: string) {
+    // No-op client-side for now
+  },
+
+  async updateSocialSettings(settings: any) {
+    if (!auth.currentUser) return { success: false };
     try {
-      await callFunction('markAsDelivered', { chatId });
+      const userRef = doc(db, "users", auth.currentUser.uid);
+      await updateDoc(userRef, {
+        "social.settings": settings,
+        "social.updatedAt": serverTimestamp()
+      });
+      return { success: true };
     } catch (error: any) {
-      console.error("socialService: Error in markAsDelivered:", error);
+      console.error("socialService: Error updating settings:", error);
+      return { success: false };
     }
   },
 

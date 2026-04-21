@@ -80,7 +80,7 @@ export default function SocialMessagesScreen({
   const REQUESTS_CACHE_KEY = "socialRequestsList";
   const LIKERS_CACHE_KEY = "socialLikersList";
 
-  // Sync chat open state with parent
+  // Sync chat open state with parent and Presence update
   useEffect(() => {
     onChatOpenChange?.(!!selectedChat);
     if (selectedChat && currentUser.uid) {
@@ -88,6 +88,17 @@ export default function SocialMessagesScreen({
       socialService.markAsSeen(selectedChat.id, currentUser.uid, selectedChat.otherUser.uid);
     }
   }, [selectedChat, onChatOpenChange, currentUser.uid]);
+
+  useEffect(() => {
+    if (currentUser?.uid) {
+      socialService.updateUserStatus(currentUser.uid, true);
+      return () => {
+        // We can optionally set offline here, but since multiple components might be mounted
+        // or user might toggle tabs fast, we rely on the debounced service logic.
+        // For a safe refactor, we just mark as online when entering.
+      };
+    }
+  }, [currentUser?.uid]);
 
   // Real-time data fetching based on active tab
   useEffect(() => {

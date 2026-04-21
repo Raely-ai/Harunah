@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { auth } from "../lib/firebase";
 import { calculateMysticProfile } from "../lib/mysticProfileHelper";
 import { walletService } from "../lib/walletService";
+import { socialService } from "../lib/socialService";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -117,7 +118,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
 
         console.log("AUDIT: completeSocialOnboarding payload sent:", JSON.stringify(payload, null, 2));
 
-        const result = await walletService.completeSocialOnboarding(payload);
+        const result = await socialService.completeSocialOnboarding(payload);
 
         if (result.success) {
           console.log("Final onboarding step: success");
