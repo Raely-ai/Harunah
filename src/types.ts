@@ -165,6 +165,13 @@ export interface UserProfile {
   lastAdReset: string;
   unreadMessagesCount?: number;
 
+  // Swipe Stats
+  dailySwipeUsed?: number;
+  dailySwipeDate?: string;
+  extraSwipeLimit?: number;
+  dailyFreeSuperLikeUsed?: boolean;
+  dailyFreeRefreshUsed?: boolean;
+
   // Deprecated Wallet Fields (Do not use in new code)
   credits?: number;
   adCredits?: number;

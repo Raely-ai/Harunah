@@ -212,17 +212,9 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     // 3. Background API Call
     (async () => {
       try {
-        if (type === 'super_like') {
-          const res = await walletService.consumeSocialFeature(uid, 'superLike');
-          if (!res.success) {
-            // Rollback
-            setSwipedUserIds(oldSwipedUserIds);
-            toast.error("Süper Like hakkın bitti!");
-            onNavigate('wallet');
-            return;
-          }
-        } else {
-          const res = await walletService.consumeSocialFeature(uid, 'swipe');
+        if (type !== 'super_like') {
+          const res = await walletService.consumeSocialFeature(uid, 'swipe'); 
+          // Note: both pass and like consume a daily swipe in the currently intended flow
           if (!res.success) {
             // Rollback
             setSwipedUserIds(oldSwipedUserIds);
@@ -235,10 +227,11 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
         const result = await socialService.sendLike(currentUser, targetUser.uid, type);
         
         if (result !== 'SUCCESS' && type !== 'pass') {
-          // If it's a critical failure (not just a pass), alert user but don't necessarily rollback swipes 
-          // unless it's a specific "already swiped" etc.
-          // For simplicity, we only rollback if limits are hit or technical error occurs.
-          if (result === 'TECHNICAL_ERROR') {
+          if (result === 'INSUFFICIENT_FUNDS') {
+             setSwipedUserIds(oldSwipedUserIds);
+             toast.error("Yetersiz Süper Like hakkı!");
+             onNavigate('wallet');
+          } else if (result === 'TECHNICAL_ERROR') {
              setSwipedUserIds(oldSwipedUserIds);
              toast.error("İşlem gerçekleştirilemedi.");
           }
