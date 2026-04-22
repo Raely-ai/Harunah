@@ -88,12 +88,13 @@ export const createFortuneReading = functions.region('us-central1').https.onCall
         balanceType = 'subscription';
       }
 
+      // Balance Separation: Energy preferred for Fortunes
       if (balanceType === 'main' && (userData.energy || 0) >= totalCost) {
         balanceType = 'energy';
       }
 
       if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
-        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji veya jeton (Mağaza\'dan enerji toplayabilirsin).');
       }
 
       const userUpdates: any = {};
@@ -211,6 +212,24 @@ export const processFortuneAI = functions.region('us-central1').runWith({ secret
     return { success: true };
   } catch (error: any) {
     console.error("processFortuneAI error:", error);
+    
+    // START REFUND LOGIC
+    try {
+      const readingRef = db.collection("readings").doc(data?.readingId);
+      const snap = await readingRef.get();
+      if (snap.exists) {
+        const reading = snap.data() as any;
+        if (reading.status !== 'completed' && reading.creditsUsed > 0) {
+          const { refundTransaction } = require("./wallet");
+          await refundTransaction(userId, reading.creditsUsed, reading.balanceType === 'energy' ? 'energy' : 'main');
+          await readingRef.update({ status: 'error', refundStatus: 'processed', updatedAt: new Date().toISOString() });
+        }
+      }
+    } catch (refundErr) {
+      console.error("Refund failed during processFortuneAI failure:", refundErr);
+    }
+    // END REFUND LOGIC
+
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'AI üretimi sırasında hata oluştu.');
   }

@@ -107,6 +107,7 @@ export interface PromoCodeRedemption {
 export interface CompatibilityHistory {
   id: string;
   userId: string;
+  requestId: string;
   source: 'discover' | 'manual';
   targetUserId: string;
   targetName: string;

@@ -220,10 +220,10 @@ export const walletService = {
     }
   },
 
-  async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string; status?: string }> {
+  async consumeSocialFeature(targetUserId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string; status?: string }> {
     try {
       const config = await this.getAdminConfig();
-      return await callFunction('consumeSocialFeature', { type, config });
+      return await callFunction('consumeSocialFeature', { type, targetUserId, config });
     } catch (error: any) {
       console.error("consumeSocialFeature error:", error);
       return { 
@@ -259,7 +259,7 @@ export const walletService = {
     }
   },
 
-  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; readyAt?: string }> {
+  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; finishTime?: string }> {
     try {
       return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
     } catch (error: any) {
@@ -267,11 +267,11 @@ export const walletService = {
     }
   },
   
-  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; readyAt: string }> {
+  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; finishTime: string }> {
     try {
       return await callFunction('runManualCompatibilityAnalysis', data);
     } catch (error: any) {
-      return { success: false, requestId: '', readyAt: '' };
+      return { success: false, requestId: '', finishTime: '' };
     }
   },
 
