@@ -490,21 +490,23 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
       if (type === 'swipe') {
         const dailyUsed = userData.dailySwipeUsed || 0;
         const lastDate = userData.dailySwipeDate || "";
+        const extraLimit = userData.extraSwipeLimit || 0;
         
-        // Determine Limit
-        let maxSwipes = 15; // Default Free
+        // Determine Base Limit
+        let baseLimit = 15; // Default Free
         const sub = userData.subscription;
         if (sub && sub.status === 'active' && sub.expiresAt) {
-          // Robust Date handling
           const expiryDate = sub.expiresAt.toDate ? sub.expiresAt.toDate() : new Date(sub.expiresAt);
           if (expiryDate > now) {
-            if (sub.type === 'daily') maxSwipes = 100;
-            else if (sub.type === 'weekly') maxSwipes = 150;
-            else if (sub.type === 'monthly') maxSwipes = 200;
+            if (sub.type === 'daily') baseLimit = 100;
+            else if (sub.type === 'weekly') baseLimit = 150;
+            else if (sub.type === 'monthly') baseLimit = 200;
           }
         }
 
-        console.log(`[consumeSocialFeature] Swipe Check: used=${dailyUsed}, max=${maxSwipes}, lastDate=${lastDate}, today=${today}`);
+        const totalMax = baseLimit + extraLimit;
+
+        console.log(`[consumeSocialFeature] Swipe Check: used=${dailyUsed}, base=${baseLimit}, extra=${extraLimit}, total=${totalMax}, lastDate=${lastDate}, today=${today}`);
 
         if (lastDate !== today) {
           transaction.update(userRef, { 
@@ -514,9 +516,9 @@ export const consumeSocialFeature = functions.region('us-central1').https.onCall
             dailyFreeRefreshUsed: false
           });
         } else {
-          if (dailyUsed >= maxSwipes) {
-            console.warn(`[consumeSocialFeature] Quota Hit: ${dailyUsed}/${maxSwipes}`);
-            throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${maxSwipes} hak).`);
+          if (dailyUsed >= totalMax) {
+            console.warn(`[consumeSocialFeature] Quota Hit: ${dailyUsed}/${totalMax}`);
+            throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${totalMax} hak).`);
           }
           transaction.update(userRef, { dailySwipeUsed: FieldValue.increment(1) });
         }

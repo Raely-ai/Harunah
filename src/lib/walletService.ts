@@ -220,13 +220,18 @@ export const walletService = {
     }
   },
 
-  async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string }> {
+  async consumeSocialFeature(_userId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string; status?: string }> {
     try {
       const config = await this.getAdminConfig();
       return await callFunction('consumeSocialFeature', { type, config });
     } catch (error: any) {
       console.error("consumeSocialFeature error:", error);
-      return { success: false };
+      return { 
+        success: false, 
+        status: error.code === 'resource-exhausted' || error.code === 'functions/resource-exhausted' || error.code === 'out-of-range' 
+          ? 'OUT_OF_RIGHTS' 
+          : 'ERROR' 
+      };
     }
   },
 

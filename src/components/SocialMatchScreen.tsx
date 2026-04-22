@@ -218,7 +218,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
           if (!res.success) {
             // Rollback
             setSwipedUserIds(oldSwipedUserIds);
-            toast.error("Günlük kaydırma hakkın bitti!");
+            
+            if (res.status === 'OUT_OF_RIGHTS') {
+              toast.error("Günlük kaydırma hakkın bitti! Lütfen ek hak al.");
+            } else {
+              toast.error("Harcanırken bir hata oluştu.");
+            }
+            
             onNavigate('wallet');
             return;
           }
