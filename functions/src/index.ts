@@ -330,10 +330,10 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
  * 5. CRON JOB: AI COMMENT GENERATOR
  */
 export const processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async () => {
-  const now = new Date().toISOString();
+  const now = admin.firestore.Timestamp.now();
   const pendings = await db.collection("compatibilityRequests")
     .where("status", "==", "processing")
-    .where("finishTime", "<=", now)
+    .where("finishTime", "<=", now.toDate().toISOString())
     .limit(5).get();
 
   if (pendings.empty) return null;
@@ -341,6 +341,7 @@ export const processCompatibilityRequests = functions.region('us-central1').pubs
   const openai = getOpenAI();
   for (const doc of pendings.docs) {
     const req = doc.data();
+    const requestId = doc.id;
     try {
       const prompt = `Kişiler: ${req.person1.name} ve ${req.person2.name}. İlişki tipi: ${req.relationshipType}. Uyum Puanı: %${req.loveScore}. 
       Lütfen bu verilere göre mistik bir analiz yap. Yanıtın tam olarak şu formatta olmalı:
@@ -387,7 +388,7 @@ export const processCompatibilityRequests = functions.region('us-central1').pubs
         person1: req.person1,
         person2: req.person2,
         createdAt: now.toDate().toISOString(),
-        processedAt: now
+        processedAt: now.toDate().toISOString()
       });
 
       batch.set(db.collection("notifications").doc(), {
