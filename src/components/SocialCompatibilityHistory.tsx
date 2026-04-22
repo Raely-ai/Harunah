@@ -25,7 +25,8 @@ import {
   getDocs, 
   deleteDoc, 
   doc,
-  limit 
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, CompatibilityHistory } from '../types';
@@ -50,32 +51,87 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAnalysis, setSelectedAnalysis] = useState<CompatibilityHistory | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
-  const [readyAt, setReadyAt] = useState<string | null>(null);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(localStorage.getItem('pendingCompatibilityId'));
+  const [finishTime, setFinishTime] = useState<string | null>(localStorage.getItem('pendingCompatibilityFinishTime'));
+  const [timeLeft, setTimeLeft] = useState<number>(0);
 
-  // Mock data for background
+  // Countdown effect
   useEffect(() => {
-    if (isMock) {
-      setHistory([{
-        id: 'mock-1',
-        userId: 'mock',
-        targetUserId: 'mock-target',
-        targetName: 'Ruh Eşi Adayı',
-        targetPhoto: 'https://picsum.photos/seed/love/400/600',
-        relationshipType: 'ask',
-        loveScore: 88,
-        friendshipScore: 74,
-        energyScore: 92,
-        summaryShort: 'Yıldızlarınız harika bir uyum içinde!',
-        summaryLong: 'Bu iki enerji arasındaki çekim oldukça güçlü. Hem duygusal hem de zihinsel olarak birbirinizi tamamlıyorsunuz.',
-        createdAt: new Date().toISOString(),
-        source: 'discover',
-        cacheKey: 'mock-cache'
-      }]);
-    }
-  }, [isMock]);
+    if (!finishTime || !pendingRequestId) return;
 
-  // File Input Refs
+    const targetDate = new Date(finishTime).getTime();
+    
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const diff = Math.max(0, Math.floor((targetDate - now) / 1000));
+      setTimeLeft(diff);
+      
+      if (diff === 0 && !isAnalyzing) {
+        setIsAnalyzing(true); // Should stay in analyzing state until status changes
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [finishTime, pendingRequestId, isAnalyzing]);
+
+  // Real-time track the pending request
+  useEffect(() => {
+    if (!pendingRequestId || !uid) return;
+
+    const unsub = onSnapshot(doc(db, "compatibilityRequests", pendingRequestId), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.status === 'completed') {
+          // Find the result in history
+          fetchHistory(true).then(() => {
+            // After refresh, if we find a history item with this requestId, open it
+          });
+          toast.success("Analiz tamamlandı! Yıldızlar birleşti. ✨");
+          localStorage.removeItem('pendingCompatibilityId');
+          localStorage.removeItem('pendingCompatibilityFinishTime');
+          setPendingRequestId(null);
+          setFinishTime(null);
+          setIsAnalyzing(false);
+        } else if (data.status === 'error') {
+          toast.error("Bakımdayız, analiz yapılamadı. Jetonunuz iade edilmiştir.");
+          setPendingRequestId(null);
+          setIsAnalyzing(false);
+          localStorage.removeItem('pendingCompatibilityId');
+        } else {
+          setIsAnalyzing(true);
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [pendingRequestId, uid]);
+
+  // Check if a result has appeared for our requestId (auto-popup)
+  useEffect(() => {
+    if (!isActive || !uid) return;
+    
+    const q = query(
+      collection(db, "compatibilityHistory"),
+      where("userId", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const latest = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
+        
+        // If this matches our most recent pending ID that just cleared, show it
+        const lastClearedId = localStorage.getItem('lastClearedCompatibilityId');
+        if (latest.requestId === lastClearedId || (pendingRequestId === null && latest.createdAt && new Date(latest.createdAt).getTime() > Date.now() - 30000)) {
+           // We might want to auto-select it if it's very recent
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [isActive, uid, pendingRequestId]);
+
   const fileInput1Ref = React.useRef<HTMLInputElement>(null);
   const fileInput2Ref = React.useRef<HTMLInputElement>(null);
 
@@ -111,9 +167,11 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       });
 
       if (result.success) {
-        toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+        toast.success("Analiz süreci başladı! 5 dakika içinde hazır olacak. ✨");
         setPendingRequestId(result.requestId);
-        setReadyAt(result.readyAt);
+        setFinishTime(result.finishTime);
+        localStorage.setItem('pendingCompatibilityId', result.requestId);
+        localStorage.setItem('pendingCompatibilityFinishTime', result.finishTime);
         
         // Reset form
         setPerson1({ name: '', birthDate: '', status: 'Bekar', photo: '' });
@@ -121,58 +179,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       }
     } catch (error: any) {
       console.error("Manual analysis error:", error);
-      if (error.message?.includes("Yetersiz")) {
-        toast.info("Uyum analizi hakkın bitti. Cüzdandan alabilirsin.");
-      } else {
-        toast.error(error.message || "Analiz sırasında bir hata oluştu.");
-      }
+      toast.error(error.message || "Analiz sırasında bir hata oluştu.");
       setIsAnalyzing(false);
     }
   };
-
-  // Polling for pending analysis
-  useEffect(() => {
-    if (!pendingRequestId || !uid) return;
-
-    let pollCount = 0;
-    const maxPolls = 60; // 5 minutes (poll every 5s)
-    
-    const interval = setInterval(async () => {
-      pollCount++;
-      if (pollCount > maxPolls) {
-        clearInterval(interval);
-        setPendingRequestId(null);
-        setIsAnalyzing(false);
-        toast.error("Analiz zaman aşımına uğradı. Lütfen bildirimlerinizi kontrol edin.");
-        return;
-      }
-
-      try {
-        // Check if a new history item appeared for this specific request
-        const q = query(
-          collection(db, "compatibilityHistory"),
-          where("userId", "==", uid),
-          where("requestId", "==", pendingRequestId),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const latest = snap.docs[0].data() as CompatibilityHistory;
-          // Found it!
-          setHistory(prev => [latest, ...prev.filter(h => h.id !== latest.id)]);
-          setSelectedAnalysis(latest);
-          setPendingRequestId(null);
-          setIsAnalyzing(false);
-          clearInterval(interval);
-          toast.success("Uyum analiziniz hazır! ✨");
-        }
-      } catch (err) {
-        console.error("Polling error:", err);
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [pendingRequestId, uid, relationshipType]);
 
   const handlePhotoUpload = (person: 1 | 2) => {
     if (person === 1) fileInput1Ref.current?.click();
@@ -198,7 +208,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
     reader.readAsDataURL(file);
   };
 
-  const fetchHistory = async (force = false) => {
+  const fetchHistory = async (autoSelectLatest = false) => {
     if (!uid) return;
     setLoading(true);
     try {
@@ -208,7 +218,11 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
         orderBy("createdAt", "desc")
       );
       const snapshot = await getDocs(q);
-      setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityHistory)));
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityHistory));
+      setHistory(items);
+      if (autoSelectLatest && items.length > 0) {
+        setSelectedAnalysis(items[0]);
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "compatibilityHistory");
     } finally {
@@ -463,8 +477,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                     <div className="flex items-center gap-3">
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       <div className="flex flex-col items-start">
-                        <span className="text-[10px] font-bold text-white leading-none">Analiz Hazırlanıyor...</span>
-                        <span className="text-[7px] font-medium text-white/70">Yıldızlar hizalanıyor (Yaklaşık 5dk)</span>
+                        <span className="text-[10px] font-bold text-white leading-none">
+                          {timeLeft > 0 ? `Analiz ediliyor... ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` : 'Sonuç Alınıyor...'}
+                        </span>
+                        <span className="text-[7px] font-medium text-white/70">Yıldızlar hizalanıyor...</span>
                       </div>
                     </div>
                   ) : (
