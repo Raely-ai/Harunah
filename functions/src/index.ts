@@ -94,9 +94,7 @@ async function uploadToStorage(base64: string, path: string): Promise<string> {
   return `https://storage.googleapis.com/${bucket.name}/${path}`;
 }
 
-/**
- * 1. CONSOLIDATED ENCOUNTER (LIKE/PASS/SUPER)
- */
+// 1. CONSOLIDATED ENCOUNTER (LIKE/PASS/SUPER)
 export const sendLike = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş gerekli.');
   const fromUserId = context.auth.uid;
@@ -104,63 +102,70 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
   const { targetUserId, type } = data;
   
   if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID\'si gerekli.');
-  if (!type) throw new functions.https.HttpsError('invalid-argument', 'Beğeni tipi gerekli.');
+  if (!['like', 'pass', 'super_like'].includes(type)) throw new functions.https.HttpsError('invalid-argument', 'Geçersiz beğeni tipi.');
 
   const now = new Date();
   const today = now.toISOString().split('T')[0];
 
-  const fromRef = db.collection("users").doc(fromUserId);
-  const toRef = db.collection("users").doc(targetUserId);
-
   try {
     return await db.runTransaction(async (transaction) => {
+      const fromRef = db.collection("users").doc(fromUserId);
+      const toRef = db.collection("users").doc(targetUserId);
       const [fSnap, tSnap] = await Promise.all([transaction.get(fromRef), transaction.get(toRef)]);
       
-      if (!fSnap.exists) throw new functions.https.HttpsError('not-found', "Gönderen kullanıcı bulunamadı.");
-      if (!tSnap.exists) throw new functions.https.HttpsError('not-found', "Hedef kullanıcı bulunamadı.");
+      if (!fSnap.exists || !tSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       
       const fData = fSnap.data() as any;
 
-      if (type === 'like' || type === 'pass') {
-        const used = fData.dailySwipeUsed || 0;
-        const lastDate = fData.dailySwipeDate || "";
-        const totalMax = (fData.baseSwipeLimit || 15) + (fData.extraSwipeLimit || 0);
-        if (lastDate === today && used >= totalMax) throw new functions.https.HttpsError('resource-exhausted', 'Limit doldu.');
-        
-        transaction.update(fromRef, { 
-          dailySwipeUsed: lastDate === today ? FieldValue.increment(1) : 1,
-          dailySwipeDate: today
-        });
+      // STRICT DAILY LIMIT: 15 SWIPES
+      const used = fData.dailySwipeUsed || 0;
+      const lastDate = fData.dailySwipeDate || "";
+      const isNewDay = lastDate !== today;
+      const currentSwipeCount = isNewDay ? 0 : used;
+
+      if (currentSwipeCount >= 15) {
+        throw new functions.https.HttpsError('resource-exhausted', 'daily_limit_reached');
       }
 
-      if (type === 'super_like') {
-        if ((fData.superLikes || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', 'Jeton yetersiz.');
-        transaction.update(fromRef, { superLikes: FieldValue.increment(-1) });
+      // Update counters
+      transaction.update(fromRef, { 
+        dailySwipeUsed: isNewDay ? 1 : FieldValue.increment(1),
+        dailySwipeDate: today
+      });
 
+      // Super Like Logic (Chat creation)
+      if (type === 'super_like') {
         const chatId = [fromUserId, targetUserId].sort().join('_');
         const chatRef = db.collection("chats").doc(chatId);
         transaction.set(chatRef, {
-          id: chatId, participants: [fromUserId, targetUserId], lastMessage: "🌟 Super Like!", lastMessageAt: FieldValue.serverTimestamp(),
-          createdAt: FieldValue.serverTimestamp(), unreadCount: { [targetUserId]: 1, [fromUserId]: 0 }
+          id: chatId, 
+          participants: [fromUserId, targetUserId], 
+          lastMessage: "🌟 Super Like!", 
+          lastMessageAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(), 
+          unreadCount: { [targetUserId]: 1, [fromUserId]: 0 }
         }, { merge: true });
 
         const msgRef = chatRef.collection("messages").doc();
         transaction.set(msgRef, {
-          id: msgRef.id, chatId, senderId: fromUserId, text: "🌟 Harika haber! Bu kullanıcı seni Süper Beğeni ile fark etti!",
+          id: msgRef.id, chatId, senderId: fromUserId, 
+          text: "🌟 Harika haber! Bu kullanıcı seni Süper Beğeni ile fark etti!",
           type: 'system', createdAt: FieldValue.serverTimestamp(), status: 'sent'
         });
       }
 
+      // Record swipe
       transaction.set(db.collection("swipes").doc(`swipe_${fromUserId}_${targetUserId}`), { 
         fromUserId, toUserId: targetUserId, type, createdAt: FieldValue.serverTimestamp() 
       }, { merge: true });
 
+      // Notifications
       if (type !== 'pass') {
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
           userId: targetUserId, fromUserId, type, 
           title: type === 'super_like' ? "Süper Like!" : "Profilin Beğenildi!",
-          message: `${fData.social?.nickname || "Biri"} seni beğendi.`,
+          message: `${fData.social?.nickname || fData.displayName || "Biri"} seni beğendi.`,
           read: false, createdAt: FieldValue.serverTimestamp()
         });
       }
@@ -450,23 +455,56 @@ export const processCompatibilityRequests = functions.region('us-central1').pubs
 export const sendMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş gerekli.');
   const fromUserId = context.auth.uid;
-  const { targetUserId } = data;
+  const targetUserId = data.targetUserId || data.toUserId; // Handle both
+
+  if (!targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
 
   try {
     const result = await db.runTransaction(async (transaction) => {
-      const [fSnap, tSnap] = await Promise.all([transaction.get(db.collection("users").doc(fromUserId)), transaction.get(db.collection("users").doc(targetUserId))]);
+      // 1. Check for existing chat
+      const chatId = [fromUserId, targetUserId].sort().join('_');
+      const chatSnap = await transaction.get(db.collection("chats").doc(chatId));
+      if (chatSnap.exists) return { status: 'ALREADY_CHATTING' };
+
+      // 2. Check for pending request
+      const reqId = `req_${fromUserId}_${targetUserId}`;
+      const reqRef = db.collection("interactionRequests").doc(reqId);
+      const reqSnap = await transaction.get(reqRef);
+      if (reqSnap.exists && reqSnap.data()?.status === 'pending') return { status: 'ALREADY_REQUESTED' };
+
+      const [fSnap, tSnap] = await Promise.all([
+        transaction.get(db.collection("users").doc(fromUserId)), 
+        transaction.get(db.collection("users").doc(targetUserId))
+      ]);
+      
       if (!fSnap.exists || !tSnap.exists) throw new Error("NOT_FOUND");
       const fData = fSnap.data() as any;
 
-      const reqRef = db.collection("interactionRequests").doc(`req_${fromUserId}_${targetUserId}`);
-      transaction.set(reqRef, { fromUserId, toUserId: targetUserId, type: 'message_request', status: 'pending', createdAt: FieldValue.serverTimestamp() });
+      transaction.set(reqRef, { 
+        id: reqId,
+        fromUserId, 
+        toUserId: targetUserId, 
+        type: 'message_request', 
+        status: 'pending', 
+        createdAt: FieldValue.serverTimestamp() 
+      });
 
-      return { success: true, senderName: fData.social?.nickname || fData.displayName };
+      return { status: 'SUCCESS', senderName: fData.social?.nickname || fData.displayName };
     });
 
-    await sendPushToUser(targetUserId, { title: "Yeni Mesaj İsteği! 💌", body: `${result.senderName} sana bir mesaj isteği gönderdi.`, category: 'social', senderId: fromUserId, priority: 'high' });
-    return { success: true };
+    if (result.status === 'SUCCESS') {
+      await sendPushToUser(targetUserId, { 
+        title: "Yeni Mesaj İsteği! 💌", 
+        body: `${result.senderName} sana bir mesaj isteği gönderdi.`, 
+        category: 'social', 
+        senderId: fromUserId, 
+        priority: 'high' 
+      });
+    }
+    
+    return result;
   } catch (error: any) {
+    console.error("sendMessageRequest error:", error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

@@ -220,18 +220,11 @@ export const walletService = {
     }
   },
 
-  async consumeSocialFeature(targetUserId: string, type: 'superLike' | 'refresh' | 'compatibility' | 'swipe'): Promise<{ success: boolean; consumedFrom?: string; status?: string }> {
+  async refreshDiscover(): Promise<{ success: boolean; status: RefreshActionResult; users: any[] }> {
     try {
-      const config = await this.getAdminConfig();
-      return await callFunction('consumeSocialFeature', { type, targetUserId, config });
+      return await callFunction('refreshDiscover');
     } catch (error: any) {
-      console.error("consumeSocialFeature error:", error);
-      return { 
-        success: false, 
-        status: error.code === 'resource-exhausted' || error.code === 'functions/resource-exhausted' || error.code === 'out-of-range' 
-          ? 'OUT_OF_RIGHTS' 
-          : 'ERROR' 
-      };
+      return { success: false, status: 'ERROR', users: [] };
     }
   },
 
@@ -240,22 +233,6 @@ export const walletService = {
       return await callFunction('purchaseBoostPackage', { type });
     } catch (error: any) {
       return { success: false, message: error.message };
-    }
-  },
-
-  async sendSuperLike(targetUserId: string): Promise<{ success: boolean; chatId?: string }> {
-    try {
-      return await callFunction('sendSuperLikeAndCreateChat', { targetUserId });
-    } catch (error: any) {
-      return { success: false };
-    }
-  },
-
-  async refreshDiscoverFeed(): Promise<{ success: boolean; status: RefreshActionResult; users: any[] }> {
-    try {
-      return await callFunction('refreshDiscoverFeed');
-    } catch (error: any) {
-      return { success: false, status: 'ERROR', users: [] };
     }
   },
 
@@ -272,14 +249,6 @@ export const walletService = {
       return await callFunction('runManualCompatibilityAnalysis', data);
     } catch (error: any) {
       return { success: false, requestId: '', finishTime: '' };
-    }
-  },
-
-  async refreshDiscover(): Promise<{ success: boolean; status: RefreshActionResult; lastRefreshAt: string }> {
-    try {
-      return await callFunction('refreshDiscover');
-    } catch (error: any) {
-      return { success: false, status: 'ERROR', lastRefreshAt: new Date().toISOString() };
     }
   },
 

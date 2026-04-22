@@ -773,6 +773,7 @@ export type SocialActionResult =
   | 'TARGET_NOT_FOUND'
   | 'BLOCKED'
   | 'INSUFFICIENT_FUNDS'
+  | 'DAILY_LIMIT_REACHED'
   | 'NOTIFICATION_FAILED'
   | 'TECHNICAL_ERROR';
 

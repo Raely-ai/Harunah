@@ -169,14 +169,9 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
   const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
     if (!activeUser || isAnimating || isProcessing) return;
     
-    // Super Like Check
-    if (type === 'super_like' && superLikes <= 0) {
-      onNavigate('wallet');
-      return;
-    }
-
-    if (type !== 'super_like' && !canSwipe(currentUser)) {
-      toast.error("Günlük swipe hakkın bitti!");
+    // Check remaining swipes (simplified for the strict 15 limit)
+    if (!canSwipe(currentUser)) {
+      toast.error("Günlük swipe hakkın bitti! ✨");
       onNavigate('wallet');
       return;
     }
@@ -212,27 +207,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     // 3. Background API Call
     (async () => {
       try {
-        if (type !== 'super_like') {
-          const res = await walletService.consumeSocialFeature(uid, 'swipe'); 
-          // Note: both pass and like consume a daily swipe in the currently intended flow
-          if (!res.success) {
-            // Rollback
-            setSwipedUserIds(oldSwipedUserIds);
-            
-            if (res.status === 'OUT_OF_RIGHTS') {
-              toast.error("Günlük kaydırma hakkın bitti! Lütfen ek hak al.");
-            } else {
-              toast.error("Harcanırken bir hata oluştu.");
-            }
-            
-            onNavigate('wallet');
-            return;
-          }
-        }
-        
         const result = await socialService.sendLike(currentUser, targetUser.uid, type);
         
-        if (result !== 'SUCCESS' && type !== 'pass') {
+        if (result === 'DAILY_LIMIT_REACHED') {
+           setSwipedUserIds(oldSwipedUserIds);
+           toast.info("Günlük kaydırma sınırına ulaştın! 💖");
+           onNavigate('wallet');
+        } else if (result !== 'SUCCESS' && type !== 'pass') {
           if (result === 'INSUFFICIENT_FUNDS') {
              setSwipedUserIds(oldSwipedUserIds);
              toast.error("Yetersiz Süper Like hakkı!");

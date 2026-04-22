@@ -52,10 +52,12 @@ export const socialService = {
       if (result.status === 'INSUFFICIENT_FUNDS') {
         toast.error("Yetersiz hak. Lütfen cüzdanınızdan hak satın alın.");
       }
-      return result.status;
+      return result.status || (result.success ? 'SUCCESS' : 'TECHNICAL_ERROR');
     } catch (error: any) {
       console.error("socialService: Error in sendLike:", error);
-      // Auto-retry queue could go here, but for now we fallback to Firestore persistence (handled by SDK)
+      if (error.message === 'daily_limit_reached' || (error.details && error.details.message === 'daily_limit_reached')) {
+        return 'DAILY_LIMIT_REACHED';
+      }
       return 'TECHNICAL_ERROR';
     }
   },

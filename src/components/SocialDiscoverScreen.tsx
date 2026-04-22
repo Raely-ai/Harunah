@@ -337,11 +337,11 @@ export default function SocialDiscoverScreen({
     
     setIsProcessing(true);
     try {
-      const success = await walletService.consumeSocialFeature(uid, 'compatibility');
-      if (success) {
-        toast.success("Uyum hesaplanıyor...");
+      const result = await walletService.runCompatibilityAnalysis(user.uid, 'arkadas');
+      if (result.success) {
+        toast.success("Uyum analizi süreci başladı! 5 dakika içinde hazır olacak. ✨");
       } else {
-        toast.info("Uyum analizi hakkın bitti. Cüzdandan alabilirsin.");
+        toast.info("Yetersiz hak veya jeton. Cüzdandan takviye yapabilirsin.");
         onNavigate('wallet');
       }
     } catch (e: any) {
@@ -402,7 +402,7 @@ export default function SocialDiscoverScreen({
     
     setIsProcessing(true);
     try {
-      const result = await walletService.refreshDiscoverFeed();
+      const result = await walletService.refreshDiscover();
       if (result.success) {
         // Clear both caches and force re-fetch
         cacheManager.clear(DISCOVER_CACHE_KEY);
