@@ -23,8 +23,8 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
       <div className="flex flex-col items-center text-center mb-12">
         <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-indigo-500 to-violet-600 p-1 shadow-xl mb-6 ring-4 ring-white">
           <img 
-            src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-            alt={user.displayName}
+            src={user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'profile'}`} 
+            alt={user?.displayName || 'User'}
             className="w-full h-full object-cover rounded-[1.8rem]"
           />
         </div>
@@ -51,8 +51,8 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
                   <div className="flex items-center gap-4 mb-4">
                     <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-slate-50 shadow-lg">
                       <img 
-                        src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-                        alt={user.social?.nickname || user.displayName}
+                        src={user?.social?.photos?.[0] || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'profile'}`} 
+                        alt={user?.social?.nickname || user?.displayName || 'User'}
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
                       />

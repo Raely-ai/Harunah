@@ -5,6 +5,7 @@ import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
+import cors from "cors";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -13,6 +14,8 @@ if (!admin.apps.length) {
 export const db = getFirestore();
 export const messaging = getMessaging();
 export const storage = getStorage();
+
+export const corsHandler = cors({ origin: true });
 
 /**
  * Robust FieldValue export to prevent 'undefined' issues in some environments.

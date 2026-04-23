@@ -55,7 +55,7 @@ function DiscoverCard({ user, onClick, variant = 'medium', compatibility }: { us
       onClick={onClick}
     >
       <img 
-        src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+        src={user?.social?.photos?.[0] || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'default'}`} 
         className={`w-full h-full rounded-3xl object-cover transition-transform duration-700 group-hover:scale-110 ${variant === 'premium' ? 'blur-2xl opacity-40 scale-125' : ''}`} 
         referrerPolicy="no-referrer"
       />
@@ -68,7 +68,7 @@ function DiscoverCard({ user, onClick, variant = 'medium', compatibility }: { us
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <h4 className="font-bold text-white truncate text-sm drop-shadow-md">
-              {user.social?.nickname || user.nickname}, {user.age || 25}
+              {user?.social?.nickname || user?.nickname || 'Gizemli'}, {user?.age || 25}
             </h4>
             {user.social?.isOnline && (
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
@@ -485,7 +485,7 @@ export default function SocialDiscoverScreen({
                 <div className="relative p-0.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500">
                   <div className="w-[68px] h-[68px] rounded-full border-[3px] border-white overflow-hidden bg-slate-100">
                     <img 
-                      src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                      src={u?.social?.photos?.[0] || u?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u?.uid || i}`} 
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                       referrerPolicy="no-referrer"
                     />
@@ -494,7 +494,7 @@ export default function SocialDiscoverScreen({
                   <div className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full shadow-lg" />
                 </div>
                 <span className="text-[10px] font-bold text-slate-600 truncate w-16 text-center">
-                  {u.social?.nickname?.split(' ')[0] || u.nickname?.split(' ')[0]}
+                  {u?.social?.nickname?.split(' ')[0] || u?.nickname?.split(' ')[0] || 'Avatar'}
                 </span>
               </motion.button>
             ))}
@@ -571,7 +571,7 @@ export default function SocialDiscoverScreen({
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-3">Profilini İnceleyen Enerjiler</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {feelingEnergyUsers.map((u) => (
+            {feelingEnergyUsers.map((u, i) => (
               <motion.div
                 key={u.uid}
                 whileTap={{ scale: 0.98 }}
@@ -579,14 +579,14 @@ export default function SocialDiscoverScreen({
                 className="relative aspect-[3/4] rounded-[2.5rem] overflow-hidden cursor-pointer group shadow-lg border border-black/5 bg-slate-100"
               >
                 <img 
-                  src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                  src={u?.social?.photos?.[0] || u?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u?.uid || i}`} 
                   className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-80" />
                 <div className="absolute inset-x-0 bottom-0 p-4">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <p className="text-[11px] font-black text-white truncate">{u.social?.nickname || u.nickname}</p>
+                    <p className="text-[11px] font-black text-white truncate">{u?.social?.nickname || u?.nickname || 'Gizemli'}</p>
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
                   </div>
                   <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest">Sana Odaklandı</p>

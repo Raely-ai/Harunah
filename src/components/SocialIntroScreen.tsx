@@ -1,5 +1,6 @@
+import React from "react";
 import { motion } from "motion/react";
-import { Sparkles, Heart, Zap, MessageCircle, ArrowRight } from "lucide-react";
+import { Sparkles, Flower, Link as LinkIcon, Dot, Heart, Star, MoveRight } from "lucide-react";
 
 interface SocialIntroScreenProps {
   onBack: () => void;
@@ -7,97 +8,145 @@ interface SocialIntroScreenProps {
 }
 
 export default function SocialIntroScreen({ onBack, onContinue }: SocialIntroScreenProps) {
+  // Luxury Palette
+  const champagneGold = "#F1E5AC";
+  const deepMidnight = "#0F172A";
+  const royalAmethyst = "#3B0764";
+  const electricIndigo = "#4338CA";
+
   return (
-    <div className="relative h-[100dvh] w-full bg-[#F6F4F8] text-heading overflow-hidden flex flex-col select-none touch-none">
-      {/* Background Gradient Orbs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-[20%] -right-[10%] w-[80%] h-[80%] bg-indigo-500/5 rounded-full blur-[120px]" />
-        <div className="absolute -bottom-[20%] -left-[10%] w-[80%] h-[80%] bg-purple-500/5 rounded-full blur-[120px]" />
+    <div className="relative min-h-[100dvh] w-full text-white overflow-hidden flex flex-col pt-[env(safe-area-inset-top,2rem)] flex-shrink-0 bg-[#0F172A]">
+      {/* Background (High-End Atmosphere) */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        {/* Base Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0F172A] to-[#3B0764]" />
+        
+        {/* Core Aura: Electric Indigo patlaması */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[60%] bg-[#4338CA] opacity-20 blur-[150px] rounded-full" />
+        
+        {/* Floating elements with Shimmer effect */}
+        {[...Array(8)].map((_, i) => (
+          <motion.div
+            key={i}
+            initial={{ 
+              opacity: 0, 
+              y: "110%", 
+              x: `${5 + i * 12}%`,
+              rotate: Math.random() * 360 
+            }}
+            animate={{ 
+              opacity: [0, 0.2, 0.2, 0], 
+              y: "-10%",
+              rotate: Math.random() * 360 + 120
+            }}
+            transition={{ 
+              duration: 20 + Math.random() * 20, 
+              repeat: Infinity, 
+              delay: i * 2,
+              ease: "linear"
+            }}
+            className="absolute z-0 pointer-events-none"
+          >
+            <div className="relative">
+              {/* Glow backdrop for icons */}
+              <div className="absolute inset-0 bg-white/20 blur-[20px] rounded-full" />
+              {i % 2 === 0 ? (
+                <Heart className="w-6 h-6 text-white/10 animate-pulse" strokeWidth={1} />
+              ) : (
+                <Sparkles className="w-5 h-5 text-white/10 animate-pulse" strokeWidth={1} />
+              )}
+            </div>
+          </motion.div>
+        ))}
       </div>
 
-      {/* Main Content Area */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center max-w-lg mx-auto w-full">
-        <div className="w-full space-y-8 sm:space-y-12">
-          {/* Animated Icon Container */}
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-between px-6 w-full max-w-lg mx-auto pb-12">
+        
+        {/* Top Section: Gold & Pearl Typography */}
+        <div className="w-full flex flex-col items-center pt-8">
           <motion.div
-            initial={{ opacity: 0, scale: 0.8, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 20 }}
-            className="relative flex justify-center"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mb-6 w-14 h-14 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl"
           >
-            <div className="w-20 h-20 sm:w-28 sm:h-28 flex items-center justify-center relative z-10">
-              <img 
-                src="/logo.svg" 
-                alt="LASYA Logo" 
-                className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(99,102,241,0.1)]"
-              />
-            </div>
-            <motion.div 
-              animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.1, 0.2] }}
-              transition={{ duration: 4, repeat: Infinity }}
-              className="absolute inset-0 border border-indigo-500/10 rounded-full -m-2 z-0" 
-            />
+             <Flower className="w-9 h-9" style={{ color: champagneGold }} strokeWidth={1} />
           </motion.div>
 
-          {/* Typography Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="space-y-4 sm:space-y-6"
-          >
-            <h1 className="text-3xl sm:text-5xl font-serif font-bold leading-tight tracking-tight text-heading">
+          <div className="text-center space-y-4">
+            <h1 className="text-4xl sm:text-5xl font-serif font-light leading-tight tracking-tight text-transparent bg-clip-text bg-gradient-to-br from-[#F1E5AC] via-[#D4AF37] to-[#F1E5AC]">
               Frekansların <br />
-              <span className="text-indigo-600 italic">Buluşma Noktası</span>
+              <span className="italic font-normal">Zarif</span> Buluşması
             </h1>
-
-            <p className="text-sm sm:text-base text-body leading-relaxed max-w-[260px] sm:max-w-[320px] mx-auto">
-              Ruhunun enerjisini yansıtan özel bir topluluğa davetlisin.
+            <p className="text-[13px] font-sans font-light text-slate-200 tracking-wider max-w-[280px] mx-auto leading-relaxed opacity-80">
+              Gerçek analiz sonuçlarına göre ruhuna en yakın kişilerle tanışmaya hazır mısın?
             </p>
-          </motion.div>
+          </div>
+        </div>
 
-          {/* Value Propositions */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="grid grid-cols-1 gap-3 sm:gap-4 w-full"
-          >
+        {/* Middle Section: Frosted Glass Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full p-8 rounded-[40px] bg-white/10 backdrop-blur-3xl border border-white/20 shadow-[0_30px_60px_rgba(0,0,0,0.4)] space-y-8"
+        >
+          {/* Jewelry Style Icons Grid */}
+          <div className="grid grid-cols-3 gap-4">
             {[
-              { icon: Zap, text: "Enerjinle tam uyumlu kişiler", color: "text-amber-600", bg: "bg-amber-500/10" },
-              { icon: Heart, text: "Aşk, dostluk ve derin sohbetler", color: "text-rose-600", bg: "bg-rose-500/10" },
-              { icon: MessageCircle, text: "Sana en yakın frekanstaki insanlar", color: "text-indigo-600", bg: "bg-indigo-500/10" }
-            ].map((item, i) => (
-              <div key={i} className="flex items-center gap-4 p-4 sm:p-5 rounded-2xl bg-white border border-black/5 text-left shadow-sm">
-                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${item.bg} flex items-center justify-center ${item.color} shrink-0`}>
-                  <item.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+              { icon: Sparkles, label: "Uyum", desc: "Ruhsal Analiz" },
+              { icon: LinkIcon, label: "Keşfet", desc: "Bağ Kur" },
+              { icon: Dot, label: "Sohbet", desc: "Derinlik" }
+            ].map((prop, idx) => (
+              <div key={idx} className="flex flex-col items-center text-center space-y-3">
+                <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5">
+                  <prop.icon 
+                    className="w-6 h-6 filter drop-shadow-[0_0_8px_rgba(241,229,172,0.4)]" 
+                    style={{ color: champagneGold }} 
+                    strokeWidth={1.5}
+                  />
                 </div>
-                <span className="text-sm sm:text-base font-medium text-body">{item.text}</span>
+                <div className="space-y-1">
+                  <h4 className="text-[10px] font-bold text-white uppercase tracking-[0.25em]">{prop.label}</h4>
+                  <p className="text-[8px] text-slate-300 font-light uppercase tracking-widest">{prop.desc}</p>
+                </div>
               </div>
             ))}
+          </div>
+        </motion.div>
+
+        {/* Bottom Section: The Devasa Button */}
+        <div className="w-full flex flex-col items-center space-y-6">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="w-full flex justify-center z-50"
+          >
+            <button
+              onClick={onContinue}
+              className="group relative w-full py-5 rounded-3xl bg-gradient-to-r from-[#4338CA] via-[#6366F1] to-[#4338CA] bg-[length:200%_auto] hover:bg-right overflow-hidden shadow-[0_20px_50px_rgba(67,56,202,0.5)] flex items-center justify-center gap-4 transition-all duration-500 hover:scale-[1.03] active:scale-95"
+            >
+              {/* Shimmer overlay */}
+              <div className="absolute inset-0 opacity-30 bg-gradient-to-tr from-transparent via-white/20 to-transparent skew-x-12 translate-x-[-100%] group-hover:translate-x-[150%] transition-transform duration-1000 ease-in-out" />
+              
+              <span className="text-white font-bold text-[14px] uppercase tracking-[0.3em] drop-shadow-sm">
+                BAĞ KURMAYA BAŞLA
+              </span>
+              
+              <div className="relative">
+                <div className="absolute inset-0 blur-[8px] bg-amber-400 opacity-0 group-hover:opacity-40 transition-opacity" />
+                <MoveRight className="w-6 h-6 text-amber-300 transition-transform group-hover:translate-x-1" strokeWidth={1.5} />
+              </div>
+            </button>
           </motion.div>
+          
+          <button 
+            onClick={onBack}
+            className="relative z-50 py-1 text-white/30 font-medium text-[11px] uppercase tracking-[0.4em] hover:text-white transition-colors"
+          >
+            Daha Sonra
+          </button>
         </div>
       </main>
-
-      {/* Action Area */}
-      <footer className="relative z-10 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:p-8 sm:pb-12 space-y-4 max-w-lg mx-auto w-full flex-shrink-0">
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onContinue}
-          className="w-full py-5 sm:py-6 rounded-2xl bg-indigo-600 text-white font-bold text-base sm:text-lg shadow-xl shadow-indigo-600/20 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 group"
-        >
-          Hemen Başla
-          <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-        </motion.button>
-        
-        <button 
-          onClick={onBack}
-          className="w-full py-1 text-muted font-semibold text-xs sm:text-sm hover:text-body transition-colors"
-        >
-          Şimdilik Vazgeç
-        </button>
-      </footer>
     </div>
   );
 }

@@ -267,9 +267,9 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
 
   const photos = useMemo(() => {
     if (!activeUser) return [];
-    return activeUser.social?.photos?.length 
+    return activeUser?.social?.photos?.length 
       ? activeUser.social.photos 
-      : [activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`];
+      : [activeUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser?.uid || 'default'}`];
   }, [activeUser]);
 
   const compatibility = useMemo(() => {
@@ -503,10 +503,10 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                   className="flex items-center justify-center gap-3"
                 >
                   <h2 className="text-3xl font-serif font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-                    {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age}
+                    {activeUser?.social?.nickname || activeUser?.nickname || 'Gizemli'}, {activeUser?.age || ''}
                   </h2>
                   <div className="px-3 py-1 rounded-full bg-white/20 border border-white/30 text-[9px] font-black text-white uppercase tracking-widest backdrop-blur-md shadow-lg">
-                    {activeUser.zodiacSign || "Burç"}
+                    {activeUser?.zodiacSign || "Burç"}
                   </div>
                 </motion.div>
                 <motion.div 
@@ -516,7 +516,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                   className="space-y-1"
                 >
                   <p className="text-xs text-white/90 font-medium max-w-sm mx-auto drop-shadow-md line-clamp-2">
-                    {activeUser.social?.bio || activeUser.bio || "Bio henüz eklenmemiş."}
+                    {activeUser?.social?.bio || activeUser?.bio || "Bio henüz eklenmemiş."}
                   </p>
                   {compatibility && (
                     <motion.p 

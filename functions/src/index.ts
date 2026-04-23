@@ -1,20 +1,26 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import cors from "cors";
 
 // Ensure admin is initialized before anything else
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
+// Global CORS handler for any future onRequest functions
+const corsHandler = cors({ origin: true });
+
 /**
  * SOURCE OF TRUTH:
- * All function implementations are moved to their respective modules for 
- * maintainability and to avoid code duplication errors.
+ * All function implementations use https.onCall for automatic CORS and Auth handling.
+ * If net::ERR_FAILED persists, consider migrating to Firebase Functions v2 which
+ * supports explicit CORS configuration.
  */
 import * as social from "./social";
 import * as wallet from "./wallet";
 import * as fortune from "./fortune";
 import * as adminFunctions from "./admin";
+import * as test from "./test";
 
 /**
  * EXPORT SOCIAL FUNCTIONS
@@ -47,6 +53,14 @@ export const {
   processCompatibilityRequests,
   checkDailyReminders
 } = social;
+
+/**
+ * EXPORT TEST FUNCTIONS
+ */
+export const {
+  testPing,
+  testPingV2
+} = test;
 
 /**
  * EXPORT WALLET FUNCTIONS

@@ -49,20 +49,20 @@ export default function SocialStoryArea({ featuredUsers, onSelect, onNavigate }:
               
               <div className="relative w-16 h-16 rounded-full border-2 border-[#F6F4F8] p-0.5 overflow-hidden bg-white shadow-sm">
                 <img 
-                  src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-                  alt={user.social?.nickname}
+                  src={user?.social?.photos?.[0] || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'story'}`} 
+                  alt={user?.social?.nickname || 'Kullanıcı'}
                   className="w-full h-full rounded-full object-cover transition-all duration-500"
                   referrerPolicy="no-referrer"
                 />
               </div>
               
               {/* Online Indicator */}
-              {user.social?.isOnline && (
+              {user?.social?.isOnline && (
                 <div className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-[#F6F4F8] rounded-full shadow-sm" />
               )}
             </div>
             <span className="text-[10px] font-bold text-muted group-hover:text-heading truncate w-16 text-center transition-colors uppercase tracking-tighter">
-              {user.social?.nickname || user.nickname || user.displayName}
+              {user?.social?.nickname || user?.nickname || user?.displayName || 'Gizemli'}
             </span>
           </motion.button>
         ))}
