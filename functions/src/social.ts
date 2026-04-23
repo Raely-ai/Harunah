@@ -240,7 +240,7 @@ export const updateSocialSettings = functions.region('us-central1').https.onCall
 });
 
 // 4. Refresh Discover Feed
-export const refreshDiscover = functions.region('us-central1').https.onCall(async (data, context) => {
+export const refreshDiscover = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -355,7 +355,7 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
 export const refreshDiscoverFeed = refreshDiscover;
 
 // 5. Send Like
-export const sendLike = functions.region('us-central1').https.onCall(async (data, context) => {
+export const sendLike = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
   
@@ -872,7 +872,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
 });
 
 // 23. Process Compatibility Requests
-export const processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
+export const processCompatibilityRequests = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).pubsub.schedule('every 2 minutes').onRun(async (context) => {
   const now = new Date().toISOString();
   const pendings = await db.collection("compatibilityRequests").where("status", "==", "pending").where("readyAt", "<=", now).limit(20).get();
   if (pendings.empty) return null;
