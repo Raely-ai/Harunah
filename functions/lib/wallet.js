@@ -33,18 +33,59 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.redeemPromoCode = exports.consumeSocialFeature = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.purchaseBoostPackage = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = void 0;
+exports.redeemPromoCode = exports.purchaseSocialBundle = exports.purchaseSocialItem = exports.purchaseBoostPackage = exports.buyFortuneSubscription = exports.spendBalance = exports.purchaseCoins = exports.watchAdReward = void 0;
+exports.refundTransaction = refundTransaction;
 const functions = __importStar(require("firebase-functions"));
 const base_1 = require("./base");
+let cachedEconomy = null;
+let lastCacheUpdate = 0;
+const CACHE_TTL = 300000;
+async function getEconomyConfig() {
+    const now = Date.now();
+    if (cachedEconomy && (now - lastCacheUpdate < CACHE_TTL)) {
+        return cachedEconomy;
+    }
+    const configSnap = await base_1.db.collection("adminSettings").doc("economy").get();
+    if (!configSnap.exists)
+        return null;
+    cachedEconomy = configSnap.data();
+    lastCacheUpdate = now;
+    return cachedEconomy;
+}
+async function refundTransaction(userId, amount, balanceType, rightField) {
+    const userRef = base_1.db.collection("users").doc(userId);
+    const txRef = base_1.db.collection("walletTransactions").doc();
+    const now = new Date().toISOString();
+    await base_1.db.runTransaction(async (transaction) => {
+        const updates = {};
+        if (balanceType === 'main')
+            updates.mainCoins = base_1.FieldValue.increment(amount);
+        else if (balanceType === 'energy')
+            updates.energy = base_1.FieldValue.increment(amount);
+        else if (balanceType === 'right' && rightField)
+            updates[rightField] = base_1.FieldValue.increment(amount);
+        transaction.update(userRef, updates);
+        transaction.set(txRef, {
+            id: txRef.id,
+            userId,
+            type: 'refund',
+            source: 'system_refund',
+            amount,
+            balanceType,
+            createdAt: now,
+            status: 'active',
+            description: `Hata nedeniyle otomatik iade (${amount} ${balanceType})`
+        });
+    });
+}
 exports.watchAdReward = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
     try {
-        const configSnap = await base_1.db.collection("adminSettings").doc("economy").get();
-        if (!configSnap.exists)
+        const economy = await getEconomyConfig();
+        if (!economy)
             throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-        const economy = configSnap.data();
         const adRewardEnergy = economy.rewards?.adRewardEnergy || 10;
         const maxDailyAds = economy.rewards?.maxDailyAds || 5;
         const adRewardExpiryDays = economy.rewards?.adRewardExpiryDays || 7;
@@ -52,7 +93,7 @@ exports.watchAdReward = functions.region('us-central1').https.onCall(async (data
         return await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             const today = new Date().toISOString().split('T')[0];
             const lastReset = userData.lastAdReset ? userData.lastAdReset.split('T')[0] : "";
@@ -60,7 +101,7 @@ exports.watchAdReward = functions.region('us-central1').https.onCall(async (data
             if (today !== lastReset)
                 dailyCount = 0;
             if (dailyCount >= maxDailyAds) {
-                throw new Error('Günlük reklam sınırı aşıldı.');
+                throw new functions.https.HttpsError('failed-precondition', 'Günlük reklam sınırı aşıldı.');
             }
             const now = new Date();
             const expiresAt = new Date();
@@ -99,37 +140,40 @@ exports.purchaseCoins = functions.region('us-central1').https.onCall(async (data
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
     try {
-        if (!data)
-            throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
-        const { amount, packageId, balanceType = 'main' } = data;
-        if (typeof amount !== 'number' || amount <= 0) {
-            throw new functions.https.HttpsError('invalid-argument', 'Miktar pozitif bir sayı olmalıdır.');
+        if (!data || !data.receipt)
+            throw new functions.https.HttpsError('invalid-argument', 'Ödeme kanıtı (receipt) bulunamadı.');
+        const { amount, packageId, receipt, platform } = data;
+        console.log(`[Validation] Validating ${platform} receipt for ${packageId}...`);
+        const isValid = receipt && receipt.length > 32;
+        if (!isValid) {
+            throw new functions.https.HttpsError('permission-denied', 'Ödeme doğrulaması başarısız oldu (Invalid Receipt).');
         }
+        const economy = await getEconomyConfig();
+        const pkg = economy?.coinPackages?.find((p) => p.id === packageId);
+        if (!pkg)
+            throw new functions.https.HttpsError('not-found', 'Paket bilgisi sistemde bulunamadı.');
+        const coinsToGrant = pkg.coins + (pkg.bonus || 0);
         const userRef = base_1.db.collection("users").doc(userId);
         const now = new Date();
         await base_1.db.runTransaction(async (transaction) => {
-            const updates = {};
-            if (balanceType === 'main')
-                updates.mainCoins = base_1.FieldValue.increment(amount);
-            else
-                updates.energy = base_1.FieldValue.increment(amount);
-            transaction.update(userRef, updates);
+            transaction.update(userRef, { mainCoins: base_1.FieldValue.increment(coinsToGrant) });
             const txRef = base_1.db.collection("walletTransactions").doc();
             transaction.set(txRef, {
                 id: txRef.id,
                 userId,
                 type: 'purchase',
                 source: 'purchase',
-                amount: amount,
-                balanceType,
+                amount: coinsToGrant,
+                balanceType: 'main',
                 createdAt: now.toISOString(),
-                expiresAt: null,
-                remainingAmount: amount,
+                platform,
+                packageId,
+                receiptId: receipt.substring(0, 10) + "...",
                 status: 'active',
                 description: `Satın alım onaylandı: ${packageId}`
             });
         });
-        return { success: true };
+        return { success: true, granted: coinsToGrant };
     }
     catch (error) {
         console.error("purchaseCoins error:", error);
@@ -165,11 +209,11 @@ exports.spendBalance = functions.region('us-central1').https.onCall(async (data,
         return await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             const currentBalance = balanceType === 'main' ? (userData.mainCoins || 0) : (userData.energy || 0);
             if (currentBalance < amount)
-                throw new Error("Yetersiz bakiye.");
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye.");
             if (balanceType === 'energy') {
                 let remainingToSpend = amount;
                 for (const tx of energyTxs) {
@@ -186,7 +230,7 @@ exports.spendBalance = functions.region('us-central1').https.onCall(async (data,
                     }
                 }
                 if (remainingToSpend > 0)
-                    throw new Error("Enerji bakiyesi doğrulanamadı.");
+                    throw new functions.https.HttpsError('failed-precondition', "Enerji bakiyesi doğrulanamadı.");
             }
             const updates = {};
             if (balanceType === 'main')
@@ -243,16 +287,16 @@ exports.buyFortuneSubscription = functions.region('us-central1').https.onCall(as
         return await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             const price = subConfig.priceTRY || subConfig.price;
             if ((userData.mainCoins || 0) < price) {
-                throw new Error('Yetersiz bakiye.');
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
             }
             if (userData.subscription && userData.subscription.status === 'active') {
                 const currentExpires = new Date(userData.subscription.expiresAt);
                 if (currentExpires > now) {
-                    throw new Error('Zaten aktif bir fal aboneliğiniz var.');
+                    throw new functions.https.HttpsError('already-exists', 'Zaten aktif bir fal aboneliğiniz var.');
                 }
             }
             transaction.update(userRef, {
@@ -307,7 +351,7 @@ exports.purchaseBoostPackage = functions.region('us-central1').https.onCall(asyn
         return await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
             const baseDate = currentBoost > now ? currentBoost : now;
@@ -369,7 +413,7 @@ exports.purchaseSocialItem = functions.region('us-central1').https.onCall(async 
         const result = await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("USER_NOT_FOUND");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             if ((userData.mainCoins || 0) < totalPrice) {
                 return { success: false, status: 'INSUFFICIENT_FUNDS' };
@@ -429,10 +473,10 @@ exports.purchaseSocialBundle = functions.region('us-central1').https.onCall(asyn
         return await base_1.db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const userData = userSnap.data();
             if ((userData.mainCoins || 0) < bundle.price)
-                throw new Error("Yetersiz bakiye.");
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye.");
             const now = new Date();
             transaction.update(userRef, {
                 mainCoins: base_1.FieldValue.increment(-bundle.price),
@@ -460,73 +504,6 @@ exports.purchaseSocialBundle = functions.region('us-central1').https.onCall(asyn
         if (error instanceof functions.https.HttpsError)
             throw error;
         throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
-    }
-});
-exports.consumeSocialFeature = functions.region('us-central1').https.onCall(async (data, context) => {
-    if (!context.auth)
-        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-    const userId = context.auth.uid;
-    const { type } = data;
-    const userRef = base_1.db.collection("users").doc(userId);
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    try {
-        return await base_1.db.runTransaction(async (transaction) => {
-            const userSnap = await transaction.get(userRef);
-            if (!userSnap.exists)
-                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
-            const userData = userSnap.data();
-            let consumedFrom = 'paid';
-            if (type === 'swipe') {
-                const dailyUsed = userData.dailySwipeUsed || 0;
-                const lastDate = userData.dailySwipeDate || "";
-                let maxSwipes = 15;
-                const sub = userData.subscription;
-                if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > now) {
-                    if (sub.type === 'daily')
-                        maxSwipes = 100;
-                    else if (sub.type === 'weekly')
-                        maxSwipes = 150;
-                    else if (sub.type === 'monthly')
-                        maxSwipes = 200;
-                }
-                if (lastDate !== today) {
-                    transaction.update(userRef, {
-                        dailySwipeUsed: 1,
-                        dailySwipeDate: today,
-                        dailyFreeSuperLikeUsed: false,
-                        dailyFreeRefreshUsed: false
-                    });
-                }
-                else {
-                    if (dailyUsed >= maxSwipes)
-                        throw new functions.https.HttpsError('resource-exhausted', `Günlük kaydırma sınırına ulaştınız (${maxSwipes} hak).`);
-                    transaction.update(userRef, { dailySwipeUsed: base_1.FieldValue.increment(1) });
-                }
-            }
-            else {
-                const field = type === 'superLike' ? 'superLikes' : type === 'refresh' ? 'refreshCount' : 'compatibilityCount';
-                if ((userData[field] || 0) <= 0)
-                    throw new functions.https.HttpsError('failed-precondition', "Yetersiz hak.");
-                transaction.update(userRef, { [field]: base_1.FieldValue.increment(-1) });
-            }
-            const logRef = base_1.db.collection("usageLogs").doc();
-            transaction.set(logRef, {
-                id: logRef.id,
-                userId,
-                type: 'social_feature',
-                feature: type,
-                consumedFrom,
-                createdAt: now.toISOString()
-            });
-            return { success: true, consumedFrom };
-        });
-    }
-    catch (error) {
-        console.error("consumeSocialFeature error:", error);
-        if (error instanceof functions.https.HttpsError)
-            throw error;
-        throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında bir hata oluştu.');
     }
 });
 exports.redeemPromoCode = functions.region('us-central1').https.onCall(async (data, context) => {

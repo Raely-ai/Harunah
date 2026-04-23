@@ -391,126 +391,137 @@ export default function SocialMessagesScreen({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#F6F4F8] text-body">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-2xl border-b border-black/5 px-6 py-5 flex items-center justify-between z-10">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
-          <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em] opacity-60">Sohbetler ve İstekler</p>
-        </div>
-        <button 
-          onClick={() => {
-            cacheManager.clear(CHAT_LIST_CACHE_KEY);
-            cacheManager.clear(REQUESTS_CACHE_KEY);
-            cacheManager.clear(LIKERS_CACHE_KEY);
-            window.location.reload(); // Simple way to force re-fetch all
-          }}
-          className="p-2.5 rounded-2xl bg-black/5 text-muted hover:text-amber-600 transition-all border border-black/5"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
-      </header>
+    <div className="flex flex-col h-full bg-gradient-to-b from-white to-slate-50 text-body relative overflow-hidden">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-40 bg-white/70 backdrop-blur-md border-b border-black/5 pt-[env(safe-area-inset-top,1rem)]">
+        <header className="px-6 py-5 flex items-center justify-between">
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Mesajlar</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">İletişim & Enerji Merkezi</p>
+          </div>
+          <motion.button 
+            whileTap={{ rotate: 180 }}
+            onClick={() => {
+              cacheManager.clear(CHAT_LIST_CACHE_KEY);
+              cacheManager.clear(REQUESTS_CACHE_KEY);
+              cacheManager.clear(LIKERS_CACHE_KEY);
+              window.location.reload();
+            }}
+            className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </motion.button>
+        </header>
 
-      {/* Tabs */}
-      <div className="px-6 py-4 bg-white/40 border-b border-black/5">
-        <div className="flex bg-black/[0.03] p-1 rounded-2xl border border-black/5 backdrop-blur-xl">
-          <button 
-            onClick={() => setActiveTab('chats')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              activeTab === 'chats' ? 'bg-white text-heading shadow-sm border border-black/5' : 'text-muted hover:text-body'
-            }`}
-          >
-            <MessageCircle className="w-3.5 h-3.5" />
-            Sohbetler
-          </button>
-          <button 
-            onClick={() => setActiveTab('requests')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
-              activeTab === 'requests' ? 'bg-white text-heading shadow-sm border border-black/5' : 'text-muted hover:text-body'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            İstekler
-            {requests.length > 0 && (
-              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#F6F4F8] ${activeTab === 'requests' ? 'bg-amber-500 text-black' : 'bg-amber-500 text-black'}`}>
-                {requests.length}
-              </span>
-            )}
-          </button>
-          <button 
-            onClick={() => setActiveTab('likers')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
-              activeTab === 'likers' ? 'bg-white text-heading shadow-sm border border-black/5' : 'text-muted hover:text-body'
-            }`}
-          >
-            <Heart className="w-3.5 h-3.5" />
-            Beğeniler
-            {likers.length > 0 && (
-              <span className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 border-[#F6F4F8] ${activeTab === 'likers' ? 'bg-rose-500 text-white' : 'bg-rose-500 text-white'}`}>
-                {likers.length}
-              </span>
-            )}
-          </button>
+        {/* Premium Segmented Control (Tabs) */}
+        <div className="px-6 pb-4">
+          <div className="relative flex bg-slate-100/50 backdrop-blur-sm p-1 rounded-2xl border border-black/5 shadow-inner">
+            {/* Sliding Pill Indicator */}
+            <motion.div
+              layoutId="messageTabHighlight"
+              className="absolute inset-y-1 rounded-xl bg-white shadow-sm z-0"
+              initial={false}
+              animate={{
+                left: activeTab === 'chats' ? '4px' : activeTab === 'requests' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 1px)',
+                width: 'calc(33.33% - 4px)',
+              }}
+              transition={{ type: "spring", bounce: 0.1, duration: 0.5 }}
+            />
+
+            <button 
+              onClick={() => setActiveTab('chats')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
+                activeTab === 'chats' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>Sohbetler</span>
+            </button>
+
+            <button 
+              onClick={() => setActiveTab('requests')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
+                activeTab === 'requests' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>İstekler</span>
+              {(requests.length > 0) && (
+                <div className="absolute top-1.5 right-2 w-2 h-2">
+                  <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-75" />
+                  <span className="relative block w-2 h-2 rounded-full bg-rose-500 border border-white" />
+                </div>
+              )}
+            </button>
+
+            <button 
+              onClick={() => setActiveTab('likers')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
+                activeTab === 'likers' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5" />
+              <span>Beğeniler</span>
+              {(likers.length > 0) && (
+                <div className="absolute top-1.5 right-2 w-2 h-2">
+                  <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-75" />
+                  <span className="relative block w-2 h-2 rounded-full bg-rose-500 border border-white" />
+                </div>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Search Bar (Only for Chats) */}
       {activeTab === 'chats' && chats.length > 0 && (
-        <div className="px-6 py-3 bg-white/20">
+        <div className="px-6 py-4">
           <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted group-focus-within:text-amber-600 transition-colors" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
             <input 
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Sohbetlerde ara..."
-              className="w-full bg-black/[0.03] border border-black/5 rounded-2xl py-3 pl-11 pr-4 text-[13px] text-heading placeholder:text-muted/60 focus:outline-none focus:bg-white focus:border-amber-500/30 transition-all shadow-sm focus:shadow-md"
+              className="w-full bg-slate-100/50 border border-black/5 rounded-2xl py-3.5 pl-11 pr-4 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-indigo-500/30 transition-all shadow-sm"
             />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery("")}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-black/5 text-muted"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
         </div>
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <AnimatePresence mode="wait">
           {activeTab === 'chats' && (
             <motion.div
               key="chats"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
             >
               {loading ? (
                 <div className="flex justify-center py-20">
-                  <div className="w-8 h-8 border-3 border-black/5 border-t-amber-500 rounded-full animate-spin" />
+                  <div className="w-8 h-8 border-2 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
                 </div>
               ) : filteredChats.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 px-10 text-center space-y-6">
                   <div className="relative">
-                    <div className="absolute inset-0 bg-amber-500/5 blur-3xl rounded-full" />
-                    <div className="relative p-10 rounded-[2.5rem] bg-white border border-black/5 shadow-xl">
-                      <MessageCircle className="w-12 h-12 text-amber-500/40" />
+                    <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full" />
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl">
+                      <MessageCircle className="w-10 h-10 text-indigo-500/20" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-heading">
-                      {searchQuery ? "Sonuç bulunamadı" : "Sohbetlerin burada"}
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">
+                      {searchQuery ? "Sonuç Bulunamadı" : "Sohbetlerin Burada"}
                     </h3>
-                    <p className="text-[13px] text-muted max-w-[240px] mx-auto leading-relaxed">
+                    <p className="text-[13px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">
                       {searchQuery ? "Aramanla eşleşen bir sohbet bulamadık." : "Eşleştiğin kişilerle olan tüm konuşmaların burada listelenir."}
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="divide-y divide-black/[0.03]">
+                <div className="space-y-1 px-4">
                   {filteredChats.map(chat => (
                     <ChatListItem 
                       key={chat.id} 
@@ -527,29 +538,29 @@ export default function SocialMessagesScreen({
           {activeTab === 'requests' && (
             <motion.div 
               key="requests"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="p-4 space-y-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-4 pt-2 space-y-4"
             >
               {requests.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-amber-500/5 blur-3xl rounded-full" />
-                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl">
-                      <UserPlus className="w-10 h-10 text-amber-500/40" />
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl text-amber-500/20">
+                      <UserPlus className="w-10 h-10" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-heading">İstek kutun boş</h3>
-                    <p className="text-[13px] text-muted max-w-[240px] mx-auto leading-relaxed">Gelen mesaj ve süper like istekleri burada görünür.</p>
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">İstek Kutun Boş</h3>
+                    <p className="text-[13px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">Gelen mesaj ve süper like istekleri burada görünür.</p>
                   </div>
                 </div>
               ) : (
                 requests.map(request => (
-                  <div key={request.id} className="bg-white rounded-[2rem] p-5 border border-black/5 shadow-sm flex flex-col gap-5">
-                    <div className="flex gap-4">
-                      <div className="w-16 h-16 rounded-[1.25rem] overflow-hidden bg-black/5 flex-shrink-0 border border-black/5">
+                  <div key={request.id} className="bg-white rounded-[2.5rem] p-6 border border-black/5 shadow-sm flex flex-col gap-6">
+                    <div className="flex gap-5">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
                         <img 
                           src={request.senderSnapshot.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${request.fromUserId}`} 
                           alt="User"
@@ -557,30 +568,28 @@ export default function SocialMessagesScreen({
                           referrerPolicy="no-referrer"
                         />
                       </div>
-                      <div className="flex-1 flex flex-col justify-center">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <h4 className="font-bold text-base text-heading">{request.senderSnapshot.nickname}</h4>
-                          <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${
-                            request.type === 'message_request' ? 'text-blue-600 bg-blue-500/5 border-blue-500/10' : 'text-amber-600 bg-amber-500/5 border-amber-500/10'
-                          }`}>
+                          <h4 className="font-black text-slate-900 truncate uppercase text-xs tracking-tight">{request.senderSnapshot.nickname}</h4>
+                          <span className="text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-black/5">
                             {request.type === 'message_request' ? 'Mesaj İsteği' : 'Süper Like'}
                           </span>
                         </div>
-                        <p className="text-[13px] text-body line-clamp-2 italic opacity-60">"Sana bir mesaj isteği gönderdi."</p>
+                        <p className="text-[12px] text-slate-400 font-medium italic">"Sana bir mesaj isteği gönderdi."</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 pt-4 border-t border-black/[0.03]">
+                    <div className="flex items-center gap-3 pt-6 border-t border-slate-100">
                       <button 
                         onClick={() => handleRejectRequest(request.id)} 
                         disabled={isProcessing}
-                        className="flex-1 py-3.5 rounded-xl bg-black/[0.03] text-muted text-xs font-bold hover:bg-black/[0.06] transition-all uppercase tracking-widest disabled:opacity-50 active:scale-[0.98]"
+                        className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-slate-200 transition-all disabled:opacity-50"
                       >
                         Reddet
                       </button>
                       <button 
                         onClick={() => handleAcceptRequest(request)} 
                         disabled={isProcessing}
-                        className="flex-1 py-3.5 rounded-xl bg-amber-500 text-black text-xs font-black hover:bg-amber-600 transition-all uppercase tracking-widest shadow-lg shadow-amber-500/10 disabled:opacity-50 active:scale-[0.98]"
+                        className="flex-1 py-4 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-slate-900/10 disabled:opacity-50"
                       >
                         Kabul Et
                       </button>
@@ -594,29 +603,29 @@ export default function SocialMessagesScreen({
           {activeTab === 'likers' && (
             <motion.div 
               key="likers"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="p-4 space-y-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-4 pt-2 space-y-3"
             >
               {likers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-rose-500/5 blur-3xl rounded-full" />
-                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl">
-                      <Heart className="w-10 h-10 text-rose-500/40" />
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl text-rose-500/20">
+                      <Heart className="w-10 h-10" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-serif font-bold text-heading">Henüz beğenen yok</h3>
-                    <p className="text-[13px] text-muted max-w-[240px] mx-auto leading-relaxed">Seni beğenenler burada görünecek. Keşfetmeye devam et!</p>
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">Henüz Beğenen Yok</h3>
+                    <p className="text-[13px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">Seni beğenenler burada görünür. Keşfetmeye devam et!</p>
                   </div>
                 </div>
               ) : (
                 likers.map(liker => (
-                  <div key={liker.id} className="bg-white rounded-[2rem] p-4 border border-black/5 shadow-sm flex items-center gap-4 group hover:shadow-md transition-all">
+                  <div key={liker.id} className="bg-white rounded-[2rem] p-4 border border-black/5 shadow-sm flex items-center gap-4 hover:shadow-md transition-all group">
                     <div 
-                      className="w-16 h-16 rounded-[1.25rem] overflow-hidden bg-black/5 flex-shrink-0 border border-black/5 cursor-pointer group-hover:border-rose-500/30 transition-all"
+                      className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200 cursor-pointer group-hover:border-rose-400/50 transition-all"
                       onClick={() => setSelectedLiker(liker.user)}
                     >
                       <img 
@@ -627,13 +636,15 @@ export default function SocialMessagesScreen({
                       />
                     </div>
                     <div className="flex-1 cursor-pointer min-w-0" onClick={() => setSelectedLiker(liker.user)}>
-                      <h4 className="font-bold text-base text-heading truncate">{liker.user.social?.nickname || liker.user.nickname}, {liker.user.age}</h4>
-                      <p className="text-[11px] text-rose-600 font-black uppercase tracking-widest opacity-80">Seni beğendi!</p>
+                      <h4 className="font-black text-slate-900 truncate uppercase text-xs">
+                        {liker.user.social?.nickname || liker.user.nickname}, {liker.user.age}
+                      </h4>
+                      <p className="text-[9px] text-rose-500 font-black uppercase tracking-widest mt-0.5">Seni Beğendi!</p>
                     </div>
                     <button 
                       onClick={() => handleStartChatFromLiker(liker.user)} 
                       disabled={isProcessing}
-                      className="py-3 px-5 rounded-xl bg-rose-600 text-white text-[11px] font-black hover:bg-rose-700 transition-all uppercase tracking-widest shadow-lg shadow-rose-500/10 disabled:opacity-50 active:scale-[0.98]"
+                      className="py-3 px-6 rounded-2xl bg-rose-600 text-white text-[10px] font-black uppercase tracking-[0.15em] hover:bg-rose-700 transition-all shadow-xl shadow-rose-600/10 disabled:opacity-50"
                     >
                       Sohbet
                     </button>
@@ -687,16 +698,15 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
 
   return (
     <motion.button
-      whileHover={{ backgroundColor: "rgba(0, 0, 0, 0.03)" }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`w-full px-6 py-4 flex items-center gap-4 transition-all text-left group relative ${
-        unreadCount > 0 ? 'bg-amber-500/[0.03]' : ''
+      className={`w-full px-4 py-4 flex items-center gap-4 transition-all text-left group bg-white rounded-[2.25rem] border border-black/5 shadow-sm hover:shadow-md hover:bg-slate-50 relative ${
+        unreadCount > 0 ? 'border-indigo-100' : ''
       }`}
     >
       <div className="relative flex-shrink-0">
-        <div className={`w-14 h-14 rounded-[1.25rem] overflow-hidden bg-black/5 border transition-all duration-300 ${
-          unreadCount > 0 ? 'border-amber-500/30 shadow-[0_8px_20px_rgba(245,158,11,0.1)]' : 'border-black/5 group-hover:border-black/10'
+        <div className={`w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 border transition-all duration-300 ${
+          unreadCount > 0 ? 'border-indigo-300 shadow-lg shadow-indigo-500/10' : 'border-slate-200'
         }`}>
           <img 
             src={otherUser.social?.photos?.[0] || otherUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser.uid}`} 
@@ -706,17 +716,17 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
           />
         </div>
         {otherUser.social?.isOnline && (
-          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#F6F4F8] rounded-full shadow-[0_0_10px_rgba(16,185,129,0.3)]" />
+          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full shadow-lg shadow-emerald-500/20" />
         )}
       </div>
       
-      <div className="flex-1 min-w-0 py-1">
+      <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-0.5">
-          <h3 className={`font-bold text-[15px] truncate transition-colors ${unreadCount > 0 ? 'text-heading' : 'text-body'}`}>
+          <h3 className={`font-black text-xs uppercase tracking-tight truncate ${unreadCount > 0 ? 'text-slate-900' : 'text-slate-700'}`}>
             {otherUser.social?.nickname || otherUser.nickname}
           </h3>
           {chat.lastMessageAt && (
-            <span className={`text-[10px] font-bold whitespace-nowrap ml-2 uppercase tracking-tight ${unreadCount > 0 ? 'text-amber-600' : 'text-muted'}`}>
+            <span className={`text-[9px] font-black whitespace-nowrap ml-2 uppercase tracking-tighter ${unreadCount > 0 ? 'text-indigo-600' : 'text-slate-400'}`}>
               {formatSafeDate(chat.lastMessageAt, "HH:mm")}
             </span>
           )}
@@ -726,17 +736,17 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
             {isMe && (
               <div className="flex-shrink-0">
                 {status === 'seen' ? (
-                  <CheckCheck className="w-3.5 h-3.5 text-amber-600" />
+                  <CheckCheck className="w-3 h-3 text-indigo-500" />
                 ) : status === 'delivered' ? (
-                  <CheckCheck className="w-3.5 h-3.5 text-muted" />
+                  <CheckCheck className="w-3 h-3 text-slate-300" />
                 ) : (
-                  <Check className="w-3.5 h-3.5 text-zinc-300" />
+                  <Check className="w-3 h-3 text-slate-200" />
                 )}
               </div>
             )}
-            <p className={`text-[13px] truncate transition-all leading-tight ${unreadCount > 0 ? 'text-heading font-semibold' : 'text-muted font-medium'}`}>
+            <p className={`text-[12px] truncate transition-all leading-tight ${unreadCount > 0 ? 'text-slate-900 font-bold' : 'text-slate-400 font-medium'}`}>
               {chat.typing?.[otherUser.uid] ? (
-                <span className="text-amber-600 italic animate-pulse">Yazıyor...</span>
+                <span className="text-indigo-600 italic animate-pulse font-black">Yazıyor...</span>
               ) : chat.lastMessage}
             </p>
           </div>
@@ -744,9 +754,9 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
             <motion.div 
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="flex-shrink-0 min-w-[18px] h-[18px] px-1 bg-amber-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30"
+              className="flex-shrink-0 min-w-[18px] h-[18px] px-1 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/20"
             >
-              <span className="text-[9px] font-black text-black">{unreadCount}</span>
+              <span className="text-[9px] font-black text-white">{unreadCount}</span>
             </motion.div>
           )}
         </div>

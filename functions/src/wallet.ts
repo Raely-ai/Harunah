@@ -62,7 +62,7 @@ export const watchAdReward = functions.region('us-central1').https.onCall(async 
     
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       
       const userData = userSnap.data() as any;
       const today = new Date().toISOString().split('T')[0];
@@ -72,7 +72,7 @@ export const watchAdReward = functions.region('us-central1').https.onCall(async 
       if (today !== lastReset) dailyCount = 0;
 
       if (dailyCount >= maxDailyAds) {
-        throw new Error('Günlük reklam sınırı aşıldı.');
+        throw new functions.https.HttpsError('failed-precondition', 'Günlük reklam sınırı aşıldı.');
       }
 
       const now = new Date();
@@ -197,11 +197,11 @@ export const spendBalance = functions.region('us-central1').https.onCall(async (
 
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
       
       const currentBalance = balanceType === 'main' ? (userData.mainCoins || 0) : (userData.energy || 0);
-      if (currentBalance < amount) throw new Error("Yetersiz bakiye.");
+      if (currentBalance < amount) throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye.");
 
       if (balanceType === 'energy') {
         let remainingToSpend = amount;
@@ -216,7 +216,7 @@ export const spendBalance = functions.region('us-central1').https.onCall(async (
             remainingToSpend = 0;
           }
         }
-        if (remainingToSpend > 0) throw new Error("Enerji bakiyesi doğrulanamadı.");
+        if (remainingToSpend > 0) throw new functions.https.HttpsError('failed-precondition', "Enerji bakiyesi doğrulanamadı.");
       }
 
       const updates: any = {};
@@ -272,20 +272,20 @@ export const buyFortuneSubscription = functions.region('us-central1').https.onCa
 
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
 
       // Check Balance
       const price = subConfig.priceTRY || subConfig.price;
       if ((userData.mainCoins || 0) < price) {
-        throw new Error('Yetersiz bakiye.');
+        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
       }
 
       // Check for active subscription
       if (userData.subscription && userData.subscription.status === 'active') {
         const currentExpires = new Date(userData.subscription.expiresAt);
         if (currentExpires > now) {
-          throw new Error('Zaten aktif bir fal aboneliğiniz var.');
+          throw new functions.https.HttpsError('already-exists', 'Zaten aktif bir fal aboneliğiniz var.');
         }
       }
 
@@ -346,7 +346,7 @@ export const purchaseBoostPackage = functions.region('us-central1').https.onCall
     
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
 
       const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
@@ -418,7 +418,7 @@ export const purchaseSocialItem = functions.region('us-central1').https.onCall(a
     const userRef = db.collection("users").doc(userId);
     const result = await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("USER_NOT_FOUND");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
       
       if ((userData.mainCoins || 0) < totalPrice) {
@@ -482,10 +482,10 @@ export const purchaseSocialBundle = functions.region('us-central1').https.onCall
     
     return await db.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
-      if (!userSnap.exists) throw new Error("Kullanıcı bulunamadı.");
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
       
-      if ((userData.mainCoins || 0) < bundle.price) throw new Error("Yetersiz bakiye.");
+      if ((userData.mainCoins || 0) < bundle.price) throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye.");
 
       const now = new Date();
 

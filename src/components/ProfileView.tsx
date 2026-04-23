@@ -18,31 +18,38 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
   const isSocialActive = isSocialProfileReady(user);
 
   return (
-    <div className="w-full max-w-2xl mx-auto pt-10 px-6 pb-32 flex flex-col min-h-screen">
+    <div className="w-full max-w-2xl mx-auto pt-16 px-6 pb-32 flex flex-col min-h-screen bg-[#FAFAFC]">
       {/* 1. HESAP BİLGİSİ (EN ÜST) */}
-      <div className="flex flex-col items-center text-center mb-10">
-        <h2 className="text-3xl font-serif font-bold text-heading tracking-tight">{user.displayName}</h2>
-        <p className="text-muted font-medium text-sm mt-1">{user.email}</p>
+      <div className="flex flex-col items-center text-center mb-12">
+        <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-indigo-500 to-violet-600 p-1 shadow-xl mb-6 ring-4 ring-white">
+          <img 
+            src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+            alt={user.displayName}
+            className="w-full h-full object-cover rounded-[1.8rem]"
+          />
+        </div>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">{user.displayName}</h2>
+        <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em] mt-2">{user.email}</p>
       </div>
 
       <div className="space-y-8">
         {/* 2. SOSYAL PROFİL (KOŞULLU) */}
         {isSocialActive && (
           <section>
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <Users className="w-4 h-4 text-indigo-600" />
-              <h3 className="text-[10px] font-black text-muted uppercase tracking-widest">Sosyal Profilim</h3>
+            <div className="flex items-center gap-2 mb-4 px-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.5)]" />
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Sosyal Dünyan</h3>
             </div>
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
               onClick={() => onNavigate('social-profile')}
-              className="w-full bg-white p-6 rounded-[2rem] border border-black/5 shadow-sm text-left group overflow-hidden relative"
+              className="w-full bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.03)] text-left group overflow-hidden relative"
             >
               <div className="flex items-start justify-between relative z-10">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-white shadow-md">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-slate-50 shadow-lg">
                       <img 
                         src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
                         alt={user.social?.nickname || user.displayName}
@@ -51,37 +58,40 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
                       />
                     </div>
                     <div>
-                      <h4 className="font-bold text-heading">@{user.social?.nickname || user.displayName}</h4>
-                      <p className="text-xs text-muted font-medium">Profilini düzenle ve keşfet</p>
+                      <h4 className="text-xl font-black text-slate-800 tracking-tight">@{user.social?.nickname || user.displayName}</h4>
+                      <div className="flex items-center gap-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest mt-0.5">
+                        <Sparkles size={10} className="fill-indigo-500" />
+                        PROFİLİNİ GÜNCELLE
+                      </div>
                     </div>
                   </div>
                   
                   {user.social?.bio && (
-                    <p className="text-xs text-body line-clamp-2 mb-4 leading-relaxed opacity-80">
+                    <p className="text-sm text-slate-500 font-medium line-clamp-2 mb-5 leading-relaxed bg-slate-50/50 p-3 rounded-2xl border border-slate-100/50">
                       {user.social.bio}
                     </p>
                   )}
 
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {(user.social?.interests || []).slice(0, 3).map(interest => (
-                      <span key={interest} className="px-3 py-1 rounded-full bg-indigo-50/50 border border-indigo-100/50 text-indigo-600 text-[9px] font-bold uppercase tracking-wider">
+                      <span key={interest} className="px-4 py-1.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-wider">
                         {interest}
                       </span>
                     ))}
                     {(user.social?.interests || []).length > 3 && (
-                      <span className="px-2 py-1 rounded-full bg-black/5 text-muted text-[9px] font-bold">
+                      <span className="px-3 py-1.5 rounded-full bg-slate-50 text-slate-400 text-[10px] font-black">
                         +{(user.social?.interests || []).length - 3}
                       </span>
                     )}
                   </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-black/5 flex items-center justify-center text-muted group-hover:text-indigo-600 transition-colors">
-                  <ChevronRight className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+                  <ChevronRight className="w-6 h-6" />
                 </div>
               </div>
 
-              {/* Decorative background element */}
-              <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl pointer-events-none" />
+              {/* Decorative background gradient */}
+              <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-gradient-to-br from-indigo-500/10 to-violet-500/5 rounded-full blur-3xl pointer-events-none group-hover:scale-125 transition-transform" />
             </motion.button>
           </section>
         )}
@@ -89,81 +99,79 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
         {/* 3. ADMIN BÖLÜMÜ (KOŞULLU) */}
         {isAdmin && (
           <section>
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <ShieldCheck className="w-4 h-4 text-amber-600" />
-              <h3 className="text-[10px] font-black text-muted uppercase tracking-widest">Yönetim</h3>
+            <div className="flex items-center gap-2 mb-4 px-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Sistem Yönetimi</h3>
             </div>
             <button 
               onClick={onAdminPanel}
-              className="w-full bg-white p-4 rounded-2xl border border-black/5 flex items-center justify-between group hover:bg-black/[0.01] transition-all"
+              className="w-full bg-white p-5 rounded-3xl border border-slate-100 flex items-center justify-between group hover:bg-slate-50 transition-all shadow-sm"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
-                  <Zap className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600">
+                  <Zap className="w-6 h-6" />
                 </div>
-                <span className="font-bold text-heading text-sm">Yönetim Paneli</span>
+                <span className="font-bold text-slate-800">Yönetim Paneli</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-muted/40 group-hover:text-amber-600 transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-amber-600 transition-colors" />
             </button>
           </section>
         )}
 
         {/* 4. AYARLAR BÖLÜMÜ */}
         <section>
-          <div className="flex items-center gap-2 mb-3 px-1">
-            <Settings className="w-4 h-4 text-muted" />
-            <h3 className="text-[10px] font-black text-muted uppercase tracking-widest">Uygulama</h3>
+          <div className="flex items-center gap-2 mb-4 px-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Hesap Menüsü</h3>
           </div>
-          <div className="bg-white rounded-2xl border border-black/5 overflow-hidden">
+          <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col divide-y divide-slate-50">
+            {/* Settings */}
             <button 
               onClick={onSettings}
-              className="w-full p-4 flex items-center justify-between group hover:bg-black/[0.01] transition-all"
+              className="w-full p-5 flex items-center justify-between group hover:bg-slate-50 transition-all"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-black/5 flex items-center justify-center text-muted group-hover:text-heading transition-colors">
-                  <Settings className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-500 group-hover:bg-slate-800 group-hover:text-white transition-all">
+                  <Settings className="w-6 h-6" />
                 </div>
-                <span className="font-bold text-heading text-sm">Ayarlar</span>
+                <span className="font-bold text-slate-700">Genel Ayarlar</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-muted/40 group-hover:text-heading transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-slate-800 transition-colors" />
             </button>
-          </div>
-        </section>
 
-        {/* 5. OTURUM / HESAP */}
-        <section className="pt-4">
-          <div className="bg-white rounded-2xl border border-black/5 overflow-hidden divide-y divide-black/[0.03]">
+            {/* Logout */}
             <button
               onClick={onLogout}
-              className="w-full p-4 flex items-center justify-between group hover:bg-black/[0.01] transition-all"
+              className="w-full p-5 flex items-center justify-between group hover:bg-slate-50 transition-all"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-black/5 flex items-center justify-center text-muted group-hover:text-heading transition-colors">
-                  <LogOut className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-500 group-hover:bg-slate-800 group-hover:text-white transition-all">
+                  <LogOut className="w-6 h-6" />
                 </div>
-                <span className="font-bold text-heading text-sm">Oturumu Kapat</span>
+                <span className="font-bold text-slate-700">Oturumu Kapat</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-muted/40 group-hover:text-heading transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-slate-800 transition-colors" />
             </button>
 
+            {/* Delete Account */}
             <button
               onClick={onDeleteAccount}
-              className="w-full p-4 flex items-center justify-between group hover:bg-red-500/5 transition-all"
+              className="w-full p-5 flex items-center justify-between group hover:bg-red-50/50 transition-all"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500">
-                  <Trash2 className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center text-red-500 group-hover:bg-red-600 group-hover:text-white transition-all">
+                  <Trash2 className="w-6 h-6" />
                 </div>
-                <span className="font-bold text-red-600 text-sm">Hesabımı Sil</span>
+                <span className="font-bold text-red-600">Hesabı Sil</span>
               </div>
-              <ChevronRight className="w-5 h-5 text-red-500/40 group-hover:text-red-500 transition-colors" />
+              <ChevronRight className="w-5 h-5 text-red-200 group-hover:text-red-600 transition-colors" />
             </button>
           </div>
-          
-          <div className="mt-8 text-center">
-            <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em]">Lasya v1.0.0</p>
-          </div>
         </section>
+
+        <div className="pt-8 text-center">
+          <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em]">Lasya Premium v1.0.0</p>
+        </div>
       </div>
     </div>
   );

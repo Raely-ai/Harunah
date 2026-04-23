@@ -110,58 +110,54 @@ export default function HomeScreen({
           ? 'bg-black/20 backdrop-blur-xl border-white/10' 
           : 'bg-white/80 backdrop-blur-xl border-black/5'
       } pt-[env(safe-area-inset-top,1rem)] h-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
-        <div className="h-full max-w-md mx-auto px-4 flex items-center">
-          {/* Social Tabs */}
-          <div className="relative flex w-full bg-black/5 p-1 rounded-2xl border border-black/5">
-            {/* Sliding Background Indicator (iOS Style) */}
+    <div className="h-full max-w-md mx-auto px-6 flex items-center">
+          {/* Segmented Control - Slim Capsule Design */}
+          <div className="relative flex w-full bg-slate-100/50 backdrop-blur-md p-1 rounded-2xl border border-black/5 shadow-inner">
+            {/* Soft Pill Indicator */}
             <motion.div
               layoutId="activeTabHighlight"
-              className={`absolute inset-y-1 rounded-xl shadow-md z-0 ${
-                activeTopTab === 'match'
-                  ? 'bg-white/20 border border-white/20'
-                  : 'bg-white border border-black/5'
-              }`}
+              className="absolute inset-y-1 rounded-xl bg-white shadow-sm z-0"
               initial={false}
               animate={{
                 left: activeTopTab === 'match' ? '4px' : activeTopTab === 'discover' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 1px)',
                 width: 'calc(33.33% - 4px)',
               }}
-              transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
+              transition={{ type: "spring", bounce: 0.1, duration: 0.5 }}
             />
 
             <button
               onClick={() => setActiveTopTab('match')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
                 activeTopTab === 'match' 
-                  ? 'text-white scale-[1.03]' 
-                  : 'text-muted/60 hover:text-muted'
+                  ? 'text-slate-900' 
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <Heart className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'match' ? 'text-rose-400 fill-rose-400' : ''}`} />
+              <Heart className={`w-3.5 h-3.5 transition-colors ${activeTopTab === 'match' ? 'text-rose-500 fill-rose-500' : ''}`} />
               <span>Karşılaşma</span>
             </button>
 
             <button
               onClick={() => setActiveTopTab('discover')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
                 activeTopTab === 'discover' 
-                  ? 'text-heading scale-[1.03]' 
-                  : 'text-muted/60 hover:text-muted'
+                  ? 'text-slate-900' 
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <Users className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'discover' ? 'text-amber-500' : ''}`} />
+              <Users className={`w-3.5 h-3.5 transition-colors ${activeTopTab === 'discover' ? 'text-amber-600' : ''}`} />
               <span>Keşfet</span>
             </button>
 
             <button
               onClick={() => setActiveTopTab('compatibility')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
                 activeTopTab === 'compatibility' 
-                  ? 'text-heading scale-[1.03]' 
-                  : 'text-muted/60 hover:text-muted'
+                  ? 'text-slate-900' 
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <Sparkles className={`w-4 h-4 flex-shrink-0 transition-colors ${activeTopTab === 'compatibility' ? 'text-purple-500' : ''}`} />
+              <Sparkles className={`w-3.5 h-3.5 transition-colors ${activeTopTab === 'compatibility' ? 'text-purple-600' : ''}`} />
               <span>Uyum</span>
             </button>
           </div>

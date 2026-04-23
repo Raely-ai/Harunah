@@ -328,52 +328,98 @@ exports.refreshDiscoverFeed = exports.refreshDiscover;
 exports.sendLike = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    if (!data)
+        throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
     const fromUserId = context.auth.uid;
+    const { targetUserId, type } = data;
+    if (!targetUserId || !['like', 'super_like', 'pass'].includes(type) || fromUserId === targetUserId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Geçersiz işlem parametreleri.');
+    }
     try {
-        if (!data)
-            throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
-        const { targetUserId, type } = data;
-        if (!targetUserId || !['like', 'super_like', 'pass'].includes(type) || fromUserId === targetUserId) {
-            throw new functions.https.HttpsError('invalid-argument', 'Geçersiz işlem parametreleri.');
-        }
         const fromUserRef = base_1.db.collection("users").doc(fromUserId);
         const toUserRef = base_1.db.collection("users").doc(targetUserId);
-        const result = await base_1.db.runTransaction(async (transaction) => {
+        return await base_1.db.runTransaction(async (transaction) => {
             const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
             if (!fromSnap.exists || !toSnap.exists)
-                return { status: 'TARGET_NOT_FOUND' };
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const fromData = fromSnap.data();
             const toData = toSnap.data();
-            if ((fromData.social?.blockedUserIds || []).includes(targetUserId) || (toData.social?.blockedUserIds || []).includes(fromUserId)) {
-                return { status: 'BLOCKED' };
+            const now = new Date();
+            const today = now.toISOString().split('T')[0];
+            const lastDate = fromData.dailySwipeDate || "";
+            const used = fromData.dailySwipeUsed || 0;
+            const isNewDay = lastDate !== today;
+            if (!isNewDay && used >= 15) {
+                throw new functions.https.HttpsError('resource-exhausted', 'daily_limit_reached');
             }
-            if (type === 'super_like') {
-                if ((fromData.superLikes || 0) <= 0)
-                    return { status: 'INSUFFICIENT_FUNDS' };
-                transaction.update(fromUserRef, { superLikes: base_1.FieldValue.increment(-1) });
-            }
+            transaction.update(fromUserRef, {
+                dailySwipeUsed: isNewDay ? 1 : base_1.FieldValue.increment(1),
+                dailySwipeDate: today
+            });
             const swipeId = `swipe_${fromUserId}_${targetUserId}`;
             const swipeRef = base_1.db.collection("swipes").doc(swipeId);
-            const now = base_1.FieldValue.serverTimestamp();
-            transaction.set(swipeRef, { id: swipeId, fromUserId, toUserId: targetUserId, type, updatedAt: now }, { merge: true });
+            const serverNow = base_1.FieldValue.serverTimestamp();
+            transaction.set(swipeRef, { id: swipeId, fromUserId, toUserId: targetUserId, type, createdAt: serverNow, updatedAt: serverNow }, { merge: true });
             if (type === 'like' || type === 'super_like') {
                 const notifRef = base_1.db.collection("notifications").doc();
                 transaction.set(notifRef, {
-                    userId: targetUserId, type: type === 'super_like' ? "super_like" : "like", title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
-                    message: `${fromData.social?.nickname || fromData.displayName || "Biri"} seni beğendi! ❤️`,
-                    data: { fromUserId }, read: false, createdAt: now
+                    userId: targetUserId, fromUserId, type: type === 'super_like' ? "super_like" : "like",
+                    title: type === 'super_like' ? "Yeni Süper Like! ✨" : "Yeni Beğeni! ❤️",
+                    message: `${fromData.social?.nickname || fromData.displayName || "Biri"} seni beğendi!`,
+                    data: { fromUserId }, read: false, createdAt: serverNow
                 });
-                if (type === 'super_like') {
-                    const requestRef = base_1.db.collection("interactionRequests").doc(`request_${fromUserId}_${targetUserId}`);
-                    transaction.set(requestRef, { id: `request_${fromUserId}_${targetUserId}`, fromUserId, toUserId: targetUserId, status: "pending", type: "super_like", createdAt: now, updatedAt: now }, { merge: true });
-                }
             }
-            return { status: 'SUCCESS', targetUserId, type, senderNickname: fromData.social?.nickname || fromData.displayName };
+            return { success: true, status: 'SUCCESS' };
         });
-        if (result.status === 'SUCCESS' && (type === 'like' || type === 'super_like')) {
-            (0, base_1.sendPushToUser)(result.targetUserId, {
-                title: type === 'super_like' ? "Yeni Süper Like!" : "Yeni Beğeni!",
-                body: `${result.senderNickname} seni beğendi! ❤️`,
+    }
+    catch (error) {
+        console.error("sendLike error:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'Beğeni işlemi başarısız oldu.');
+    }
+});
+exports.sendMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    if (!data)
+        throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
+    const fromUserId = context.auth.uid;
+    const toUserId = data.toUserId || data.targetUserId;
+    if (!toUserId || fromUserId === toUserId)
+        throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
+    try {
+        const fromUserRef = base_1.db.collection("users").doc(fromUserId);
+        const toUserRef = base_1.db.collection("users").doc(toUserId);
+        const result = await base_1.db.runTransaction(async (transaction) => {
+            const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
+            if (!fromSnap.exists || !toSnap.exists)
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+            const fromData = fromSnap.data();
+            const requestId = `req_${fromUserId}_${toUserId}`;
+            const requestRef = base_1.db.collection("interactionRequests").doc(requestId);
+            const requestSnap = await transaction.get(requestRef);
+            if (requestSnap.exists && requestSnap.data()?.status === 'pending')
+                return { success: false, status: 'ALREADY_REQUESTED' };
+            const now = base_1.FieldValue.serverTimestamp();
+            transaction.set(requestRef, {
+                id: requestId, fromUserId, toUserId,
+                status: "pending", type: "message_request",
+                createdAt: now, updatedAt: now
+            }, { merge: true });
+            const notifRef = base_1.db.collection("notifications").doc();
+            transaction.set(notifRef, {
+                userId: toUserId, fromUserId, type: "message_request",
+                title: "Yeni Mesaj İsteği 💌",
+                message: `${fromData.social?.nickname || fromData.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
+                data: { fromUserId }, read: false, createdAt: now
+            });
+            return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName };
+        });
+        if (result.success && result.status === 'SUCCESS') {
+            (0, base_1.sendPushToUser)(result.toUserId, {
+                title: "Yeni Mesaj İsteği 💌",
+                body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`,
                 category: 'social',
                 senderId: fromUserId
             }).catch(e => console.error("Push failed:", e));
@@ -381,43 +427,10 @@ exports.sendLike = functions.region('us-central1').https.onCall(async (data, con
         return result;
     }
     catch (error) {
-        return { status: 'TECHNICAL_ERROR', message: error.message };
-    }
-});
-exports.sendMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
-    if (!context.auth)
-        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-    const fromUserId = context.auth.uid;
-    try {
-        if (!data)
-            throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
-        const toUserId = data.toUserId || data.targetUserId;
-        if (!toUserId || fromUserId === toUserId)
-            throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-        const result = await base_1.db.runTransaction(async (transaction) => {
-            const fromUserRef = base_1.db.collection("users").doc(fromUserId);
-            const toUserRef = base_1.db.collection("users").doc(toUserId);
-            const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
-            if (!fromSnap.exists || !toSnap.exists)
-                throw new Error("USER_NOT_FOUND");
-            const requestId = `req_${fromUserId}_${toUserId}`;
-            const requestRef = base_1.db.collection("interactionRequests").doc(requestId);
-            const requestSnap = await transaction.get(requestRef);
-            if (requestSnap.exists && requestSnap.data()?.status === 'pending')
-                return { status: 'ALREADY_REQUESTED' };
-            const now = base_1.FieldValue.serverTimestamp();
-            transaction.set(requestRef, { id: requestId, fromUserId, toUserId, status: "pending", type: "message_request", createdAt: now, updatedAt: now });
-            const notifRef = base_1.db.collection("notifications").doc();
-            transaction.set(notifRef, { userId: toUserId, type: "message_request", title: "Yeni Mesaj İsteği", message: `${fromSnap.data()?.social?.nickname || fromSnap.data()?.displayName || "Biri"} sana bir mesaj isteği gönderdi.`, data: { fromUserId }, read: false, createdAt: now });
-            return { status: 'SUCCESS', toUserId, senderNickname: fromSnap.data()?.social?.nickname || fromSnap.data()?.displayName };
-        });
-        if (result.status === 'SUCCESS') {
-            (0, base_1.sendPushToUser)(result.toUserId, { title: "Yeni Mesaj İsteği", body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`, category: 'social', senderId: fromUserId }).catch(e => console.error("Push failed:", e));
-        }
-        return result;
-    }
-    catch (error) {
-        return { status: 'TECHNICAL_ERROR', message: error.message };
+        console.error("sendMessageRequest error:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'İstek gönderilemedi.');
     }
 });
 exports.acceptRequest = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -434,14 +447,14 @@ exports.acceptRequest = functions.region('us-central1').https.onCall(async (data
         const result = await base_1.db.runTransaction(async (transaction) => {
             const requestSnap = await transaction.get(requestRef);
             if (!requestSnap.exists)
-                throw new Error('NOT_FOUND');
+                throw new functions.https.HttpsError('not-found', 'İstek bulunamadı.');
             const request = requestSnap.data();
             if (request.toUserId !== userId || request.status !== 'pending')
-                throw new Error('INVALID_STATUS');
+                throw new functions.https.HttpsError('failed-precondition', 'Geçersiz istek durumu.');
             const fromUserId = request.fromUserId;
             const [fromSnap, toSnap] = await Promise.all([transaction.get(base_1.db.collection("users").doc(fromUserId)), transaction.get(base_1.db.collection("users").doc(userId))]);
             if (!fromSnap.exists || !toSnap.exists)
-                throw new Error('USER_NOT_FOUND');
+                throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
             const chatId = `chat_${[fromUserId, userId].sort().join('_')}`;
             const chatRef = base_1.db.collection("chats").doc(chatId);
             const now = base_1.FieldValue.serverTimestamp();
@@ -503,10 +516,10 @@ exports.sendMessage = functions.region('us-central1').https.onCall(async (data, 
         const result = await base_1.db.runTransaction(async (transaction) => {
             const chatSnap = await transaction.get(chatRef);
             if (!chatSnap.exists)
-                throw new Error('NOT_FOUND');
+                throw new functions.https.HttpsError('not-found', 'Sohbet bulunamadı.');
             const chat = chatSnap.data();
             if (!chat.participants.includes(senderId))
-                throw new Error('UNAUTHORIZED');
+                throw new functions.https.HttpsError('permission-denied', 'Bu sohbete erişim yetkiniz yok.');
             const receiverId = chat.participants.find((id) => id !== senderId);
             const [senderSnap, receiverSnap] = await Promise.all([transaction.get(base_1.db.collection("users").doc(senderId)), transaction.get(base_1.db.collection("users").doc(receiverId))]);
             const now = base_1.FieldValue.serverTimestamp();
@@ -786,17 +799,33 @@ exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').https
         return await base_1.db.runTransaction(async (transaction) => {
             const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
             if (!uSnap.exists || !tSnap.exists)
-                throw new Error("Kullanıcı bulunamadı.");
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
             const uData = uSnap.data();
+            const tData = tSnap.data();
             if ((uData.compatibilityCount || 0) <= 0)
-                throw new Error("INSUFFICIENT_FUNDS");
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
             transaction.update(userRef, { compatibilityCount: base_1.FieldValue.increment(-1) });
             const requestRef = base_1.db.collection("compatibilityRequests").doc();
             const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
             transaction.set(requestRef, {
-                id: requestRef.id, userId, source: 'discover', targetUserId, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt, cacheKey,
-                person1: { name: uData.social?.nickname || uData.displayName, photo: uData.social?.photos?.[0], birthDate: uData.social?.birthDate },
-                person2: { name: tSnap.data()?.social?.nickname || tSnap.data()?.displayName, photo: tSnap.data()?.social?.photos?.[0], birthDate: tSnap.data()?.social?.birthDate }
+                id: requestRef.id,
+                userId,
+                targetUserId,
+                relationshipType: relationshipType || 'ask',
+                status: 'pending',
+                createdAt: base_1.FieldValue.serverTimestamp(),
+                readyAt,
+                cacheKey,
+                person1: {
+                    name: uData.social?.nickname || uData.displayName || "Kullanıcı",
+                    photo: uData.social?.photos?.[0] || uData.photoURL || "",
+                    birthDate: uData.social?.birthDate || uData.birthDate || ""
+                },
+                person2: {
+                    name: tData.social?.nickname || tData.displayName || "Kullanıcı",
+                    photo: tData.social?.photos?.[0] || tData.photoURL || "",
+                    birthDate: tData.social?.birthDate || tData.birthDate || ""
+                }
             });
             return { success: true, requestId: requestRef.id, readyAt };
         });

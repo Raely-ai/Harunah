@@ -99,39 +99,37 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
         setLoading(true);
       }
       try {
-        // 1. Get Swipes (Use local cache first to avoid re-fetching)
-        let swipedIds = cacheManager.get<string[]>("socialSwipedIds");
-        if (!swipedIds) {
-          swipedIds = await socialService.getSwipedUserIds(uid);
-          // Cache the swipes globally for this session
-          cacheManager.set("socialSwipedIds", swipedIds, 300); 
+        // 1. Backend-Driven Discovery (SONSUZ DÖNGÜ VE KASMA ÖNLEMİ)
+        // Direct Firestore query yerine Cloud Function kullanarak arka planda filtreleme yapıyoruz.
+        const discoverResult = await socialService.refreshDiscover();
+        
+        let fetchedUsers: UserProfile[] = [];
+        if (discoverResult.success && Array.isArray(discoverResult.users)) {
+          // Gelen veriler zaten backend'de "lean" (zayıf) hale getirildi.
+          fetchedUsers = discoverResult.users.map(u => normalizeUserProfile(u, u.uid));
+        } else {
+          // Fallback: Eğer Cloud Function hata verirse veya boş dönerse...
+          console.warn("Discover Cloud Function returned unexpected result, using fallback query.");
+          const targetGender = getTargetGender(currentUser);
+          const usersRef = collection(db, "users");
+          const matchQ = query(
+            usersRef,
+            where("social.enabled", "==", true),
+            where("social.profileCompleted", "==", true),
+            where("social.visible", "==", true),
+            where("social.gender", "==", targetGender),
+            limit(10) // Fallback'te miktar iyice düşürüldü
+          );
+          const snapshot = await getDocs(matchQ);
+          fetchedUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
         }
+
+        // 3. Client-side Exclusions (Double Check)
+        let swipedIds = cacheManager.get<string[]>("socialSwipedIds") || [];
         const newSwipedIds = new Set([uid, ...swipedIds]);
         setSwipedUserIds(newSwipedIds);
 
-        // 2. Fetch Potential Matches
-        const targetGender = getTargetGender(currentUser);
-        
-        const usersRef = collection(db, "users");
-        const matchQ = query(
-          usersRef,
-          where("social.enabled", "==", true),
-          where("social.profileCompleted", "==", true),
-          where("social.visible", "==", true),
-          where("social.gender", "==", targetGender),
-          limit(20) // Reduced from 100 to 20 for better performance
-        );
-
-        const snapshot = await getDocs(matchQ);
-        
-        const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
-        const fetchedUsers = rawUsers.filter(u => {
-            const eligible = isEligibleSocialUser(u, uid, targetGender);
-            const isSwiped = newSwipedIds.has(u.uid);
-            return eligible && !isSwiped;
-          });
-
-        console.log(`[SocialMatch] Summary: Total Raw: ${rawUsers.length}, Swiped/Ineligible: ${rawUsers.length - fetchedUsers.length}, Final: ${fetchedUsers.length}`);
+        fetchedUsers = fetchedUsers.filter(u => !newSwipedIds.has(u.uid));
 
         // Sort by compatibility score
         fetchedUsers.sort((a, b) => {
@@ -145,7 +143,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
           setPotentialMatches([fetchedUsers[0]]);
           setTimeout(() => {
             setPotentialMatches(fetchedUsers);
-          }, 200);
+          }, 300); // UI donmasını engellemek için hafif gecikme
         } else {
           setPotentialMatches([]);
         }
@@ -251,10 +249,21 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
   };
 
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [imageLoaded, setImageLoaded] = useState(false);
   
+  // Preload next image logic
   useEffect(() => {
+    if (displayMatches.length > 1) {
+      const nextUser = displayMatches[1];
+      const nextPhoto = nextUser.social?.photos?.[0] || nextUser.photoURL;
+      if (nextPhoto) {
+        const img = new Image();
+        img.src = nextPhoto;
+      }
+    }
+    setImageLoaded(false);
     setCurrentPhotoIndex(0);
-  }, [activeUser?.uid]);
+  }, [activeUser?.uid, displayMatches]);
 
   const photos = useMemo(() => {
     if (!activeUser) return [];
@@ -331,8 +340,16 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
             className="absolute inset-0 w-full h-full"
           >
             {/* FULL SCREEN PHOTO */}
-            <div className="absolute inset-0 z-0">
-              <img 
+            <div className="absolute inset-0 z-0 bg-neutral-900">
+              {!imageLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                   <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
+              <motion.img 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: imageLoaded ? 1 : 0 }}
+                onLoad={() => setImageLoaded(true)}
                 src={photos[currentPhotoIndex]}
                 alt={activeUser.nickname}
                 className="w-full h-full object-cover"

@@ -164,9 +164,9 @@ export const processFortuneAI = functions.region('us-central1').runWith({ secret
     const readingRef = db.collection("readings").doc(readingId);
     const result = await db.runTransaction(async (transaction) => {
       const snap = await transaction.get(readingRef);
-      if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Fal kaydı bulunamadı.');
       const reading = snap.data() as any;
-      if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
+      if (reading.userId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
       if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
       if (reading.status === 'processing_ai') return { alreadyProcessing: true };
       transaction.update(readingRef, { isAIGenerating: true, updatedAt: new Date().toISOString() });
@@ -247,16 +247,16 @@ export const upgradeFortunePriority = functions.region('us-central1').https.onCa
     const readingRef = db.collection("readings").doc(readingId);
     return await db.runTransaction(async (transaction) => {
       const snap = await transaction.get(readingRef);
-      if (!snap.exists) throw new Error('Fal kaydı bulunamadı.');
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Fal kaydı bulunamadı.');
       const reading = snap.data() as any;
-      if (reading.userId !== userId) throw new Error('Yetkisiz erişim.');
+      if (reading.userId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
       
       const economySnap = await db.collection("adminSettings").doc("economy").get();
       const priorityFee = economySnap.data()?.fortunePricing?.priorityFee || 100;
 
       const userRef = db.collection("users").doc(userId);
       const userSnap = await transaction.get(userRef);
-      if ((userSnap.data()?.mainCoins || 0) < priorityFee) throw new Error('Yetersiz bakiye.');
+      if ((userSnap.data()?.mainCoins || 0) < priorityFee) throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
 
       transaction.update(userRef, { mainCoins: FieldValue.increment(-priorityFee) });
       transaction.update(readingRef, { priorityMode: true, updatedAt: new Date().toISOString() });

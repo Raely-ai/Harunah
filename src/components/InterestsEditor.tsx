@@ -29,26 +29,45 @@ export default function InterestsEditor({ uid, currentInterests, onClose, onUpda
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
-      <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }} className="bg-white p-6 rounded-[2rem] w-full max-w-sm shadow-2xl">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="font-bold text-lg">İlgi Alanları (Max 5)</h3>
-          <button onClick={onClose}><X size={20} className="text-slate-400" /></button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[400] bg-slate-900/60 backdrop-blur-xl flex items-end sm:items-center justify-center p-4">
+      <motion.div initial={{ y: 20, scale: 0.95 }} animate={{ y: 0, scale: 1 }} exit={{ y: 20, scale: 0.95 }} className="bg-white p-8 rounded-[2.5rem] w-full max-w-md shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+        <div className="flex justify-between items-center mb-8 shrink-0">
+          <div>
+            <h3 className="font-black text-xl text-slate-800 tracking-tight">İlgi Alanları</h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">En fazla 5 tane seçebilirsin ({interests.length}/5)</p>
+          </div>
+          <button onClick={onClose} className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={20} />
+          </button>
         </div>
-        <div className="flex flex-wrap gap-2 mb-6 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
-          {AVAILABLE_INTERESTS.map(interest => (
-            <button
-              key={interest}
-              onClick={() => toggleInterest(interest)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                interests.includes(interest) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-              }`}
-            >
-              {interest}
-            </button>
-          ))}
+
+        <div className="flex flex-wrap gap-2.5 mb-8 overflow-y-auto no-scrollbar pr-1 touch-pan-y">
+          {AVAILABLE_INTERESTS.map(interest => {
+            const isSelected = interests.includes(interest);
+            return (
+              <button
+                key={interest}
+                onClick={() => toggleInterest(interest)}
+                className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 active:scale-95 ${
+                  isSelected 
+                    ? 'bg-teal-500 text-white shadow-lg shadow-teal-100 border-transparent' 
+                    : 'bg-slate-50 text-slate-500 border border-slate-100 hover:bg-slate-100'
+                }`}
+              >
+                {interest}
+              </button>
+            );
+          })}
         </div>
-        <button onClick={handleSave} className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-bold">Kaydet</button>
+
+        <div className="shrink-0">
+          <button 
+            onClick={handleSave} 
+            className="w-full bg-teal-600 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] shadow-lg shadow-teal-200 active:scale-95 transition-all"
+          >
+            Seçimi Kaydet
+          </button>
+        </div>
       </motion.div>
     </motion.div>
   );

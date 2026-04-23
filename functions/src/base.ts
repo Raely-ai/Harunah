@@ -1,7 +1,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue as NativeFieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
+import { getStorage } from "firebase-admin/storage";
 import OpenAI from "openai";
 import { defineSecret } from "firebase-functions/params";
 
@@ -11,7 +12,12 @@ if (!admin.apps.length) {
 
 export const db = getFirestore();
 export const messaging = getMessaging();
-export { FieldValue };
+export const storage = getStorage();
+
+/**
+ * Robust FieldValue export to prevent 'undefined' issues in some environments.
+ */
+export const FieldValue = admin.firestore.FieldValue;
 
 // Define OpenAI Secret - Declaration only
 export const openAiKey = defineSecret("OPENAI_API_KEY");

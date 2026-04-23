@@ -414,5 +414,18 @@ export const socialService = {
     const result = await callFunction('unmuteUser', { targetUid });
     if (result.status === 'SUCCESS') toast.success("Susturma kaldırıldı.");
     return result;
+  },
+
+  // 6. Refresh Discover (Optimized Search)
+  async refreshDiscover() {
+    try {
+      // Backend'deki refreshDiscover Cloud Function'ını çağırıyoruz.
+      // Bu fonksiyon exclusionList (swiped, blocked vb.) kontrolünü sunucu tarafında yapar.
+      const result = await callFunction('refreshDiscover', {});
+      return result;
+    } catch (error: any) {
+      console.error("socialService: Error in refreshDiscover:", error);
+      return { success: false, message: error.message };
+    }
   }
 };

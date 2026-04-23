@@ -109,7 +109,7 @@ exports.createFortuneReading = functions.region('us-central1').https.onCall(asyn
                 balanceType = 'energy';
             }
             if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
-                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji veya jeton (Mağaza\'dan enerji toplayabilirsin).');
             }
             const userUpdates = {};
             if (balanceType === 'main')
@@ -173,10 +173,10 @@ exports.processFortuneAI = functions.region('us-central1').runWith({ secrets: ["
         const result = await base_1.db.runTransaction(async (transaction) => {
             const snap = await transaction.get(readingRef);
             if (!snap.exists)
-                throw new Error('Fal kaydı bulunamadı.');
+                throw new functions.https.HttpsError('not-found', 'Fal kaydı bulunamadı.');
             const reading = snap.data();
             if (reading.userId !== userId)
-                throw new Error('Yetkisiz erişim.');
+                throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
             if (reading.status === 'completed')
                 return { alreadyCompleted: true, content: reading.content };
             if (reading.status === 'processing_ai')
@@ -221,6 +221,21 @@ exports.processFortuneAI = functions.region('us-central1').runWith({ secrets: ["
     }
     catch (error) {
         console.error("processFortuneAI error:", error);
+        try {
+            const readingRef = base_1.db.collection("readings").doc(data?.readingId);
+            const snap = await readingRef.get();
+            if (snap.exists) {
+                const reading = snap.data();
+                if (reading.status !== 'completed' && reading.creditsUsed > 0) {
+                    const { refundTransaction } = require("./wallet");
+                    await refundTransaction(userId, reading.creditsUsed, reading.balanceType === 'energy' ? 'energy' : 'main');
+                    await readingRef.update({ status: 'error', refundStatus: 'processed', updatedAt: new Date().toISOString() });
+                }
+            }
+        }
+        catch (refundErr) {
+            console.error("Refund failed during processFortuneAI failure:", refundErr);
+        }
         if (error instanceof functions.https.HttpsError)
             throw error;
         throw new functions.https.HttpsError('internal', error.message || 'AI üretimi sırasında hata oluştu.');
@@ -238,16 +253,16 @@ exports.upgradeFortunePriority = functions.region('us-central1').https.onCall(as
         return await base_1.db.runTransaction(async (transaction) => {
             const snap = await transaction.get(readingRef);
             if (!snap.exists)
-                throw new Error('Fal kaydı bulunamadı.');
+                throw new functions.https.HttpsError('not-found', 'Fal kaydı bulunamadı.');
             const reading = snap.data();
             if (reading.userId !== userId)
-                throw new Error('Yetkisiz erişim.');
+                throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
             const economySnap = await base_1.db.collection("adminSettings").doc("economy").get();
             const priorityFee = economySnap.data()?.fortunePricing?.priorityFee || 100;
             const userRef = base_1.db.collection("users").doc(userId);
             const userSnap = await transaction.get(userRef);
             if ((userSnap.data()?.mainCoins || 0) < priorityFee)
-                throw new Error('Yetersiz bakiye.');
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
             transaction.update(userRef, { mainCoins: base_1.FieldValue.increment(-priorityFee) });
             transaction.update(readingRef, { priorityMode: true, updatedAt: new Date().toISOString() });
             return { success: true };

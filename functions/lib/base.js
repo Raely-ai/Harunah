@@ -36,13 +36,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.openAiKey = exports.FieldValue = exports.messaging = exports.db = void 0;
+exports.openAiKey = exports.FieldValue = exports.storage = exports.messaging = exports.db = void 0;
 exports.getOpenAI = getOpenAI;
 exports.sendPushToUser = sendPushToUser;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
 const messaging_1 = require("firebase-admin/messaging");
+const storage_1 = require("firebase-admin/storage");
 const openai_1 = __importDefault(require("openai"));
 const params_1 = require("firebase-functions/params");
 if (!admin.apps.length) {
@@ -50,6 +51,7 @@ if (!admin.apps.length) {
 }
 exports.db = (0, firestore_1.getFirestore)();
 exports.messaging = (0, messaging_1.getMessaging)();
+exports.storage = (0, storage_1.getStorage)();
 exports.FieldValue = admin.firestore.FieldValue;
 exports.openAiKey = (0, params_1.defineSecret)("OPENAI_API_KEY");
 let _openai = null;

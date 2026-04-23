@@ -445,53 +445,55 @@ export default function SocialDiscoverScreen({
   return (
     <div className="w-full text-body relative pt-[calc(env(safe-area-inset-top,1rem)+64px)]">
       <div className="pb-28 relative z-10">
-        {/* Header with Refresh */}
+        {/* Header with Minimal Refresh */}
         <div className="px-6 pt-4 flex items-center justify-between">
           <div className="flex flex-col">
-            <h2 className="text-xl font-black text-heading tracking-tight">Keşfet</h2>
-            <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Senin için seçilen enerjiler</p>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Keşfet</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sanal Evrenin Enerjileri</p>
           </div>
-          <button 
+          <motion.button 
+            whileTap={{ rotate: 180 }}
             onClick={handleRefresh} 
             disabled={isProcessing}
-            className="p-2.5 rounded-2xl bg-black/5 text-muted hover:text-amber-600 transition-all flex items-center gap-2 border border-black/5"
+            className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"
           >
-            <span className="text-[10px] font-black">{refreshTimer === 'Yenile' ? refreshCount : refreshTimer}</span>
             <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
-          </button>
+          </motion.button>
         </div>
 
-        {/* Section 1: Active Users (Horizontal Circles) */}
-        <div className="px-6 mt-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black text-heading uppercase tracking-[0.2em]">Şu an aktif kişiler</h3>
-            <div className="flex items-center gap-1">
-              <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[8px] font-bold text-emerald-600 uppercase tracking-widest">Canlı</span>
+        {/* Section 1: Active Stories (Premium Circles) */}
+        <div className="mt-8 space-y-4">
+          <div className="px-6 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Şu An Aktif</h3>
             </div>
+            <span className="text-[9px] font-bold text-slate-400 uppercase">Tümünü Gör</span>
           </div>
           
-          <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
-            {activeUsers.map(u => (
+          <div className="flex items-center gap-5 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
+            {activeUsers.map((u, i) => (
               <motion.button
                 key={u.uid}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.05 }}
+                whileTap={{ scale: 0.92 }}
                 onClick={() => setSelectedUser(u)}
-                className="flex-shrink-0 flex flex-col items-center gap-1.5 group"
+                className="flex-shrink-0 flex flex-col items-center gap-2 group"
               >
-                <div className="relative">
-                  <div className="absolute -inset-0.5 bg-gradient-to-tr from-emerald-400 to-emerald-600 rounded-full opacity-0 group-hover:opacity-40 blur-[2px] transition-opacity" />
-                  <div className="relative w-14 h-14 rounded-full border-2 border-white p-0.5 bg-white shadow-sm overflow-hidden">
+                <div className="relative p-0.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500">
+                  <div className="w-[68px] h-[68px] rounded-full border-[3px] border-white overflow-hidden bg-slate-100">
                     <img 
                       src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                      className="w-full h-full rounded-full object-cover"
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                       referrerPolicy="no-referrer"
                     />
                   </div>
-                  <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-sm" />
+                  {/* Live Dot Overlay */}
+                  <div className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full shadow-lg" />
                 </div>
-                <span className="text-[9px] font-bold text-muted group-hover:text-heading truncate w-14 text-center transition-colors">
+                <span className="text-[10px] font-bold text-slate-600 truncate w-16 text-center">
                   {u.social?.nickname?.split(' ')[0] || u.nickname?.split(' ')[0]}
                 </span>
               </motion.button>
@@ -499,46 +501,54 @@ export default function SocialDiscoverScreen({
           </div>
         </div>
 
-        {/* Section 2: Featured (Boosted Horizontal Cards) */}
+        {/* Section 2: Uyumlu Ruhlar (Featured Horizontal Cards) */}
         {featuredUsers.length > 0 && (
-          <div className="mt-8 space-y-3">
-            <div className="px-6 flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <h3 className="text-[10px] font-black text-heading uppercase tracking-[0.2em]">Öne Çıkanlar</h3>
+          <div className="mt-10 space-y-4">
+            <div className="px-6 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Günün Parlayanları</h3>
+              </div>
             </div>
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-6 pb-4">
+            <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6 pb-6 pt-2">
               {featuredUsers.map(u => (
-                <div key={u.uid} className="flex-shrink-0 w-32">
+                <div key={u.uid} className="flex-shrink-0 w-36">
                   <DiscoverCard 
                     user={u} 
                     onClick={() => setSelectedUser(u)} 
-                    variant="medium" 
+                    variant="premium" 
                     compatibility={compatibilityHistory.find(h => h.targetUserId === u.uid)}
                   />
                 </div>
               ))}
+              {/* Boost CTA */}
               <motion.button
-                whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => onNavigate('wallet')}
-                className="flex-shrink-0 w-32 aspect-[3/4] rounded-2xl border-2 border-dashed border-amber-500/30 bg-amber-500/5 flex flex-col items-center justify-center gap-2 group"
+                className="flex-shrink-0 w-36 aspect-[3/4] rounded-[2.5rem] bg-indigo-50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center gap-3 group hover:bg-white transition-colors"
               >
-                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
-                  <Plus className="w-5 h-5 text-amber-600" />
+                <div className="w-10 h-10 rounded-full bg-indigo-600/10 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                  <Plus className="w-5 h-5" />
                 </div>
-                <span className="text-[9px] font-black text-amber-600 uppercase tracking-tighter">Sende Katıl</span>
+                <div className="text-center px-4">
+                  <span className="text-[9px] font-black text-indigo-600 uppercase leading-none block">Öne Çık</span>
+                  <span className="text-[7px] font-bold text-indigo-400 uppercase mt-1 block">Limitleri Aş</span>
+                </div>
               </motion.button>
             </div>
           </div>
         )}
 
-        {/* Section A: Sana En Uyumlu Enerjiler (Grid 2x3) */}
-        <div className="px-6 mt-8 space-y-4">
-          <div className="flex flex-col">
-            <h3 className="text-[10px] font-black text-heading uppercase tracking-[0.2em]">Sana En Uyumlu Enerjiler</h3>
-            <p className="text-[8px] font-bold text-amber-600 uppercase tracking-widest">Yıldız Haritanız Fısıldıyor</p>
+        {/* Section A: Enerji Uyumu (Grid Layout) */}
+        <div className="px-6 mt-6 space-y-6">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-5 bg-indigo-600 rounded-full" />
+              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Frekans Uyumu</h3>
+            </div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-3">Aura Seviyeleriniz Birleşiyor</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             {compatibleUsers.map((u) => (
               <DiscoverCard 
                 key={u.uid} 
@@ -551,94 +561,57 @@ export default function SocialDiscoverScreen({
           </div>
         </div>
 
-        {/* Section B: Enerjini Hissedenler (Small Grid) */}
-        <div className="px-6 mt-10 space-y-4">
-          <div className="flex flex-col">
-            <h3 className="text-[10px] font-black text-heading uppercase tracking-[0.2em]">Enerjini Hissedenler</h3>
-            <p className="text-[8px] font-bold text-purple-600 uppercase tracking-widest">Ruhun Dikkat Çekti</p>
+        {/* Section B: Gözlerin Üzerinde Olduğu Profiler */}
+        <div className="px-6 mt-12 space-y-6">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-5 bg-rose-500 rounded-full" />
+              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Ruhun Dikkat Çekti</h3>
+            </div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-3">Profilini İnceleyen Enerjiler</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             {feelingEnergyUsers.map((u) => (
               <motion.div
                 key={u.uid}
-                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => setSelectedUser(u)}
-                className="relative aspect-square rounded-2xl overflow-hidden cursor-pointer group border border-black/5"
+                className="relative aspect-[3/4] rounded-[2.5rem] overflow-hidden cursor-pointer group shadow-lg border border-black/5 bg-slate-100"
               >
                 <img 
                   src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                <div className="absolute inset-x-0 bottom-0 p-3">
-                  <p className="text-[10px] font-bold text-white truncate">{u.social?.nickname || u.nickname}</p>
-                  <p className="text-[7px] font-black text-purple-300 uppercase tracking-tighter">Sana Bakıyor</p>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-80" />
+                <div className="absolute inset-x-0 bottom-0 p-4">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <p className="text-[11px] font-black text-white truncate">{u.social?.nickname || u.nickname}</p>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                  </div>
+                  <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest">Sana Odaklandı</p>
                 </div>
               </motion.div>
             ))}
           </div>
         </div>
 
-        {/* Section C: Yeni Frekanslar */}
-        <div className="px-6 mt-10 space-y-4">
-          <div className="flex flex-col">
-            <h3 className="text-[10px] font-black text-heading uppercase tracking-[0.2em]">Yeni Frekanslar</h3>
-            <p className="text-[8px] font-bold text-blue-600 uppercase tracking-widest">Evrene Yeni Katılanlar</p>
+        {/* Premium Refresh Button at Bottom */}
+        <div className="px-6 mt-16 pb-12 flex flex-col items-center gap-6">
+          <div className="w-16 h-1 bg-slate-200 rounded-full opacity-50" />
+          <div className="text-center space-y-1">
+            <p className="text-xs font-black text-slate-900 uppercase tracking-[0.1em]">Listeyi Yenile</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Yeni Evrenlere Yolculuk Başlasın</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {newFrequencyUsers.map((u) => (
-              <DiscoverCard 
-                key={u.uid} 
-                user={u} 
-                onClick={() => setSelectedUser(u)} 
-                variant="medium" 
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Load More Trigger at Bottom */}
-        {hasMore && (
-          <div className="px-6 mt-12 pb-8 flex flex-col items-center gap-4">
-            <div className="w-12 h-1px bg-black/5" />
-            <p className="text-[10px] font-bold text-muted text-center max-w-[200px]">
-              Daha fazla kişi görmek için kaydır
-            </p>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleLoadMore}
-              disabled={loading}
-              animate={loading ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
-              className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/10 hover:bg-indigo-700 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-xs font-black uppercase tracking-widest">
-                {loading ? 'Yükleniyor...' : 'Daha Fazla Gör'}
-              </span>
-            </motion.button>
-          </div>
-        )}
-
-        {/* Refresh Trigger at Bottom */}
-        <div className="px-6 mt-8 pb-8 flex flex-col items-center gap-4">
-          <div className="w-12 h-1px bg-black/5" />
-          <p className="text-[10px] font-bold text-muted text-center max-w-[200px]">
-            Enerjini tazelemek için yenile
-          </p>
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleRefresh}
             disabled={isProcessing}
-            animate={isProcessing ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
-            className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-black text-white shadow-xl shadow-black/10 hover:bg-black/90 transition-all"
+            className="flex items-center gap-3 px-10 py-5 rounded-[2rem] bg-slate-900 text-white shadow-2xl shadow-slate-900/20 hover:bg-slate-800 transition-all font-black text-[12px] uppercase tracking-[0.2em]"
           >
-            <RefreshCw className="w-4 h-4" />
-            <span className="text-xs font-black uppercase tracking-widest">
-              {refreshTimer === 'Yenile' ? 'Yenile' : refreshTimer}
-            </span>
+            <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
+            <span>{refreshTimer === 'Yenile' ? 'Tazele' : refreshTimer}</span>
           </motion.button>
         </div>
       </div>

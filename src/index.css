@@ -15,6 +15,25 @@
   /* animation: float 6s ease-in-out infinite; */
 }
 
+.constellation-overlay {
+  background-image: url("https://www.transparenttextures.com/patterns/stardust.png");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+.aurasphere-amber { box-shadow: 0 0 15px -3px rgba(245, 158, 11, 0.2), inset 0 0 4px rgba(245, 158, 11, 0.1); }
+.aurasphere-purple { box-shadow: 0 0 15px -3px rgba(124, 58, 237, 0.2), inset 0 0 4px rgba(124, 58, 237, 0.1); }
+.aurasphere-cyan { box-shadow: 0 0 15px -3px rgba(6, 182, 212, 0.2), inset 0 0 4px rgba(6, 182, 212, 0.1); }
+.aurasphere-rose { box-shadow: 0 0 15px -3px rgba(225, 29, 72, 0.2), inset 0 0 4px rgba(225, 29, 72, 0.1); }
+.aurasphere-indigo { box-shadow: 0 0 15px -3px rgba(79, 70, 229, 0.2), inset 0 0 4px rgba(79, 70, 229, 0.1); }
+.aurasphere-emerald { box-shadow: 0 0 15px -3px rgba(16, 185, 129, 0.2), inset 0 0 4px rgba(16, 185, 129, 0.1); }
+
+.jewel-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.1), 0 8px 10px -6px rgba(124, 58, 237, 0.1);
+}
+
 .animate-pulse-glow {
   /* animation: pulse-glow 4s ease-in-out infinite; */
 }
