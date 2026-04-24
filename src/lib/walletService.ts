@@ -14,6 +14,7 @@ import { db, functions, handleFirestoreError, OperationType, waitForAuth } from 
 import { AdminWalletConfig, WalletTransaction, EconomyConfig, RefreshActionResult, PurchaseActionResult } from "../types";
 
 import { cacheManager } from "./cacheManager";
+import { toSafeDate } from "./dateUtils";
 
 // Helper to call Firebase Functions
 export const callFunction = async (name: string, data?: any) => {
@@ -150,7 +151,8 @@ export const walletService = {
           socialRightsPrices: {
             superLike: economy.socialPricing.superLike[0]?.priceCoins ?? 20,
             refresh: economy.socialPricing.refresh[0]?.priceCoins ?? 15,
-            compatibility: economy.socialPricing.compatibility[0]?.priceCoins ?? 25
+            compatibility: economy.socialPricing.compatibility[0]?.priceCoins ?? 25,
+            speedUpPrice: economy.compatibilitySpeedUpPrice ?? 10
           },
           socialBundles: DEFAULT_ADMIN_WALLET_CONFIG.socialBundles,
           coinPackages: economy.coinPackages.map(p => ({ id: p.id, coins: p.coins, price: p.priceTRY, bonus: p.bonus }))
@@ -206,14 +208,22 @@ export const walletService = {
     const q = query(
       collection(db, "walletTransactions"),
       where("userId", "==", userId),
-      orderBy("createdAt", "desc"),
-      limit(limitCount)
+      limit(limitCount + 20) // Get a few extra to ensure space for sorting
     );
     try {
       const snaps = await getDocs(q);
       const txs = snaps.docs.map(d => ({ id: d.id, ...d.data() } as WalletTransaction));
-      cacheManager.set(CACHE_KEY, txs, 600, true);
-      return txs;
+      
+      // Client-side sort
+      txs.sort((a, b) => {
+        const timeA = toSafeDate(a.createdAt).getTime();
+        const timeB = toSafeDate(b.createdAt).getTime();
+        return timeB - timeA;
+      });
+
+      const finalTxs = txs.slice(0, limitCount);
+      cacheManager.set(CACHE_KEY, finalTxs, 600, true);
+      return finalTxs;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "walletTransactions");
       return [];
@@ -249,6 +259,14 @@ export const walletService = {
       return await callFunction('runManualCompatibilityAnalysis', data);
     } catch (error: any) {
       return { success: false, requestId: '', finishTime: '' };
+    }
+  },
+
+  async speedUpCompatibilityAnalysis(requestId: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      return await callFunction('speedUpCompatibilityAnalysis', { requestId });
+    } catch (error: any) {
+      return { success: false, message: error.message || "Hızlandırma başarısız." };
     }
   },
 

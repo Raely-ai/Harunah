@@ -50,8 +50,10 @@ export const {
   createChat,
   runDiscoverCompatibilityAnalysis,
   runManualCompatibilityAnalysis,
+  speedUpCompatibilityAnalysis,
   processCompatibilityRequests,
-  checkDailyReminders
+  onMessageCreated,
+  generateThumbnails
 } = social;
 
 /**

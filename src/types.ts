@@ -430,6 +430,7 @@ export interface AdminWalletConfig {
     superLike: number;
     refresh: number;
     compatibility: number;
+    speedUpPrice?: number;
   };
 
   // Social Bundles (Bought with Main Coins)
@@ -519,6 +520,7 @@ export interface EconomyConfig {
     weekly: { priceTRY: number; dailyLimit: number; description: string };
     monthly: { priceTRY: number; dailyLimit: number; description: string };
   };
+  compatibilitySpeedUpPrice?: number;
   manualCompatibilityPrompt?: string;
 }
 
@@ -850,11 +852,12 @@ export interface Message {
   participants?: string[];
   text?: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'video';
+  mediaType?: 'image' | 'video' | 'file';
+  fileName?: string;
   createdAt: any;
   seen: boolean; // Deprecated, use status
   status: 'sent' | 'delivered' | 'seen' | 'sending';
-  type: 'text' | 'image' | 'video' | 'system';
+  type: 'text' | 'image' | 'video' | 'system' | 'file';
   editedAt?: any;
   isDeleted?: boolean;
   deletedForEveryone?: boolean;

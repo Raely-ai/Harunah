@@ -18,12 +18,12 @@ interface BottomNavProps {
 }
 
 export default function BottomNav({ activeTab, onTabChange, className = "", userRole }: BottomNavProps) {
-  const { unreadMessagesCount, unseenReadingsCount } = useBadges();
+  const { unreadMessagesCount, pendingRequestsCount, unseenReadingsCount } = useBadges();
 
   const tabs = [
     { id: 'home' as AppTab, icon: Users, label: 'Sosyal' },
     { id: 'fortunes' as AppTab, icon: Coffee, label: 'Fallar', badge: unseenReadingsCount },
-    { id: 'messages' as AppTab, icon: MessageCircle, label: 'Mesajlar', badge: unreadMessagesCount },
+    { id: 'messages' as AppTab, icon: MessageCircle, label: 'Mesajlar', badge: unreadMessagesCount + pendingRequestsCount },
     { id: 'profile' as AppTab, icon: User, label: 'Profil' },
     { id: 'wallet' as AppTab, icon: Wallet, label: 'Cüzdan' },
   ];

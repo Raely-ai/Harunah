@@ -142,43 +142,41 @@ function AppContent() {
     }
   }, [isAdmin, user?.uid, quotaExceeded]);
 
-  // Unified Startup Data Fetch (Config & Economy)
+  // Unified Real-time Config & Economy Sync
   useEffect(() => {
-    const fetchStartupData = async () => {
-      // 1. App Config - Persistence Enabled
-      let currentConfig = cacheManager.get<AppConfig>("appConfig");
-      if (currentConfig) setAppConfig(currentConfig);
+    // 1. App Config - Real-time Listener
+    const configRef = doc(db, "config", "global");
+    const unsubscribeConfig = onSnapshot(configRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const freshConfig = snapshot.data() as AppConfig;
+        setAppConfig(freshConfig);
+        cacheManager.set("appConfig", freshConfig, 3600, true);
+      }
+    }, (err: any) => {
+      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+      console.error("Config sync error:", err);
+    });
 
-      try {
-        const snapshot = await getDoc(doc(db, "config", "global"));
+    // 2. Economy Config - Real-time Listener (Only if user is logged in)
+    let unsubscribeEconomy = () => {};
+    if (user) {
+      const economyRef = doc(db, "adminSettings", "economy");
+      unsubscribeEconomy = onSnapshot(economyRef, (snapshot) => {
         if (snapshot.exists()) {
-          const freshConfig = snapshot.data() as AppConfig;
-          setAppConfig(freshConfig);
-          cacheManager.set("appConfig", freshConfig, 3600, true);
+          const freshEconomy = snapshot.data() as EconomyConfig;
+          setEconomyConfig(freshEconomy);
+          cacheManager.set("economyConfig", freshEconomy, 1800, true);
         }
-      } catch (err: any) {
+      }, (err: any) => {
         if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
-      }
+        console.error("Economy sync error:", err);
+      });
+    }
 
-      // 2. Economy Config (Only if user is logged in) - Persistence Enabled
-      if (user) {
-        let currentEconomy = cacheManager.get<EconomyConfig>("economyConfig");
-        if (currentEconomy) setEconomyConfig(currentEconomy);
-
-        try {
-          const snapshot = await getDoc(doc(db, "adminSettings", "economy"));
-          if (snapshot.exists()) {
-            const freshEconomy = snapshot.data() as EconomyConfig;
-            setEconomyConfig(freshEconomy);
-            cacheManager.set("economyConfig", freshEconomy, 1800, true);
-          }
-        } catch (err: any) {
-          if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
-        }
-      }
+    return () => {
+      unsubscribeConfig();
+      unsubscribeEconomy();
     };
-
-    fetchStartupData();
   }, [user, quotaExceeded]);
 
   // Listen for global notifications
@@ -326,8 +324,7 @@ function AppContent() {
       const q = query(
         collection(db, "readings"), 
         where("userId", "==", user.uid), 
-        orderBy("createdAt", "desc"),
-        limit(20)
+        limit(100)
       );
       
       const snapshot = await getDocs(q);
@@ -336,12 +333,18 @@ function AppContent() {
         fetchedHistory.push({ id: doc.id, ...doc.data() } as FortuneReading);
       });
       
-      setHistory(fetchedHistory);
-      setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
-      setHasMoreHistory(snapshot.docs.length === 20);
+      fetchedHistory.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      setHistory(fetchedHistory.slice(0, 20));
+      if (fetchedHistory.length > 20) {
+        const lastDocId = fetchedHistory[19].id;
+        const lastDocSnap = snapshot.docs.find(d => d.id === lastDocId);
+        if (lastDocSnap) setLastHistoryDoc(lastDocSnap);
+      }
+      setHasMoreHistory(fetchedHistory.length > 20);
       
       // Cache for 1 hour persistently
-      cacheManager.set(`userHistory_${user.uid}`, fetchedHistory, 3600, true);
+      cacheManager.set(`userHistory_${user.uid}`, fetchedHistory.slice(0, 20), 3600, true);
     } catch (err: any) {
       if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
       handleFirestoreError(err, OperationType.LIST, "readings");
@@ -365,9 +368,7 @@ function AppContent() {
       const q = query(
         collection(db, "readings"),
         where("userId", "==", user.uid),
-        orderBy("createdAt", "desc"),
-        startAfter(lastHistoryDoc),
-        limit(20)
+        limit(100)
       );
       
       const snapshot = await getDocs(q);
@@ -376,9 +377,25 @@ function AppContent() {
         moreHistory.push({ id: doc.id, ...doc.data() } as FortuneReading);
       });
       
-      setHistory(prev => [...prev, ...moreHistory]);
-      setLastHistoryDoc(snapshot.docs[snapshot.docs.length - 1]);
-      setHasMoreHistory(snapshot.docs.length === 20);
+      moreHistory.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      // Simple pagination in memory for fallback
+      const currentIndex = lastHistoryDoc ? moreHistory.findIndex(h => h.id === lastHistoryDoc.id) : -1;
+      const nextBatch = moreHistory.slice(currentIndex + 1, currentIndex + 1 + 20);
+      
+      setHistory(prev => {
+        const combined = [...prev];
+        for (const item of nextBatch) {
+          if (!combined.some(c => c.id === item.id)) combined.push(item);
+        }
+        return combined;
+      });
+      
+      if (nextBatch.length > 0) {
+        const lastItem = nextBatch[nextBatch.length - 1];
+        setLastHistoryDoc(snapshot.docs.find(d => d.id === lastItem.id) || null);
+      }
+      setHasMoreHistory(nextBatch.length === 20 && currentIndex + 21 < moreHistory.length);
     } catch (err: any) {
       if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
       console.error("Load more history error:", err);
@@ -821,140 +838,87 @@ function AppContent() {
       </div>
 
       <div className={`relative z-10 w-full ${activeTab === 'home' ? 'h-screen overflow-hidden' : 'pb-32'}`}>
+        {/* Hidden Tabs for Persistence */}
+        <div style={{ display: activeTab === 'home' ? 'block' : 'none' }} className="h-full w-full">
+          <HomeScreen 
+            user={user} 
+            userProfile={activeProfile}
+            history={history}
+            onSelectFortune={handleSelectFortune}
+            onNavigate={handleNavigate}
+            config={activeConfig}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'fortunes' ? 'block' : 'none' }}>
+          <FortunesScreen 
+            onSelectFortune={handleSelectFortune}
+            onBack={() => handleNavigate('home')}
+            config={activeConfig}
+            economyConfig={activeEconomy}
+            userProfile={activeProfile}
+            history={history}
+            onDeleteHistory={handleDeleteHistory}
+            onToggleFavorite={handleToggleFavorite}
+            onRefreshHistory={() => fetchHistory(true)}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'messages' ? 'block' : 'none' }} className="fixed inset-0 z-40 bg-[#F6F4F8]">
+          <SocialMessagesScreen 
+            currentUser={activeProfile}
+            onNavigate={handleNavigate}
+            onChatOpenChange={setIsChatOpen}
+          />
+        </div>
+        
+        <div style={{ display: activeTab === 'history' ? 'block' : 'none' }} className="fixed inset-0 z-40 bg-[#F6F4F8]">
+          <HistoryScreen 
+            history={history}
+            userProfile={activeProfile}
+            onBack={() => handleNavigate('home')}
+            onDelete={handleDeleteHistory}
+            onToggleFavorite={handleToggleFavorite}
+            onRefresh={() => fetchHistory(true)}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'wallet' ? 'block' : 'none' }} className="fixed inset-0 z-40 bg-[#F6F4F8]">
+          <SocialWalletScreen 
+            currentUser={activeProfile}
+            onNavigate={handleNavigate}
+            economyConfig={activeEconomy}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }} className="pt-8">
+          <ProfileView 
+            user={activeProfile}
+            isAdmin={isAdmin}
+            onSettings={() => setIsSettingsOpen(true)}
+            onLogout={() => signOut(auth)}
+            onDeleteAccount={() => setIsDeleteAccountOpen(true)}
+            onAdminPanel={() => setIsAdminPanelOpen(true)}
+            onNavigate={handleNavigate}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'social-profile' ? 'block' : 'none' }} className="fixed inset-0 z-[70] bg-[#F6F4F8]">
+          <SocialProfileScreen 
+            currentUser={activeProfile}
+            onNavigate={handleNavigate}
+          />
+        </div>
+
+        <div style={{ display: activeTab === 'social-management' ? 'block' : 'none' }} className="min-h-screen">
+          <SocialManagementScreen 
+            user={activeProfile} 
+            onNavigate={handleNavigate} 
+          />
+        </div>
+
+        {/* Non-persistent tabs (Onboarding etc) */}
         <AnimatePresence mode="wait">
-          {activeTab === 'home' && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="h-full w-full"
-            >
-              <HomeScreen 
-                user={user} 
-                userProfile={activeProfile}
-                history={history}
-                onSelectFortune={handleSelectFortune}
-                onNavigate={handleNavigate}
-                config={activeConfig}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'fortunes' && (
-            <motion.div
-              key="fortunes"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-            >
-              <FortunesScreen 
-                onSelectFortune={handleSelectFortune}
-                onBack={() => handleNavigate('home')}
-                config={activeConfig}
-                economyConfig={activeEconomy}
-                userProfile={activeProfile}
-                history={history}
-                onDeleteHistory={handleDeleteHistory}
-                onToggleFavorite={handleToggleFavorite}
-                onRefreshHistory={() => fetchHistory(true)}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'messages' && (
-            <motion.div
-              key="messages"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8]"
-            >
-              <SocialMessagesScreen 
-                currentUser={activeProfile}
-                onNavigate={handleNavigate}
-                onChatOpenChange={setIsChatOpen}
-              />
-            </motion.div>
-          )}
-          
-          {activeTab === 'history' && (
-            <motion.div
-              key="history"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8]"
-            >
-              <HistoryScreen 
-                history={history}
-                userProfile={activeProfile}
-                onBack={() => handleNavigate('home')}
-                onDelete={handleDeleteHistory}
-                onToggleFavorite={handleToggleFavorite}
-                onRefresh={() => fetchHistory(true)}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'wallet' && (
-            <motion.div
-              key="wallet"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-40 bg-[#F6F4F8]"
-            >
-              <SocialWalletScreen 
-                currentUser={activeProfile}
-                onNavigate={handleNavigate}
-                economyConfig={activeEconomy}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'profile' && (
-            <motion.div
-              key="profile"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="pt-8"
-            >
-              <ProfileView 
-                user={activeProfile}
-                isAdmin={isAdmin}
-                onSettings={() => setIsSettingsOpen(true)}
-                onLogout={() => signOut(auth)}
-                onDeleteAccount={() => setIsDeleteAccountOpen(true)}
-                onAdminPanel={() => setIsAdminPanelOpen(true)}
-                onNavigate={handleNavigate}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'social-profile' && (
-            <motion.div
-              key="social-profile"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 z-[70] bg-[#F6F4F8]"
-            >
-              <SocialProfileScreen 
-                currentUser={activeProfile}
-                onNavigate={handleNavigate}
-              />
-            </motion.div>
-          )}
-
           {activeTab === 'social-intro' && (
             <motion.div
               key="social-intro"
@@ -990,21 +954,6 @@ function AppContent() {
                 initialData={activeProfile}
                 onBack={() => handleNavigate('social-intro')}
                 onComplete={() => handleNavigate('home')}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'social-management' && (
-            <motion.div
-              key="social-management"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="min-h-screen"
-            >
-              <SocialManagementScreen 
-                user={activeProfile} 
-                onNavigate={handleNavigate} 
               />
             </motion.div>
           )}

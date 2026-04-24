@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { cacheManager } from "../lib/cacheManager";
 import { 
@@ -6,17 +6,24 @@ import {
   query, 
   where, 
   limit, 
-  getDocs,
-  startAfter
+  getDocs
 } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db } from "../lib/firebase";
 import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
-import { getTargetGender, isEligibleSocialUser, isSocialProfileReady } from "../lib/socialUtils";
+import { getTargetGender, isSocialProfileReady } from "../lib/socialUtils";
 import { toast } from "sonner";
-import { Sparkles, Users, RefreshCw, Plus, Lock, Eye } from "lucide-react";
-import SocialProfilePopup from "./SocialProfilePopup";
+import { 
+  Sparkles, 
+  RefreshCw, 
+  Plus, 
+  Activity, 
+  Zap, 
+  Trophy, 
+  Flame
+} from "lucide-react";
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
+import DiscoverProfilePopup from "./DiscoverProfilePopup";
 
 interface SocialDiscoverScreenProps {
   currentUser: UserProfile;
@@ -24,608 +31,448 @@ interface SocialDiscoverScreenProps {
   onBack?: () => void;
   config: AppConfig | null;
   onRefresh?: () => void;
-  refreshTimer?: string;
   isActive?: boolean;
 }
 
-const EMOTIONAL_LABELS = [
-  "Mistik Enerji",
-  "Ruh Eşi Adayı",
-  "Yüksek Frekans",
-  "Derin Bağlantı",
-  "Yıldız Uyumlu"
-];
-
-const getEmotionalLabel = (uid: string) => {
-  const hash = uid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return EMOTIONAL_LABELS[hash % EMOTIONAL_LABELS.length];
-};
-
-function DiscoverCard({ user, onClick, variant = 'medium', compatibility }: { user: UserProfile, onClick: () => void, variant?: 'medium' | 'premium', compatibility?: CompatibilityHistory }) {
-  const label = compatibility ? `%${compatibility.loveScore} Uyumlu` : getEmotionalLabel(user.uid);
-  
-  return (
-    <motion.div
-      whileHover={{ scale: 1.03 }}
-      whileTap={{ scale: 0.97 }}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      className={`relative aspect-[3/4] rounded-3xl overflow-hidden cursor-pointer group shadow-xl bg-black/5 ${variant === 'premium' ? 'border-2 border-purple-500/20' : 'border border-black/5'}`}
-      onClick={onClick}
-    >
-      <img 
-        src={user?.social?.photos?.[0] || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'default'}`} 
-        className={`w-full h-full rounded-3xl object-cover transition-transform duration-700 group-hover:scale-110 ${variant === 'premium' ? 'blur-2xl opacity-40 scale-125' : ''}`} 
-        referrerPolicy="no-referrer"
-      />
-      
-      {/* Gradient Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-90 group-hover:opacity-100 transition-opacity duration-500" />
-      
-      {/* Content */}
-      <div className="absolute inset-x-0 bottom-0 p-4 flex flex-col gap-1">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <h4 className="font-bold text-white truncate text-sm drop-shadow-md">
-              {user?.social?.nickname || user?.nickname || 'Gizemli'}, {user?.age || 25}
-            </h4>
-            {user.social?.isOnline && (
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`text-[9px] font-black uppercase tracking-widest ${compatibility ? 'text-amber-400' : 'text-white/60'}`}>
-              {label}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Premium Lock Overlay */}
-      {variant === 'premium' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center bg-purple-900/10 backdrop-blur-sm">
-          <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-2xl">
-            <Lock className="w-6 h-6 text-white" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] drop-shadow-lg">Gizli Profil</p>
-            <div className="inline-block text-[8px] font-black text-amber-400 uppercase tracking-widest bg-black/60 px-3 py-1.5 rounded-full border border-amber-400/30">
-              Görmek için dokun
-            </div>
-          </div>
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-// Simple Memory Cache for Social Discover
-const DISCOVER_CACHE_KEY = "discover_feed";
-const DISCOVER_CACHE_TTL = 86400; // 24 hours - we only refresh manually
+// 50 Users Limit
+const DISCOVER_LIMIT = 50;
+const DISCOVER_CACHE_KEY = "discover_v3_cache";
 
 export default function SocialDiscoverScreen({ 
   currentUser, 
   onNavigate, 
-  onBack, 
-  config, 
+  config,
   onRefresh,
-  refreshTimer: externalRefreshTimer,
-  isActive
+  isActive 
 }: SocialDiscoverScreenProps) {
-  useEffect(() => {
-    if (isActive && currentUser?.uid) {
-      socialService.updateUserStatus(currentUser.uid, true);
-    }
-  }, [isActive, currentUser?.uid]);
-  // Safe access with fallbacks
-  const uid = currentUser?.uid || "";
-  const social = currentUser?.social || { photos: [], nickname: "", bio: "", zodiacSign: "", lastDiscoverRefreshAt: undefined, lastFreeRefreshAt: undefined };
-  const refreshCount = currentUser?.refreshCount || 0;
-
-  const [compatibleUsers, setCompatibleUsers] = useState<UserProfile[]>([]);
-  const [feelingEnergyUsers, setFeelingEnergyUsers] = useState<UserProfile[]>([]);
-  const [newFrequencyUsers, setNewFrequencyUsers] = useState<UserProfile[]>([]);
-  const [featuredUsers, setFeaturedUsers] = useState<UserProfile[]>([]);
-  const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [internalRefreshTimer, setInternalRefreshTimer] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>([]);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set());
-  const [lastVisible, setLastVisible] = useState<any>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [refreshTimer, setRefreshTimer] = useState<string>('Yenile');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  
+  // POPUP STATE
+  const [selectedUserIndex, setSelectedUserIndex] = useState<number | null>(null);
 
-  const refreshTimer = externalRefreshTimer || internalRefreshTimer;
+  const uid = currentUser?.uid || "";
+  const social = currentUser?.social;
 
-  const fetchData = async (forceRefresh = false, isLoadMore = false) => {
-    if (!uid || !isSocialProfileReady(currentUser)) return;
-    
-    // 0. Avoid redundant fetches if data is already in state and not forced
-    if (!forceRefresh && !isLoadMore && allUsers.length > 0) return;
+  // 1. Initial State Sync
+  useEffect(() => {
+    if (social?.lastFreeRefreshAt) {
+      setLastRefreshedAt(social.lastFreeRefreshAt);
+    }
+  }, [social?.lastFreeRefreshAt]);
 
-    // 1. Cache-First: Try to load from cache and update UI immediately
-    let hasCache = false;
-    if (!forceRefresh && !isLoadMore) {
+  // 2. Fetch Logic
+  const fetchDiscoverList = async (force = false) => {
+    if (!uid || !isActive || !isSocialProfileReady(currentUser)) return;
+
+    if (!force) {
       const cached = cacheManager.get<any>(DISCOVER_CACHE_KEY);
-      if (cached) {
-        setFeaturedUsers(cached.featuredUsers || []);
-        setActiveUsers(cached.activeUsers || []);
-        setCompatibleUsers(cached.compatibleUsers || []);
-        setFeelingEnergyUsers(cached.feelingEnergyUsers || []);
-        setNewFrequencyUsers(cached.newFrequencyUsers || []);
-        setCompatibilityHistory(cached.compatibilityHistory || []);
-        setSwipedUserIds(new Set(cached.swipedUserIds || []));
-        setAllUsers(cached.allUsers || []);
-        setLastVisible(cached.lastVisible || null);
-        setHasMore(cached.hasMore ?? true);
-        setLoading(false);
-        hasCache = true;
-        // Continue to background fetch for sync
+      if (cached && cached.users && cached.users.length > 0) {
+        setAllUsers(cached.users);
+        setCompatibilityHistory(cached.history || []);
+        return;
       }
     }
 
-    // Only show loading state if we have no cache and it's not a background refresh
-    if (!hasCache && !isLoadMore) {
-      setLoading(true);
-    }
-
+    setLoading(true);
     try {
-      // 1. Fetch Compatibility History & Swipes
-      // Use socialSwipedIds cache if available
-      let swipedIds = cacheManager.get<string[]>("socialSwipedIds");
-      
-      const fetchHistory = getDocs(query(collection(db, "compatibilityHistory"), where("userId", "==", uid)));
-      const fetchSwipes = swipedIds ? Promise.resolve(swipedIds) : socialService.getSwipedUserIds(uid);
+      // KRİTİK FİLTRE: Sadece kendimizi ve EŞLEŞTİĞİMİZ kişileri gizle.
+      // Beğendiğimiz (swiped) kişiler Keşfet'te KALMALI (paralı özellikler için).
+      const matches = await socialService.getMatches(uid);
+      const matchIds = new Set(matches.map(m => m.uid));
+      const exclusionSet = new Set([uid, ...Array.from(matchIds)]);
 
-      const [histSnap, finalSwipedIds] = await Promise.all([
-        fetchHistory,
-        fetchSwipes
-      ]);
-
-      if (!swipedIds) {
-        cacheManager.set("socialSwipedIds", finalSwipedIds, 300);
-      }
-      
+      // Fetch compatibility history for layer 5
+      const histSnap = await getDocs(query(
+        collection(db, "compatibilityHistory"), 
+        where("userId", "==", uid),
+        limit(20)
+      ));
       const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
       setCompatibilityHistory(history);
-      
-      const swipedSet = new Set([uid, ...finalSwipedIds]);
-      setSwipedUserIds(swipedSet);
 
-      // 2. Fetch Discover Users
       const targetGender = getTargetGender(currentUser);
       
-      const usersRef = collection(db, "users");
-      let discoverQ = query(
-        usersRef,
+      const q = query(
+        collection(db, "users"),
         where("social.enabled", "==", true),
         where("social.profileCompleted", "==", true),
         where("social.visible", "==", true),
         where("social.gender", "==", targetGender),
-        limit(10)
+        limit(DISCOVER_LIMIT + exclusionSet.size) // Buffer for exclusions
       );
 
-      if (isLoadMore && lastVisible) {
-        discoverQ = query(discoverQ, startAfter(lastVisible));
-      }
+      const snap = await getDocs(q);
+      const fetchedUsers = snap.docs
+        .map(doc => normalizeUserProfile(doc.data(), doc.id))
+        .filter(u => !exclusionSet.has(u.uid))
+        .slice(0, DISCOVER_LIMIT);
 
-      const snapshot = await getDocs(discoverQ);
+      setAllUsers(fetchedUsers);
       
-      if (snapshot.empty) {
-        setHasMore(false);
-        if (!isLoadMore) {
-          setCompatibleUsers([]);
-          setFeelingEnergyUsers([]);
-          setNewFrequencyUsers([]);
-          setAllUsers([]);
-        }
-        return;
-      }
-
-      const newLastVisible = snapshot.docs[snapshot.docs.length - 1];
-      setLastVisible(newLastVisible);
-      setHasMore(snapshot.docs.length === 10);
-      
-      const rawUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
-      const filteredUsers = rawUsers.filter(u => {
-          const eligible = isEligibleSocialUser(u, uid, targetGender);
-          const isSwiped = swipedSet.has(u.uid);
-          return eligible && !isSwiped;
-        });
-
-      const updatedAllUsers = isLoadMore ? [...allUsers, ...filteredUsers] : filteredUsers;
-      setAllUsers(updatedAllUsers);
-
-      // Featured (Boosted) - We still want some featured users if possible
-      const now = new Date().toISOString();
-      const featured = updatedAllUsers
-        .filter(u => u.boostExpiresAt && u.boostExpiresAt > now)
-        .slice(0, 10);
-      setFeaturedUsers(featured);
-      
-      // Active Users (First 10)
-      const active = updatedAllUsers.filter(u => u.social?.isOnline).slice(0, 10);
-      setActiveUsers(active);
-      
-      // Distribution Logic
-      const compatibleIds = history.map(h => h.targetUserId);
-      const matchedCompatible = updatedAllUsers.filter(u => compatibleIds.includes(u.uid));
-      const others = updatedAllUsers.filter(u => !compatibleIds.includes(u.uid) && !featured.some(f => f.uid === u.uid));
-      
-      // Section A: Compatible (Up to 6)
-      const sectionA = [...matchedCompatible, ...others].slice(0, 6);
-      setCompatibleUsers(sectionA);
-
-      // Section B: Feeling Energy (Next 4)
-      const usedIds = new Set([...featured.map(u => u.uid), ...sectionA.map(u => u.uid)]);
-      const sectionB = others.filter(u => !usedIds.has(u.uid)).slice(0, 4);
-      setFeelingEnergyUsers(sectionB);
-
-      // Section C: New Frequencies (Next 6)
-      const usedIdsFinal = new Set([...usedIds, ...sectionB.map(u => u.uid)]);
-      const sectionC = others.filter(u => !usedIdsFinal.has(u.uid)).slice(0, 6);
-      setNewFrequencyUsers(sectionC);
-
-      // Update Cache
       cacheManager.set(DISCOVER_CACHE_KEY, {
-        featuredUsers: featured,
-        activeUsers: active,
-        compatibleUsers: sectionA,
-        feelingEnergyUsers: sectionB,
-        newFrequencyUsers: sectionC,
-        compatibilityHistory: history,
-        swipedUserIds: Array.from(swipedSet),
-        allUsers: updatedAllUsers,
-        lastVisible: newLastVisible,
-        hasMore: snapshot.docs.length === 10
-      }, DISCOVER_CACHE_TTL, true);
+        users: fetchedUsers,
+        history: history,
+        timestamp: Date.now()
+      }, 3600); // 1 hour internal cache
 
-    } catch (error) {
-      console.error("Discover fetch error:", error);
+    } catch (err) {
+      console.error("Discover fetch error:", err);
+      toast.error("Ruhlar çekilirken bir hata oluştu.");
     } finally {
       setLoading(false);
     }
   };
 
-  const hasFetchedRef = React.useRef(false);
-
-  // Initial Fetch - Only if cache is empty or activation changes
   useEffect(() => {
-    if (!uid || !isActive || !isSocialProfileReady(currentUser)) {
-      if (!isActive) hasFetchedRef.current = false;
-      return;
+    if (isActive) {
+      fetchDiscoverList();
+      socialService.updateUserStatus(uid, true);
     }
-    
-    if (hasFetchedRef.current) return;
-    hasFetchedRef.current = true;
-    
-    fetchData();
   }, [uid, isActive]);
 
-  // Local Timer for Refresh Button
+  // 3. Refresh Timer Logic
   useEffect(() => {
-    const updateTimer = () => {
-      if (!social?.lastFreeRefreshAt) {
-        setInternalRefreshTimer('Yenile');
+    const itv = setInterval(() => {
+      if (!lastRefreshedAt) {
+        setRefreshTimer('Yenile');
         return;
       }
-      const lastRefresh = new Date(social.lastFreeRefreshAt).getTime();
-      const nextRefresh = lastRefresh + 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      const diff = nextRefresh - now;
+      const next = new Date(lastRefreshedAt).getTime() + 24 * 60 * 60 * 1000;
+      const diff = next - Date.now();
 
       if (diff <= 0) {
-        setInternalRefreshTimer('Yenile');
+        setRefreshTimer('Yenile');
       } else {
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-        setInternalRefreshTimer(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+        const h = Math.floor(diff / (1000 * 60 * 60)).toString().padStart(2, '0');
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
+        const s = Math.floor((diff % (1000 * 60)) / 1000).toString().padStart(2, '0');
+        setRefreshTimer(`${h}:${m}:${s}`);
       }
-    };
+    }, 1000);
+    return () => clearInterval(itv);
+  }, [lastRefreshedAt]);
 
-    updateTimer(); // Initial call
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [social?.lastFreeRefreshAt]);
-
-  const handleCompatibilityCheck = async (user: UserProfile) => {
-    if (isProcessing || !uid) return;
-    
-    setIsProcessing(true);
-    try {
-      const result = await walletService.runCompatibilityAnalysis(user.uid, 'arkadas');
-      if (result.success) {
-        toast.success("Uyum analizi süreci başladı! 5 dakika içinde hazır olacak. ✨");
-      } else {
-        toast.info("Yetersiz hak veya jeton. Cüzdandan takviye yapabilirsin.");
-        onNavigate('wallet');
-      }
-    } catch (e: any) {
-      toast.error(e.message || "İşlem başarısız.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleSendMessage = async (targetUser: UserProfile) => {
+  const handleRefreshClick = async () => {
     if (isProcessing) return;
-    
-    // 1. Optimistic UI: Close the modal immediately
-    setSelectedUser(null);
-    setIsProcessing(true);
-    
-    // 2. Background process
-    try {
-      const result = await socialService.sendMessageRequest(currentUser, targetUser);
-      switch (result) {
-        case 'SUCCESS':
-          toast.success("İstek gönderildi");
-          break;
-        case 'ALREADY_CHATTING':
-          toast.info("Zaten sohbetiniz var.");
-          break;
-        case 'ALREADY_REQUESTED':
-          toast.info("Zaten istek gönderdin.");
-          break;
-        case 'BLOCKED':
-          toast.error("Bu kullanıcıyla iletişim kuramazsınız.");
-          break;
-        case 'SELF_ACTION':
-          toast.error("Kendinize istek gönderemezsiniz.");
-          break;
-        case 'TARGET_NOT_FOUND':
-          toast.error("Kullanıcı bulunamadı.");
-          break;
-        case 'TECHNICAL_ERROR':
-          toast.error("Bir teknik hata oluştu. Lüften daha sonra tekrar deneyin.");
-          break;
-        default:
-          console.error("SocialDiscoverScreen: Unexpected result:", result);
-          toast.error("İşlem sırasında bir hata oluştu.");
-          break;
-      }
-    } catch (error) {
-      console.error("SocialDiscoverScreen: Background error:", error);
-      toast.error("İstek gönderilirken bir hata oluştu, lütfen tekrar deneyin.");
-      // Rollback: Not strictly necessary for a simple close, but we could re-open if needed.
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleRefresh = async () => {
-    if (isProcessing) return;
-    
     setIsProcessing(true);
     try {
       const result = await walletService.refreshDiscover();
       if (result.success) {
-        // Clear both caches and force re-fetch
         cacheManager.clear(DISCOVER_CACHE_KEY);
-        cacheManager.clear("match_feed");
-        setLastVisible(null);
-        setHasMore(true);
-        await fetchData(true);
-        
-        if (result.status === 'FREE_REFRESH_USED') {
-          toast.success("Günlük ücretsiz yenileme hakkın kullanıldı! ✨");
-        } else if (result.status === 'PAID_REFRESH_USED') {
-          toast.success("Keşfet yenilendi! ✨");
-        } else {
-          toast.success("Keşfet güncellendi! ✨");
-        }
+        setLastRefreshedAt(new Date().toISOString());
+        await fetchDiscoverList(true);
         if (onRefresh) onRefresh();
+        toast.success("Keşfet yenilendi! ✨");
       } else {
         if (result.status === 'INSUFFICIENT_FUNDS') {
           toast.info("Yenileme hakkın bitti. Cüzdandan alabilirsin.");
           onNavigate('wallet');
-        } else if (result.status === 'COOLDOWN_ACTIVE') {
-          toast.info("Lütfen biraz bekleyin.");
         } else {
-          toast.error("Yenileme sırasında bir hata oluştu.");
+          toast.info("Yenileme için biraz bekleyin...");
         }
       }
-    } catch (error: any) {
-      console.error("Refresh error:", error);
-      toast.error(error.message || "Yenileme işlemi başarısız oldu.");
+    } catch (err) {
+      console.error("Manual refresh error:", err);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleLoadMore = () => {
-    if (loading || !hasMore) return;
-    fetchData(false, true);
+  // 4. Layer Partitioning (Hybrid Data Management)
+  const layers = useMemo(() => {
+    const now = new Date().toISOString();
+    
+    // 1. VIP LOJASI (Boosted)
+    const boosted = allUsers.filter(u => u.boostExpiresAt && u.boostExpiresAt > now).slice(0, 10);
+    
+    // 2. ÖNERİLEN RUHLAR (Compat Score Based)
+    const compatibleIds = new Set(compatibilityHistory.map(h => h.targetUserId));
+    const suggested = allUsers.filter(u => compatibleIds.has(u.uid)).slice(0, 6);
+    
+    // 3. TAZE RUHLAR (Recently Updated)
+    const fresh = allUsers.filter(u => !boosted.some(b => b.uid === u.uid) && !suggested.some(s => s.uid === u.uid)).slice(0, 12);
+    
+    // 4. ŞU AN AKTİF
+    const active = allUsers.filter(u => u.social?.isOnline).slice(0, 15);
+    
+    // 5. FREKANS UYUMU (Zodiac matching - simple mock for UI)
+    const matchingSigns = allUsers.filter(u => u.social?.interests?.length && u.uid !== uid).slice(0, 10);
+
+    // 6. ANA MEYDAN (Rest)
+    const processedIds = new Set([...boosted, ...suggested, ...fresh].map(u => u.uid));
+    const mainStreet = allUsers.filter(u => !processedIds.has(u.uid));
+
+    // FLAT LIST FOR POPUP NAVIGATION
+    const flatUsers = [...new Set([...boosted, ...suggested, ...fresh, ...active, ...matchingSigns, ...mainStreet])];
+
+    return { boosted, suggested, fresh, active, matchingSigns, mainStreet, flatUsers };
+  }, [allUsers, compatibilityHistory, uid]);
+
+  const openProfile = (user: UserProfile) => {
+    const idx = layers.flatUsers.findIndex(u => u.uid === user.uid);
+    if (idx !== -1) {
+      setSelectedUserIndex(idx);
+    }
   };
 
+  if (loading && allUsers.length === 0) {
+    return (
+      <div className="flex-1 bg-[#F9F9F9] flex flex-col items-center justify-center p-8 gap-4">
+        <motion.div 
+          animate={{ rotate: 360 }} 
+          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+          className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full shadow-lg"
+        />
+        <p className="font-serif italic text-amber-600/60 animate-pulse">Ruhlara giden yollar taranıyor...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full text-body relative pt-[calc(env(safe-area-inset-top,1rem)+64px)]">
-      <div className="pb-28 relative z-10">
-        {/* Header with Minimal Refresh */}
-        <div className="px-6 pt-4 flex items-center justify-between">
-          <div className="flex flex-col">
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Keşfet</h2>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sanal Evrenin Enerjileri</p>
+    <div className="flex-1 bg-[#F9F9F9] text-slate-800 overflow-y-auto no-scrollbar pt-[calc(env(safe-area-inset-top,1rem)+64px)] pb-32">
+      
+      {/* HEADER AREA */}
+      <div className="px-6 pb-6 flex items-baseline justify-between">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-black tracking-tighter text-slate-900">Keşfet</h1>
+            <Sparkles className="w-5 h-5 text-amber-500 animate-pulse fill-amber-500/10" />
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Zamanın Ruhuna Dokun</p>
+        </div>
+      </div>
+
+      {/* 1. KATMAN: VIP LOJASI (BOOST) */}
+      <div className="mb-10">
+        <div className="px-6 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">VIP Lojası</span>
           </div>
           <motion.button 
-            whileTap={{ rotate: 180 }}
-            onClick={handleRefresh} 
-            disabled={isProcessing}
-            className="w-10 h-10 rounded-full bg-white shadow-sm border border-black/5 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onNavigate('wallet')}
+            className="text-[9px] font-bold text-amber-600 uppercase tracking-widest flex items-center gap-1"
           >
-            <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
+            Sıranı Al <Plus className="w-2.5 h-2.5" />
           </motion.button>
         </div>
-
-        {/* Section 1: Active Stories (Premium Circles) */}
-        <div className="mt-8 space-y-4">
-          <div className="px-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Şu An Aktif</h3>
-            </div>
-            <span className="text-[9px] font-bold text-slate-400 uppercase">Tümünü Gör</span>
-          </div>
-          
-          <div className="flex items-center gap-5 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
-            {activeUsers.map((u, i) => (
-              <motion.button
-                key={u.uid}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.05 }}
-                whileTap={{ scale: 0.92 }}
-                onClick={() => setSelectedUser(u)}
-                className="flex-shrink-0 flex flex-col items-center gap-2 group"
-              >
-                <div className="relative p-0.5 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500">
-                  <div className="w-[68px] h-[68px] rounded-full border-[3px] border-white overflow-hidden bg-slate-100">
-                    <img 
-                      src={u?.social?.photos?.[0] || u?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u?.uid || i}`} 
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                  {/* Live Dot Overlay */}
-                  <div className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full shadow-lg" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-600 truncate w-16 text-center">
-                  {u?.social?.nickname?.split(' ')[0] || u?.nickname?.split(' ')[0] || 'Avatar'}
-                </span>
-              </motion.button>
-            ))}
-          </div>
-        </div>
-
-        {/* Section 2: Uyumlu Ruhlar (Featured Horizontal Cards) */}
-        {featuredUsers.length > 0 && (
-          <div className="mt-10 space-y-4">
-            <div className="px-6 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Günün Parlayanları</h3>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6 pb-6 pt-2">
-              {featuredUsers.map(u => (
-                <div key={u.uid} className="flex-shrink-0 w-36">
-                  <DiscoverCard 
-                    user={u} 
-                    onClick={() => setSelectedUser(u)} 
-                    variant="premium" 
-                    compatibility={compatibilityHistory.find(h => h.targetUserId === u.uid)}
-                  />
-                </div>
-              ))}
-              {/* Boost CTA */}
-              <motion.button
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onNavigate('wallet')}
-                className="flex-shrink-0 w-36 aspect-[3/4] rounded-[2.5rem] bg-indigo-50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center gap-3 group hover:bg-white transition-colors"
-              >
-                <div className="w-10 h-10 rounded-full bg-indigo-600/10 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
-                  <Plus className="w-5 h-5" />
-                </div>
-                <div className="text-center px-4">
-                  <span className="text-[9px] font-black text-indigo-600 uppercase leading-none block">Öne Çık</span>
-                  <span className="text-[7px] font-bold text-indigo-400 uppercase mt-1 block">Limitleri Aş</span>
-                </div>
-              </motion.button>
-            </div>
-          </div>
-        )}
-
-        {/* Section A: Enerji Uyumu (Grid Layout) */}
-        <div className="px-6 mt-6 space-y-6">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <div className="w-1 h-5 bg-indigo-600 rounded-full" />
-              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Frekans Uyumu</h3>
-            </div>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-3">Aura Seviyeleriniz Birleşiyor</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {compatibleUsers.map((u) => (
-              <DiscoverCard 
-                key={u.uid} 
-                user={u} 
-                onClick={() => setSelectedUser(u)} 
-                variant="medium" 
-                compatibility={compatibilityHistory.find(h => h.targetUserId === u.uid)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Section B: Gözlerin Üzerinde Olduğu Profiler */}
-        <div className="px-6 mt-12 space-y-6">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <div className="w-1 h-5 bg-rose-500 rounded-full" />
-              <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">Ruhun Dikkat Çekti</h3>
-            </div>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-3">Profilini İnceleyen Enerjiler</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {feelingEnergyUsers.map((u, i) => (
-              <motion.div
-                key={u.uid}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedUser(u)}
-                className="relative aspect-[3/4] rounded-[2.5rem] overflow-hidden cursor-pointer group shadow-lg border border-black/5 bg-slate-100"
-              >
+        <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6">
+          {/* USER SELF BOOST */}
+          <motion.div 
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onNavigate('wallet')}
+            className="flex-shrink-0 flex flex-col items-center gap-2 group"
+          >
+            <div className="relative p-1 rounded-full bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600 shadow-xl shadow-amber-500/20">
+              <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden bg-slate-100 flex items-center justify-center relative">
                 <img 
-                  src={u?.social?.photos?.[0] || u?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u?.uid || i}`} 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                  src={currentUser.social?.photos?.[0] || currentUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${uid}`} 
+                  className="w-full h-full object-cover grayscale-[0.5] group-hover:grayscale-0 transition-all"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-80" />
-                <div className="absolute inset-x-0 bottom-0 p-4">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <p className="text-[11px] font-black text-white truncate">{u?.social?.nickname || u?.nickname || 'Gizemli'}</p>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                  <Plus className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </div>
+            <span className="text-[9px] font-black uppercase tracking-tighter text-amber-600">Öne Çık</span>
+          </motion.div>
+
+          {layers.boosted.map((u) => (
+            <div 
+              key={u.uid} 
+              className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer"
+              onClick={() => openProfile(u)}
+            >
+              <div className="relative p-1 rounded-full bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600">
+                <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden">
+                  <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </div>
+              </div>
+              <span className="text-[9px] font-bold truncate w-16 text-center">{u.social?.nickname?.split(' ')[0]}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 2. KATMAN: ÖNERİLEN RUHLAR (2'Lİ BÜYÜK GRID) */}
+      {layers.suggested.length > 0 && (
+        <div className="mb-12">
+          <div className="px-6 mb-5 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" />
+            <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900 underline decoration-amber-400 decoration-2 underline-offset-4">Önerilen Ruhlar</h2>
+          </div>
+          <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6 py-2">
+            {layers.suggested.map((u) => (
+              <motion.div 
+                key={u.uid}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => openProfile(u)}
+                className="flex-shrink-0 w-44 aspect-[3/4.2] bg-white rounded-3xl overflow-hidden shadow-sm relative border border-slate-100"
+              >
+                <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
+                  <h4 className="text-sm font-black text-white truncate">{u.social?.nickname}, {u.social?.age || 25}</h4>
+                  <div className="flex items-center gap-1 mt-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10B981]" />
+                    <span className="text-[8px] font-black text-amber-400 uppercase tracking-widest">Uyumlu Enerji</span>
                   </div>
-                  <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest">Sana Odaklandı</p>
                 </div>
               </motion.div>
             ))}
           </div>
         </div>
+      )}
 
-        {/* Premium Refresh Button at Bottom */}
-        <div className="px-6 mt-16 pb-12 flex flex-col items-center gap-6">
-          <div className="w-16 h-1 bg-slate-200 rounded-full opacity-50" />
-          <div className="text-center space-y-1">
-            <p className="text-xs font-black text-slate-900 uppercase tracking-[0.1em]">Listeyi Yenile</p>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Yeni Evrenlere Yolculuk Başlasın</p>
+      {/* 3. KATMAN: TAZE RUHLAR (3'LÜ GİZEMLİ GRID) */}
+      <div className="mb-12 bg-white/40 py-8 border-y border-slate-200/50">
+        <div className="px-6 mb-6 flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Flame className="w-4 h-4 text-orange-500" />
+            <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Taze Ruhlar</h2>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.02, y: -2 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleRefresh}
-            disabled={isProcessing}
-            className="flex items-center gap-3 px-10 py-5 rounded-[2rem] bg-slate-900 text-white shadow-2xl shadow-slate-900/20 hover:bg-slate-800 transition-all font-black text-[12px] uppercase tracking-[0.2em]"
-          >
-            <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
-            <span>{refreshTimer === 'Yenile' ? 'Tazele' : refreshTimer}</span>
-          </motion.button>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-6">Gizem Perdesi Aralanıyor</p>
+        </div>
+        <div className="grid grid-cols-3 gap-1 px-1">
+          {layers.fresh.map(u => (
+            <motion.div 
+              key={u.uid}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => openProfile(u)}
+              className="aspect-square bg-slate-200 relative overflow-hidden"
+            >
+              <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <div className="absolute inset-0 bg-indigo-500/5 backdrop-blur-[1px]" />
+            </motion.div>
+          ))}
         </div>
       </div>
 
+      {/* 4. KATMAN: ŞU AN AKTİF ENERJİLER */}
+      <div className="mb-12">
+        <div className="px-6 mb-5 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Şu An Aktif</h2>
+        </div>
+        <div className="flex items-center gap-6 overflow-x-auto no-scrollbar px-6">
+          {layers.active.map(u => (
+            <div 
+              key={u.uid} 
+              className="flex-shrink-0 relative group cursor-pointer"
+              onClick={() => openProfile(u)}
+            >
+              <div className="w-14 h-14 rounded-full border-2 border-emerald-500/30 p-0.5 transition-all group-hover:border-emerald-500">
+                <img src={u.social?.photos?.[0]} title={u.social?.nickname} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+              <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-md" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 5. KATMAN: FREKANS UYUMU */}
+      <div className="mb-12 border-l-4 border-l-indigo-400/30 pl-6 pr-0">
+        <div className="mb-5 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-indigo-500" />
+          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Frekans Uyumu</h2>
+        </div>
+        <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
+          {layers.matchingSigns.map(u => (
+            <div 
+              key={u.uid} 
+              onClick={() => openProfile(u)}
+              className="flex-shrink-0 w-32 aspect-[4/5] bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 flex flex-col cursor-pointer"
+            >
+              <img src={u.social?.photos?.[0]} className="w-full h-1/2 object-cover" referrerPolicy="no-referrer" />
+              <div className="p-2 flex-1 flex flex-col justify-center gap-1">
+                <span className="text-[9px] font-black truncate">{u.social?.nickname}</span>
+                <div className="px-2 py-0.5 bg-indigo-50 rounded-full inline-block self-start">
+                  <span className="text-[7px] font-bold text-indigo-500 uppercase tracking-tighter">Yüksek Uyum</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 6. KATMAN: ANA MEYDAN (GRID) */}
+      <div className="px-1 mt-16">
+        <div className="px-5 mb-8 flex items-center justify-between">
+          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Üniversumun Tamamı</h2>
+          <span className="text-[9px] font-bold text-slate-300 uppercase">{allUsers.length} / 50</span>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {layers.mainStreet.map(u => (
+            <motion.div 
+              key={u.uid}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => openProfile(u)}
+              className="aspect-square bg-white relative overflow-hidden"
+            >
+              <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              {/* Subtle Overlay */}
+              <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent" />
+            </motion.div>
+          ))}
+        </div>
+
+        {/* REFRESH AREA */}
+        <div className="mt-16 pb-20 flex flex-col items-center gap-8">
+          <div className="w-1.5 h-12 bg-gradient-to-b from-slate-200 to-transparent rounded-full" />
+          
+          <div className="text-center space-y-2">
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Evren Döngüsü Tamamlandı</h3>
+            <p className="text-[10px] font-bold text-slate-400 leading-relaxed max-w-[200px]">
+              Bu döngüde çekim merkezine giren ruhlar bunlardı. Evreni yenileyerek yeni kapıları arala.
+            </p>
+          </div>
+
+          <div className="relative group">
+            <div className="absolute inset-0 bg-slate-900 blur-2xl opacity-20 group-hover:opacity-40 transition-opacity" />
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleRefreshClick}
+              disabled={isProcessing}
+              className="relative px-12 py-5 bg-slate-900 text-white rounded-full flex flex-col items-center gap-1 shadow-2xl overflow-hidden"
+            >
+              <div className="flex items-center gap-3">
+                <RefreshCw className={`w-4 h-4 text-amber-500 ${isProcessing ? 'animate-spin' : ''}`} />
+                <span className="text-sm font-black uppercase tracking-[0.2em]">Yenile</span>
+              </div>
+              <span className="text-[9px] font-bold text-slate-400 font-mono tracking-tighter">
+                {refreshTimer === 'Yenile' ? 'ÜCRETSİZ HAK' : refreshTimer}
+              </span>
+            </motion.button>
+          </div>
+          
+          {refreshTimer !== 'Yenile' && (
+            <button 
+              onClick={handleRefreshClick}
+              className="text-[9px] font-black text-amber-600 uppercase tracking-widest bg-amber-50 px-4 py-2 rounded-full hover:bg-amber-100 transition-colors"
+            >
+              Cüzdanla Hemen Yenile
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* PROFILE POPUP */}
       <AnimatePresence>
-        {selectedUser && (
-          <SocialProfilePopup 
-            user={selectedUser} 
+        {selectedUserIndex !== null && (
+          <DiscoverProfilePopup 
+            users={layers.flatUsers}
+            initialIndex={selectedUserIndex}
             currentUser={currentUser}
-            onClose={() => setSelectedUser(null)} 
-            onCompatibilityCheck={handleCompatibilityCheck}
-            onSendMessage={handleSendMessage}
+            onClose={() => setSelectedUserIndex(null)}
             onNavigate={onNavigate}
-            context="discover"
           />
         )}
       </AnimatePresence>

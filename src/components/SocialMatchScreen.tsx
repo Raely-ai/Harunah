@@ -4,13 +4,11 @@ import {
   Heart, 
   Sparkles,
   X,
-  Plus,
-  AlertCircle,
   Flag,
-  MoreVertical,
   ShieldAlert,
   ChevronRight,
-  Handshake
+  Handshake,
+  Star
 } from "lucide-react";
 import { cacheManager } from "../lib/cacheManager";
 import { 
@@ -23,7 +21,8 @@ import {
   updateDoc,
   increment,
   setDoc,
-  serverTimestamp
+  serverTimestamp,
+  onSnapshot
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { UserProfile, normalizeUserProfile } from "../types";
@@ -33,31 +32,39 @@ import { getTargetGender, isEligibleSocialUser, isSocialProfileReady } from "../
 import { canSwipe, getRemainingSwipes, getDailySwipeLimit } from "../lib/swipeHelper";
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
-
 import { reportService } from "../services/reportService";
-
-// Simple Memory Cache for Social Match
-const matchCache = {
-  potentialMatches: [] as UserProfile[],
-  swipedUserIds: new Set<string>(),
-  isLoaded: false,
-  lastFetched: 0
-};
+import { matchingService } from "../services/matchingService";
+import OptimizedImage from "./OptimizedImage";
+import MatchingProfilePopup from "./MatchingProfilePopup";
 
 export default function SocialMatchScreen({ currentUser, onNavigate, isActive }: { currentUser: UserProfile, onNavigate: (tab: any) => void, isActive?: boolean }) {
-  // Safe access with fallbacks
   const uid = currentUser?.uid || "";
-  const superLikes = currentUser?.superLikes || 0;
-  const social = currentUser?.social || { photos: [], nickname: "", bio: "", zodiacSign: "" };
+  
+  // Real-time user profile sync for accurate limits
+  const [liveUser, setLiveUser] = useState<UserProfile>(currentUser);
+  
+  useEffect(() => {
+    if (!uid || !isActive) return;
+    const unsubscribe = onSnapshot(doc(db, "users", uid), (snapshot) => {
+      if (snapshot.exists()) {
+        setLiveUser(normalizeUserProfile(snapshot.data(), snapshot.id));
+      }
+    }, (err) => {
+      console.error("Live user sync error:", err);
+    });
+    return () => unsubscribe();
+  }, [uid, isActive]);
 
-  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>(matchCache.potentialMatches);
-  const [loading, setLoading] = useState(!matchCache.isLoaded);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(matchCache.swipedUserIds.size > 0 ? matchCache.swipedUserIds : new Set([uid]));
+  const superLikes = liveUser?.superLikes || 0;
+
+  const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([uid]));
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [reportReason, setReportReason] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
 
   const displayMatches = useMemo(() => {
     return potentialMatches.filter(u => !swipedUserIds.has(u.uid));
@@ -67,166 +74,100 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
 
   const hasFetchedRef = React.useRef(false);
 
-  // Fetch swipes and potential matches (One-time fetch per activation with cache)
   useEffect(() => {
-    if (!uid || !isActive || !isSocialProfileReady(currentUser)) {
-      if (!isActive) hasFetchedRef.current = false; // Reset when tab inactive
+    if (!uid || !isActive) {
+      if (!isActive) hasFetchedRef.current = false;
       return;
     }
     
-    // Prevent redundant fetches within the same active session
+    // Profile check - ensure loading ends even if profile isn't ready
+    if (!isSocialProfileReady(liveUser)) {
+      setLoading(false);
+      return;
+    }
+
     if (hasFetchedRef.current) return;
     
     const fetchData = async () => {
-      if (!isActive || !isSocialProfileReady(currentUser)) return;
-      
       hasFetchedRef.current = true;
-      // 1. Cache-First: Try to load from cache and update UI immediately
-      let hasCache = false;
       const cached = cacheManager.get<any>("match_feed");
+      
       if (cached) {
+        console.log("SocialMatch: Loading matches from cache:", cached.potentialMatches?.length);
         setPotentialMatches(cached.potentialMatches || []);
         setSwipedUserIds(new Set(cached.swipedUserIds || [uid]));
         setLoading(false);
-        hasCache = true;
-        // If cache is fresh (e.g. < 1 min), don't even background fetch
-        if (Date.now() - (cached._timestamp || 0) < 60000) {
-          return;
-        }
+        // If cache is very fresh (e.g. < 30s), don't background fetch
+        if (Date.now() - (cached._timestamp || 0) < 30000) return;
       }
 
-      if (!hasCache) {
-        setLoading(true);
-      }
       try {
-        // 1. Backend-Driven Discovery (SONSUZ DÖNGÜ VE KASMA ÖNLEMİ)
-        // Direct Firestore query yerine Cloud Function kullanarak arka planda filtreleme yapıyoruz.
-        const discoverResult = await socialService.refreshDiscover();
-        
-        let fetchedUsers: UserProfile[] = [];
-        if (discoverResult.success && Array.isArray(discoverResult.users)) {
-          // Gelen veriler zaten backend'de "lean" (zayıf) hale getirildi.
-          fetchedUsers = discoverResult.users.map(u => normalizeUserProfile(u, u.uid));
-        } else {
-          // Fallback: Eğer Cloud Function hata verirse veya boş dönerse...
-          console.warn("Discover Cloud Function returned unexpected result, using fallback query.");
-          const targetGender = getTargetGender(currentUser);
-          const usersRef = collection(db, "users");
-          const matchQ = query(
-            usersRef,
-            where("social.enabled", "==", true),
-            where("social.profileCompleted", "==", true),
-            where("social.visible", "==", true),
-            where("social.gender", "==", targetGender),
-            limit(10) // Fallback'te miktar iyice düşürüldü
-          );
-          const snapshot = await getDocs(matchQ);
-          fetchedUsers = snapshot.docs.map(doc => normalizeUserProfile(doc.data(), doc.id));
-        }
-
-        // 3. Client-side Exclusions (Double Check)
-        let swipedIds = cacheManager.get<string[]>("socialSwipedIds") || [];
-        const newSwipedIds = new Set([uid, ...swipedIds]);
-        setSwipedUserIds(newSwipedIds);
-
-        fetchedUsers = fetchedUsers.filter(u => !newSwipedIds.has(u.uid));
-
-        // Sort by compatibility score
-        fetchedUsers.sort((a, b) => {
-          const scoreA = calculateCompatibility(currentUser, a).overallScore || 0;
-          const scoreB = calculateCompatibility(currentUser, b).overallScore || 0;
-          return scoreB - scoreA;
-        });
-
-        // Optimization: Show first card immediately, prepare others in background
-        if (fetchedUsers.length > 0) {
-          setPotentialMatches([fetchedUsers[0]]);
-          setTimeout(() => {
-            setPotentialMatches(fetchedUsers);
-          }, 300); // UI donmasını engellemek için hafif gecikme
-        } else {
-          setPotentialMatches([]);
-        }
-        
-        // Update Cache
-        cacheManager.set("match_feed", {
-          potentialMatches: fetchedUsers,
-          swipedUserIds: Array.from(newSwipedIds)
-        }, 600, true);
-
+        console.log("SocialMatch: Fetching fresh matches...");
+        const fetchedUsers = await matchingService.fetchPotentialMatches(liveUser);
+        console.log("Fetched Matches:", fetchedUsers);
+        setPotentialMatches(fetchedUsers);
       } catch (error) {
         console.error("Match fetch error:", error);
+        toast.error("Eşleşmeler yüklenemedi.");
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [uid, isActive]);
+  }, [uid, isActive, liveUser]);
 
-  const handleSwipe = async (type: 'like' | 'pass' | 'super_like') => {
-    if (!activeUser || isAnimating || isProcessing) return;
+  const handleSwipe = (type: 'like' | 'pass' | 'super_like') => {
+    if (!activeUser || isAnimating) return;
     
-    // Check remaining swipes (simplified for the strict 15 limit)
-    if (!canSwipe(currentUser)) {
-      toast.error("Günlük swipe hakkın bitti! ✨");
-      onNavigate('wallet');
-      return;
+    // STRICT LIMIT CHECKS
+    if (type !== 'pass') {
+      const remaining = getRemainingSwipes(liveUser);
+      if (remaining <= 0) {
+        toast.error("Günlük kaydırma hakkın bitti! ✨", {
+          description: "Yeni haklar için cüzdanı ziyaret et."
+        });
+        onNavigate('wallet');
+        return;
+      }
+
+      if (type === 'super_like' && (liveUser.superLikes || 0) <= 0) {
+        toast.error("Süper Like hakkın kalmadı! ✨", {
+          description: "Cüzdandan Süper Like alabilirsin."
+        });
+        onNavigate('wallet');
+        return;
+      }
     }
 
-    setIsProcessing(true);
     const targetUser = activeUser;
-    const oldSwipedUserIds = new Set(swipedUserIds);
     
-    // 1. Optimistic UI Update: Move to next card and animate Card immediately
+    // OPTIMISTIC UI: Remove from view immediately
     setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
+    
+    // START ANIMATION
     setIsAnimating(true);
-    if (type === 'pass') setExitDirection('left');
-    else if (type === 'like') setExitDirection('right');
-    else setExitDirection('up');
+    setExitDirection(type === 'pass' ? 'left' : type === 'like' ? 'right' : 'up');
 
-    // 2. Clear animation state after transition
-    setTimeout(() => {
-      setExitDirection(null);
-      setIsAnimating(false);
-      setIsProcessing(false);
-      
-      // Update Cache (Arka planda)
-      const cached = cacheManager.get<any>("match_feed");
-      if (cached) {
-        cacheManager.set("match_feed", {
-          ...cached,
-          swipedUserIds: Array.from(new Set([...cached.swipedUserIds || [], targetUser.uid]))
-        }, 600, true);
-      }
-      cacheManager.clear("discover_feed");
-    }, 400);
-
-    // 3. Background API Call
-    (async () => {
-      try {
-        const result = await socialService.sendLike(currentUser, targetUser.uid, type);
-        
-        if (result === 'DAILY_LIMIT_REACHED') {
-           setSwipedUserIds(oldSwipedUserIds);
-           toast.info("Günlük kaydırma sınırına ulaştın! 💖");
-           onNavigate('wallet');
-        } else if (result !== 'SUCCESS' && type !== 'pass') {
-          if (result === 'INSUFFICIENT_FUNDS') {
-             setSwipedUserIds(oldSwipedUserIds);
-             toast.error("Yetersiz Süper Like hakkı!");
-             onNavigate('wallet');
-          } else if (result === 'TECHNICAL_ERROR') {
-             setSwipedUserIds(oldSwipedUserIds);
-             toast.error("İşlem gerçekleştirilemedi.");
-          }
+    // FIRE AND FORGET BACKEND CALL (Optimistic)
+    socialService.sendLike(liveUser, targetUser.uid, type)
+      .then(result => {
+        if (result === 'DAILY_LIMIT_REACHED' || result === 'INSUFFICIENT_FUNDS') {
+          toast.error("Hakkınız yetersiz.");
+        } else if (result === 'SUCCESS' && type === 'super_like') {
+          toast.success("Süper Like gönderildi! ✨");
         }
-      } catch (error: any) {
-        console.error("Background swipe error:", error);
-        setSwipedUserIds(oldSwipedUserIds);
-        toast.error("Bir hata oluştu, geri alınıyor.");
-      }
-    })();
+      })
+      .catch(err => {
+        console.error("Swipe API error:", err);
+      })
+      .finally(() => {
+        // Reset animation states after the transition completes
+        setTimeout(() => {
+          setExitDirection(null);
+          setIsAnimating(false);
+        }, 400); 
+      });
   };
 
   const handleReport = async (reason: string) => {
@@ -240,7 +181,6 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
         metadata: { activeUserId: activeUser.uid }
       });
       setShowReportModal(false);
-      // Skip user after report
       handleSwipe('pass');
     } catch (error) {
       console.error("Report error:", error);
@@ -248,349 +188,229 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     }
   };
 
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Preload next image logic
-  useEffect(() => {
-    if (displayMatches.length > 1) {
-      const nextUser = displayMatches[1];
-      const nextPhoto = nextUser.social?.photos?.[0] || nextUser.photoURL;
-      if (nextPhoto) {
-        const img = new Image();
-        img.src = nextPhoto;
-      }
-    }
-    setImageLoaded(false);
-    setCurrentPhotoIndex(0);
-  }, [activeUser?.uid, displayMatches]);
-
-  const photos = useMemo(() => {
-    if (!activeUser) return [];
-    return activeUser?.social?.photos?.length 
-      ? activeUser.social.photos 
-      : [activeUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser?.uid || 'default'}`];
-  }, [activeUser]);
-
   const compatibility = useMemo(() => {
     if (!activeUser) return null;
-    return calculateCompatibility(currentUser, activeUser);
-  }, [currentUser, activeUser]);
-
-  const nextPhoto = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (photos.length > 0) {
-      setCurrentPhotoIndex((prev) => (prev + 1) % photos.length);
-    }
-  };
-
-  const prevPhoto = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (photos.length > 0) {
-      setCurrentPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
-    }
-  };
+    return calculateCompatibility(liveUser, activeUser);
+  }, [liveUser, activeUser]);
 
   return (
-    <div className="h-full w-full relative bg-black overflow-hidden">
+    <div className="flex-1 flex flex-col relative w-full h-full bg-black pt-[calc(env(safe-area-inset-top,1rem)+72px)] pb-18 overflow-hidden">
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-full space-y-4 bg-[#FDFCFE]">
-          <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
-          <p className="text-muted text-sm font-medium">Yıldızlar eşleşiyor...</p>
+        <div className="flex-1 flex flex-col items-center justify-center space-y-6">
+          <div className="relative">
+            <div className="w-12 h-12 border-2 border-white/10 border-t-amber-500 rounded-full animate-spin" />
+            <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-amber-500 animate-pulse" />
+          </div>
+          <p className="text-white/40 text-sm font-medium animate-pulse">Yıldızlar hizalanıyor...</p>
         </div>
       ) : !activeUser ? (
-        <div className="flex items-center justify-center h-full px-6 bg-[#FDFCFE]">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center max-w-xs"
-          >
-            <div className="relative mb-8">
-              <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full" />
-              <div className="relative w-24 h-24 bg-white border border-black/5 rounded-[2.5rem] flex items-center justify-center mx-auto text-amber-600 shadow-2xl backdrop-blur-xl">
-                <Sparkles className="w-12 h-12" />
+        <div className="flex-1 flex items-center justify-center px-8 bg-[#f8f7f9]">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-sm space-y-8">
+            <div className="relative mx-auto w-20 h-20">
+              <div className="absolute inset-0 bg-amber-500/10 blur-2xl rounded-full" />
+              <div className="relative h-full bg-white border border-black/5 rounded-[2rem] flex items-center justify-center shadow-xl">
+                 <Sparkles className="w-8 h-8 text-amber-500" />
               </div>
             </div>
-            <h3 className="text-2xl font-serif font-bold text-heading mb-3">Keşif Bitti</h3>
-            <p className="text-body text-sm leading-relaxed">
-              Şu an için kriterlerine uygun yeni kimse kalmadı. Yeni birileri gelince burada görünecek!
-            </p>
-            <button 
-              onClick={() => onNavigate('home')}
-              className="mt-10 px-8 py-4 bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-2xl font-bold text-sm shadow-2xl shadow-amber-900/20 hover:bg-amber-600 transition-all"
-            >
-              Ana Sayfaya Dön
-            </button>
+            <div className="space-y-3">
+              <h3 className="text-xl font-serif font-black text-heading leading-tight">Gökyüzü Şimdilik Sessiz</h3>
+              <p className="text-body text-xs leading-relaxed px-4 opacity-70">
+                Sana uygun ruhlar aranıyor, frekanslar eşleştiğinde burada belirecekler...
+              </p>
+            </div>
           </motion.div>
         </div>
       ) : (
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeUser.uid}
-            initial={{ opacity: 0 }}
-            animate={{ 
-              opacity: 1,
-              x: exitDirection === 'left' ? -500 : exitDirection === 'right' ? 500 : 0,
-              y: exitDirection === 'up' ? -500 : 0,
-              rotate: exitDirection === 'left' ? -30 : exitDirection === 'right' ? 30 : 0,
-              scale: exitDirection ? 0.8 : 1
-            }}
-            exit={{ opacity: 0, scale: 0.5 }}
-            transition={{ type: "spring", damping: 20, stiffness: 100 }}
-            className="absolute inset-0 w-full h-full"
-          >
-            {/* FULL SCREEN PHOTO */}
-            <div className="absolute inset-0 z-0 bg-neutral-900">
-              {!imageLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                   <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                </div>
-              )}
-              <motion.img 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: imageLoaded ? 1 : 0 }}
-                onLoad={() => setImageLoaded(true)}
-                src={photos[currentPhotoIndex]}
-                alt={activeUser.nickname}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-              
-              {/* Photo Navigation Overlay (Invisible areas for tapping) */}
-              <div className="absolute inset-0 flex z-10">
-                <div className="flex-1 h-full cursor-pointer" onClick={prevPhoto} />
-                <div className="flex-1 h-full cursor-pointer" onClick={nextPhoto} />
-              </div>
-
-              {/* Photo Navigation Indicators (Top) */}
-              {photos.length > 1 && (
-                <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+4rem)] left-6 right-6 flex gap-1.5 z-20">
-                  {photos.map((_, idx) => (
-                    <div key={idx} className={`h-1 flex-1 rounded-full transition-all duration-300 ${idx === currentPhotoIndex ? 'bg-white shadow-lg' : 'bg-white/30'}`} />
-                  ))}
-                </div>
-              )}
-
-              {/* Subtle Bottom Shadow for Text Readability */}
-              <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none z-[5]" />
-            </div>
-
-            {/* TOP STATS (Swipe/Super Like Rights) */}
-            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+72px)] left-0 right-0 z-20 flex justify-center px-6">
-              <div className="flex items-center gap-3">
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-xl border border-white/20 text-white shadow-2xl"
-                >
-                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
-                  <span className="text-[11px] font-black tabular-nums tracking-wider drop-shadow-md">
-                    {getRemainingSwipes(currentUser)} / {getDailySwipeLimit(currentUser)}
-                  </span>
-                </motion.div>
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-xl border border-white/20 text-white shadow-2xl"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400" />
-                  <span className="text-[11px] font-black tabular-nums tracking-wider drop-shadow-md">{superLikes}</span>
-                </motion.div>
-              </div>
-            </div>
-
-            {/* REPORT BUTTON */}
-            <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+72px)] right-6 z-20">
-              <button 
-                onClick={() => setShowReportModal(true)}
-                className="p-2.5 bg-black/40 backdrop-blur-xl rounded-full text-white/70 hover:text-white border border-white/20 transition-colors shadow-xl"
-              >
-                <Flag className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* ACTION BAR (Elevated to avoid BottomNav overlap) */}
-            <div 
-              className="absolute inset-x-0 z-30 px-6 flex justify-center pointer-events-none"
-              style={{ bottom: 'calc(env(safe-area-inset-bottom, 1.5rem) + 80px)' }}
+        <div className="flex-1 relative">
+          <AnimatePresence mode="popLayout">
+            <motion.div
+              key={activeUser.uid}
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ 
+                scale: 1, 
+                opacity: 1, 
+                y: exitDirection === 'up' ? -1000 : 0,
+                x: exitDirection === 'left' ? -1000 : exitDirection === 'right' ? 1000 : 0,
+                rotate: exitDirection === 'left' ? -30 : exitDirection === 'right' ? 30 : 0
+              }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ type: "spring", damping: 25, stiffness: 120 }}
+              className="absolute inset-0 w-full h-full overflow-hidden shadow-2xl bg-black group cursor-pointer"
+              onClick={() => setSelectedProfile(activeUser)}
             >
-              <div className="flex items-end justify-center gap-8 w-full max-w-sm pointer-events-auto">
-                {/* PASS BUTTON */}
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleSwipe('pass')} 
-                    className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white/70 flex items-center justify-center transition-all hover:text-white shadow-lg"
-                  >
-                    <X className="w-6 h-6" />
-                  </motion.button>
-                  <span className="text-[10px] font-black text-white/80 uppercase tracking-widest drop-shadow-md">GEÇ</span>
-                </div>
-
-                {/* SUPER LIKE BUTTON */}
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleSwipe('super_like')} 
-                    className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.5)] border-2 border-amber-300/40 relative group overflow-hidden"
-                  >
-                    <motion.div 
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-                      className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/30 to-white/0"
-                    />
-                    <Sparkles className="w-9 h-9 fill-white/30 relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
-                    <div className="absolute top-1 right-1 bg-white text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-500 shadow-lg z-20 scale-90">
+              {/* TOP LIMIT INDICATORS */}
+              {!selectedProfile && (
+                <div className="absolute top-4 left-0 right-0 z-20 flex justify-center items-center gap-3 pointer-events-none">
+                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+                    <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                    <span className="text-[10px] font-black text-white tabular-nums tracking-widest">
+                      {getRemainingSwipes(liveUser)} / {getDailySwipeLimit(liveUser)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    <span className="text-[10px] font-black text-white tabular-nums tracking-widest">
                       {superLikes}
-                    </div>
-                  </motion.button>
-                  <div className="flex flex-col items-center">
-                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest drop-shadow-md">SÜPER LIKE</span>
-                    <span className="text-[8px] font-bold text-amber-300/80 uppercase tracking-tighter">{superLikes} kaldı</span>
+                    </span>
                   </div>
                 </div>
+              )}
 
-                {/* LIKE BUTTON */}
-                <div className="flex flex-col items-center gap-2">
-                  <motion.button 
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleSwipe('like')} 
-                    className="w-18 h-18 rounded-full bg-gradient-to-br from-rose-500 via-rose-600 to-pink-600 text-white flex items-center justify-center shadow-[0_0_30_rgba(244,63,94,0.5)] border-2 border-rose-400/40 relative overflow-hidden"
+              {/* PHOTO BOX */}
+              <div className="absolute inset-0 z-0">
+                <OptimizedImage 
+                  src={activeUser.social?.photos?.[0] || activeUser.photoURL || ""} 
+                  alt={activeUser.nickname}
+                  className="w-full h-full object-cover"
+                />
+                
+                {/* REFINED OVERLAY GRADIENT */}
+                <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-[1]" />
+              </div>
+
+              {/* REPORT BUTTON */}
+              {!selectedProfile && (
+                <div className="absolute top-5 right-5 z-10">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setShowReportModal(true); }}
+                    className="p-2.5 bg-black/30 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all border border-white/10"
                   >
-                    <motion.div 
-                      animate={{ scale: [1, 1.15, 1] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                      className="absolute inset-0 bg-white/20 rounded-full"
-                    />
-                    <Heart className="w-9 h-9 fill-white relative z-10 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
-                  </motion.button>
-                  <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest drop-shadow-md">BEĞEN</span>
+                    <Flag className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* INFO AREA (Positioned above Action Bar) */}
-            <div 
-              className="absolute inset-x-0 z-20 px-6 flex flex-col items-center pointer-events-none"
-              style={{ bottom: 'calc(env(safe-area-inset-bottom, 1.5rem) + 200px)' }}
-            >
-              {/* COMPATIBILITY INLINE (Minimal) */}
-              <div className="flex items-center justify-center gap-4 mb-2 pointer-events-auto">
-                <div className="flex items-center gap-1.5">
-                  <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.love || 0}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Handshake className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.friendship || 0}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                  <span className="text-sm font-black text-white drop-shadow-lg">%{compatibility?.understanding || 0}</span>
-                </div>
-              </div>
-
-              {/* USER INFO */}
-              <div className="w-full text-center space-y-2 pointer-events-auto">
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.6 }}
-                  className="flex items-center justify-center gap-3"
-                >
-                  <h2 className="text-3xl font-serif font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-                    {activeUser?.social?.nickname || activeUser?.nickname || 'Gizemli'}, {activeUser?.age || ''}
-                  </h2>
-                  <div className="px-3 py-1 rounded-full bg-white/20 border border-white/30 text-[9px] font-black text-white uppercase tracking-widest backdrop-blur-md shadow-lg">
-                    {activeUser?.zodiacSign || "Burç"}
+              {/* MINIMAL INFORMATION LAYER */}
+              {!selectedProfile && (
+                <div className="absolute inset-x-0 bottom-0 z-10 p-6 space-y-4 pointer-events-none">
+                  
+                  {/* IDENTITY & ZODIAC */}
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl md:text-3xl font-serif font-black text-white tracking-tight drop-shadow-lg">
+                      {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age || 25}
+                    </h2>
+                    <div className="px-2 py-0.5 bg-amber-500/90 backdrop-blur-sm rounded-lg text-[9px] font-black text-white uppercase tracking-widest shadow-md">
+                      {activeUser.zodiacSign || "Mistik"}
+                    </div>
                   </div>
-                </motion.div>
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.7 }}
-                  className="space-y-1"
-                >
-                  <p className="text-xs text-white/90 font-medium max-w-sm mx-auto drop-shadow-md line-clamp-2">
-                    {activeUser?.social?.bio || activeUser?.bio || "Bio henüz eklenmemiş."}
-                  </p>
-                  {compatibility && (
-                    <motion.p 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 1.2 }}
-                      className="text-[9px] text-amber-300/90 font-bold italic drop-shadow-md"
-                    >
-                      {compatibility.understanding > 80 ? "✨ Ruh ikizi potansiyeli çok yüksek!" : 
-                       compatibility.understanding > 60 ? "💫 Yıldızlarınız oldukça uyumlu görünüyor." :
-                       "🌙 Enerjileriniz keşfedilmeyi bekliyor."}
-                    </motion.p>
-                  )}
-                </motion.div>
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.8 }}
-                  className="flex items-center justify-center gap-2 pt-1"
-                >
-                  <div className="h-px w-4 bg-white/30" />
-                  <p className="text-[8px] font-black text-white/60 uppercase tracking-[0.2em] drop-shadow-md">
-                    Karşılaştığın için uyumunu ücretsiz görüyorsun
-                  </p>
-                  <div className="h-px w-4 bg-white/30" />
-                </motion.div>
-              </div>
-            </div>
-          </motion.div>
-        </AnimatePresence>
+
+                  {/* ELEGANT COMPATIBILITY STRIP */}
+                  <div className="flex items-center justify-between p-3 bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl">
+                    <div className="flex flex-col items-center flex-1 border-r border-white/10">
+                      <div className="flex items-center gap-1">
+                        <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />
+                        <span className="text-base font-black text-white">%{compatibility?.love || 0}</span>
+                      </div>
+                      <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">TENSEL</span>
+                    </div>
+                    <div className="flex flex-col items-center flex-1 border-r border-white/10">
+                      <div className="flex items-center gap-1">
+                        <Handshake className="w-3 h-3 text-blue-400" />
+                        <span className="text-base font-black text-white">%{compatibility?.friendship || 0}</span>
+                      </div>
+                      <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">RUHSAL</span>
+                    </div>
+                    <div className="flex flex-col items-center flex-1">
+                      <div className="flex items-center gap-1">
+                        <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                        <span className="text-base font-black text-white">%{compatibility?.understanding || 0}</span>
+                      </div>
+                      <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">YILDIZ</span>
+                    </div>
+                  </div>
+
+                  {/* REFINED CIRCULAR BUTTONS */}
+                  <div className="flex items-center justify-center gap-6 pt-2 pointer-events-auto">
+                    {/* PASS (X) */}
+                    <div className="flex flex-col items-center gap-1">
+                      <motion.button 
+                        whileTap={{ scale: 0.9 }}
+                        onClick={(e) => { e.stopPropagation(); handleSwipe('pass'); }}
+                        className="w-14 h-14 bg-black/40 backdrop-blur-md border border-white/20 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all shadow-lg"
+                      >
+                        <X className="w-6 h-6" />
+                      </motion.button>
+                      <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">GEÇ</span>
+                    </div>
+
+                    {/* SUPER LIKE (STAR) */}
+                    <div className="flex flex-col items-center gap-1">
+                      <motion.button 
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => { e.stopPropagation(); handleSwipe('super_like'); }}
+                        className="w-16 h-16 bg-gradient-to-tr from-amber-500 to-yellow-400 rounded-full flex items-center justify-center text-white shadow-lg shadow-amber-500/20 border-2 border-white/20 transition-all"
+                      >
+                        <Sparkles className="w-7 h-7 drop-shadow-md" />
+                      </motion.button>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">SÜPER LİKE</span>
+                        <span className="text-[8px] text-white/50 font-medium uppercase">{superLikes} KALDI</span>
+                      </div>
+                    </div>
+
+                    {/* LIKE (HEART) */}
+                    <div className="flex flex-col items-center gap-1">
+                      <motion.button 
+                        whileTap={{ scale: 0.9 }}
+                        onClick={(e) => { e.stopPropagation(); handleSwipe('like'); }}
+                        className="w-14 h-14 bg-gradient-to-tr from-rose-600 to-pink-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-rose-600/20 border border-white/10 transition-all"
+                      >
+                        <Heart className="w-6 h-6 fill-white drop-shadow-md" />
+                      </motion.button>
+                      <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">BEĞEN</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       )}
 
-      {/* Report Modal */}
+      {/* REPORT MODAL */}
       <AnimatePresence>
         {showReportModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-xs bg-white rounded-3xl overflow-hidden shadow-2xl"
-            >
-              <div className="p-6 text-center border-b border-black/5">
-                <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <ShieldAlert className="w-6 h-6" />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
+              <div className="p-8 text-center border-b border-black/5">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldAlert className="w-8 h-8" />
                 </div>
-                <h3 className="text-lg font-serif font-bold text-heading">Kullanıcıyı Bildir</h3>
-                <p className="text-xs text-body mt-1">Lütfen bildirme nedenini seçin</p>
+                <h3 className="text-xl font-serif font-black text-heading">Güven Bölgesi</h3>
+                <p className="text-xs text-body mt-2">Bu profilde seni rahatsız eden nedir?</p>
               </div>
-              
-              <div className="p-2">
-                {['Spam', 'Sahte profil', 'Rahatsız edici', 'Diğer'].map((reason) => (
-                  <button
-                    key={reason}
-                    onClick={() => handleReport(reason)}
-                    className="w-full px-6 py-4 text-left text-sm font-bold text-heading hover:bg-black/5 transition-colors rounded-2xl flex items-center justify-between group"
-                  >
+              <div className="p-3">
+                {['Spam / Sahte', 'Uygunsuz İçerik', 'Rahatsız Edici'].map((reason) => (
+                  <button key={reason} onClick={() => handleReport(reason)} className="w-full px-6 py-4 text-left text-sm font-bold text-heading hover:bg-black/5 transition-colors rounded-2xl flex items-center justify-between group">
                     {reason}
-                    <ChevronRight className="w-4 h-4 text-muted group-hover:text-heading transition-colors" />
+                    <ChevronRight className="w-4 h-4 text-muted group-hover:text-heading transition-all" />
                   </button>
                 ))}
               </div>
-              
-              <div className="p-4 bg-black/5">
-                <button 
-                  onClick={() => setShowReportModal(false)}
-                  className="w-full py-3 text-sm font-black text-muted uppercase tracking-widest hover:text-heading transition-colors"
-                >
-                  Vazgeç
-                </button>
-              </div>
+              <button onClick={() => setShowReportModal(false)} className="w-full py-5 text-[10px] font-black text-muted uppercase tracking-[0.2em] hover:text-heading transition-colors bg-slate-50">
+                VAZGEÇ
+              </button>
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* PROFILE POPUP */}
+      <AnimatePresence>
+        {selectedProfile ? (
+          <div className="fixed inset-0 z-[99999] bg-black overflow-y-auto">
+            <MatchingProfilePopup 
+              user={selectedProfile}
+              currentUser={liveUser}
+              onClose={() => setSelectedProfile(null)}
+              onAction={(type) => {
+                setSelectedProfile(null);
+                handleSwipe(type);
+              }}
+            />
+          </div>
+        ) : null}
       </AnimatePresence>
     </div>
   );

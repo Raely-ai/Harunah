@@ -21,9 +21,9 @@ const messaging = firebase.messaging();
 // https://firebase.google.com/docs/cloud-messaging/js/receive#handle_messages_while_in_the_background
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  const notificationTitle = payload.notification.title;
+  const notificationTitle = payload.notification?.title || payload.data?.title || "Yeni Bildirim";
   const notificationOptions = {
-    body: payload.notification.body,
+    body: payload.notification?.body || payload.data?.body || "",
     icon: '/logo.svg'
   };
 

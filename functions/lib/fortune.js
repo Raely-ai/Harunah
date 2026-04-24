@@ -69,10 +69,14 @@ exports.createFortuneReading = functions.region('us-central1').https.onCall(asyn
         }
         const duplicateCheck = await base_1.db.collection("readings")
             .where("requestHash", "==", requestHash)
-            .where("createdAt", ">", new Date(Date.now() - 5 * 60 * 1000).toISOString())
-            .limit(1)
+            .limit(5)
             .get();
-        if (!duplicateCheck.empty) {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const hasRecentReading = duplicateCheck.docs.some(doc => {
+            const data = doc.data();
+            return data.createdAt > fiveMinutesAgo;
+        });
+        if (hasRecentReading) {
             throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
         }
         return await base_1.db.runTransaction(async (transaction) => {
@@ -160,7 +164,7 @@ exports.createFortuneReading = functions.region('us-central1').https.onCall(asyn
         throw new functions.https.HttpsError('internal', `Fortune Creation Error: ${err.message}`);
     }
 });
-exports.processFortuneAI = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.processFortuneAI = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -275,7 +279,7 @@ exports.upgradeFortunePriority = functions.region('us-central1').https.onCall(as
         throw new functions.https.HttpsError('internal', error.message || 'Önceliği yükseltirken hata oluştu.');
     }
 });
-exports.generateDailyMessage = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+exports.generateDailyMessage = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     try {

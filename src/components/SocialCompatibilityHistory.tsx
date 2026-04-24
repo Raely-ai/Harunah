@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
@@ -15,7 +15,11 @@ import {
   HeartHandshake,
   Camera,
   PlusCircle,
-  Clock
+  Clock,
+  Loader2,
+  FastForward,
+  TrendingUp,
+  Ghost
 } from 'lucide-react';
 import { 
   collection, 
@@ -26,9 +30,12 @@ import {
   deleteDoc, 
   doc,
   limit,
-  onSnapshot
+  onSnapshot,
+  setDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { uploadPhoto } from '../lib/uploadService';
 import { UserProfile, CompatibilityHistory } from '../types';
 import { toSafeDate } from '../lib/dateUtils';
 import { toast } from 'sonner';
@@ -43,101 +50,75 @@ interface SocialCompatibilityHistoryProps {
 }
 
 export default function SocialCompatibilityHistory({ currentUser, onBack, isTab, isActive, isMock }: SocialCompatibilityHistoryProps) {
-  // Safe access with fallbacks
   const uid = currentUser?.uid || "";
 
   const [history, setHistory] = useState<CompatibilityHistory[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(!isMock);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAnalysis, setSelectedAnalysis] = useState<CompatibilityHistory | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [pendingRequestId, setPendingRequestId] = useState<string | null>(localStorage.getItem('pendingCompatibilityId'));
-  const [finishTime, setFinishTime] = useState<string | null>(localStorage.getItem('pendingCompatibilityFinishTime'));
-  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [isSpeedingUp, setIsSpeedingUp] = useState<string | null>(null);
+  const [speedUpPrice, setSpeedUpPrice] = useState(10);
 
-  // Countdown effect
+  // Load price from admin config
   useEffect(() => {
-    if (!finishTime || !pendingRequestId) return;
-
-    const targetDate = new Date(finishTime).getTime();
-    
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const diff = Math.max(0, Math.floor((targetDate - now) / 1000));
-      setTimeLeft(diff);
-      
-      if (diff === 0 && !isAnalyzing) {
-        setIsAnalyzing(true); // Should stay in analyzing state until status changes
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [finishTime, pendingRequestId, isAnalyzing]);
-
-  // Real-time track the pending request
-  useEffect(() => {
-    if (!pendingRequestId || !uid) return;
-
-    const unsub = onSnapshot(doc(db, "compatibilityRequests", pendingRequestId), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        if (data.status === 'completed') {
-          // Find the result in history
-          fetchHistory(true).then(() => {
-            // After refresh, if we find a history item with this requestId, open it
-          });
-          toast.success("Analiz tamamlandı! Yıldızlar birleşti. ✨");
-          localStorage.removeItem('pendingCompatibilityId');
-          localStorage.removeItem('pendingCompatibilityFinishTime');
-          setPendingRequestId(null);
-          setFinishTime(null);
-          setIsAnalyzing(false);
-        } else if (data.status === 'error') {
-          toast.error("Bakımdayız, analiz yapılamadı. Jetonunuz iade edilmiştir.");
-          setPendingRequestId(null);
-          setIsAnalyzing(false);
-          localStorage.removeItem('pendingCompatibilityId');
-        } else {
-          setIsAnalyzing(true);
-        }
+    walletService.getAdminConfig().then(config => {
+      if (config.socialRightsPrices.speedUpPrice) {
+        setSpeedUpPrice(config.socialRightsPrices.speedUpPrice);
       }
     });
+  }, []);
 
-    return () => unsub();
-  }, [pendingRequestId, uid]);
-
-  // Check if a result has appeared for our requestId (auto-popup)
+  // 1. Real-time Listeners for Completed Analyses
   useEffect(() => {
-    if (!isActive || !uid) return;
-    
+    if (!uid || !isActive) return;
+
     const q = query(
       collection(db, "compatibilityHistory"),
       where("userId", "==", uid),
-      orderBy("createdAt", "desc"),
-      limit(1)
+      limit(200) // Fallback via in-memory sorting
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const latest = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
-        
-        // If this matches our most recent pending ID that just cleared, show it
-        const lastClearedId = localStorage.getItem('lastClearedCompatibilityId');
-        if (latest.requestId === lastClearedId || (pendingRequestId === null && latest.createdAt && new Date(latest.createdAt).getTime() > Date.now() - 30000)) {
-           // We might want to auto-select it if it's very recent
-        }
-      }
+      const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityHistory));
+      items.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
+      setHistory(items);
+      setLoading(false);
+    }, (err) => {
+      console.error("History listener error:", err);
+      // Fallback
+      setLoading(false);
     });
 
     return () => unsub();
-  }, [isActive, uid, pendingRequestId]);
+  }, [uid, isActive]);
 
-  const fileInput1Ref = React.useRef<HTMLInputElement>(null);
-  const fileInput2Ref = React.useRef<HTMLInputElement>(null);
+  // 2. Real-time Listeners for Pending Requests
+  useEffect(() => {
+    if (!uid || !isActive) return;
 
-  // Form State
-  const [person1, setPerson1] = useState({ name: '', birthDate: '', status: 'Bekar', photo: '' });
-  const [person2, setPerson2] = useState({ name: '', birthDate: '', status: 'Bekar', photo: '' });
+    const q = query(
+      collection(db, "compatibilityRequests"),
+      where("userId", "==", uid),
+      where("status", "==", "pending")
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const requests = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPendingRequests(requests);
+    });
+
+    return () => unsub();
+  }, [uid, isActive]);
+
+  // Unified Form State
+  const [person1] = useState({ 
+    name: currentUser?.social?.nickname || 'Ben', 
+    birthDate: currentUser?.birthDate || '', 
+    photo: currentUser?.social?.photos?.[0] || 'https://api.dicebear.com/7.x/avataaars/svg?seed=me' 
+  });
+  const [person2, setPerson2] = useState({ name: '', birthDate: '', photo: '' });
   const [relationshipType, setRelationshipType] = useState('ask');
 
   const relationshipTypes = [
@@ -152,9 +133,13 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   ];
 
   const handleManualAnalysis = async () => {
-    if (!person1.name || !person1.birthDate || !person1.photo ||
-        !person2.name || !person2.birthDate || !person2.photo) {
-      toast.error("Lütfen tüm alanları doldurun ve fotoğrafları ekleyin.");
+    if (!person2.name || !person2.birthDate || !person2.photo) {
+      toast.error("Lütfen karşı tarafın bilgilerini eksiksiz doldurun.");
+      return;
+    }
+
+    if (currentUser.compatibilityCount <= 0) {
+      toast.info("Yetersiz Analiz Hakkı. Mağazaya göz atın.");
       return;
     }
 
@@ -167,529 +152,442 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       });
 
       if (result.success) {
-        toast.success("Analiz süreci başladı! 5 dakika içinde hazır olacak. ✨");
-        setPendingRequestId(result.requestId);
-        setFinishTime(result.finishTime);
-        localStorage.setItem('pendingCompatibilityId', result.requestId);
-        localStorage.setItem('pendingCompatibilityFinishTime', result.finishTime);
-        
-        // Reset form
-        setPerson1({ name: '', birthDate: '', status: 'Bekar', photo: '' });
-        setPerson2({ name: '', birthDate: '', status: 'Bekar', photo: '' });
+        toast.success("Kozmik analiz süreci başladı! ✨");
+        setPerson2({ name: '', birthDate: '', photo: '' });
+      } else {
+        toast.error("Analiz başlatılamadı. Kredi durumunuzu kontrol edin.");
       }
     } catch (error: any) {
-      console.error("Manual analysis error:", error);
       toast.error(error.message || "Analiz sırasında bir hata oluştu.");
+    } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handlePhotoUpload = (person: 1 | 2) => {
-    if (person === 1) fileInput1Ref.current?.click();
-    else fileInput2Ref.current?.click();
+  const handleSpeedUp = async (requestId: string) => {
+    if (isSpeedingUp) return;
+    
+    if (currentUser.mainCoins < speedUpPrice) {
+      toast.info(`Hızlandırıcı için ${speedUpPrice} J gerekli. Cüzdana gidiliyor...`);
+      return;
+    }
+
+    setIsSpeedingUp(requestId);
+    try {
+      const result = await walletService.speedUpCompatibilityAnalysis(requestId);
+      if (result.success) {
+        toast.success("Kozmik Hızlandırıcı aktif! Analiz saniyeler içinde hazır. ⚡️");
+      } else {
+        toast.error(result.message || "Hızlandırma başarısız.");
+      }
+    } catch (err) {
+      toast.error("Bir hata oluştu.");
+    } finally {
+      setIsSpeedingUp(null);
+    }
   };
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>, person: 1 | 2) => {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const handlePhotoUpload = () => fileInputRef.current?.click();
+
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Check file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Dosya boyutu 5MB'dan küçük olmalıdır.");
       return;
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result as string;
-      if (person === 1) setPerson1(prev => ({ ...prev, photo: base64String }));
-      else setPerson2(prev => ({ ...prev, photo: base64String }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const fetchHistory = async (autoSelectLatest = false) => {
-    if (!uid) return;
-    setLoading(true);
+    
+    setIsUploadingPhoto(true);
     try {
-      const q = query(
-        collection(db, "compatibilityHistory"),
-        where("userId", "==", uid),
-        orderBy("createdAt", "desc")
-      );
-      const snapshot = await getDocs(q);
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityHistory));
-      setHistory(items);
-      if (autoSelectLatest && items.length > 0) {
-        setSelectedAnalysis(items[0]);
-      }
+      const url = await uploadPhoto(file, uid);
+      setPerson2(prev => ({ ...prev, photo: url }));
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, "compatibilityHistory");
+      toast.error("Fotoğraf yüklenemedi. Lütfen tekrar deneyin.");
     } finally {
-      setLoading(false);
+      setIsUploadingPhoto(false);
     }
   };
 
-  useEffect(() => {
-    if (isActive) {
-      fetchHistory();
-    }
-  }, [uid, isActive]);
+  const mergedList = useMemo(() => {
+    const combined = [
+      ...pendingRequests.map(r => ({ ...r, isPending: true })),
+      ...history.map(h => ({ ...h, isPending: false }))
+    ];
+    
+    const filtered = combined.filter(item => {
+      const name = item.targetName || item.person2?.name || "";
+      return name.toLowerCase().includes(searchTerm.toLowerCase());
+    });
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!window.confirm("Bu analizi geçmişten silmek istediğine emin misin?")) return;
-
-    try {
-      await deleteDoc(doc(db, "compatibilityHistory", id));
-      setHistory(prev => prev.filter(h => h.id !== id));
-      toast.success("Analiz silindi.");
-    } catch (error) {
-      toast.error("Silme işlemi başarısız.");
-    }
-  };
-
-  const filteredHistory = history.filter(h => 
-    h.targetName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    return filtered.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
+  }, [pendingRequests, history, searchTerm]);
 
   return (
-    <div className={`${isTab ? 'h-full' : 'fixed inset-0 z-[60]'} bg-[#F6F4F8] flex flex-col pt-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
-      {/* Hidden File Inputs */}
-      <input 
-        type="file" 
-        ref={fileInput1Ref} 
-        className="hidden" 
-        accept="image/*" 
-        onChange={(e) => onFileChange(e, 1)} 
-      />
-      <input 
-        type="file" 
-        ref={fileInput2Ref} 
-        className="hidden" 
-        accept="image/*" 
-        onChange={(e) => onFileChange(e, 2)} 
-      />
+    <div className={`${isTab ? 'h-full' : 'fixed inset-0 z-[60]'} bg-[#F8F9FD] flex flex-col pt-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={onFileChange} />
 
-      {/* Header (Only if not in tab) */}
+      {/* Header */}
       {!isTab && (
-        <div className="px-6 pt-12 pb-4 bg-white/80 backdrop-blur-md border-b border-black/5 flex items-center justify-between sticky top-0 z-20">
+        <div className="px-6 pt-12 pb-4 bg-white/80 backdrop-blur-xl border-b border-slate-100 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="p-2 -ml-2 text-muted hover:text-heading transition-colors">
+            <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-slate-900 transition-colors">
               <ChevronLeft className="w-6 h-6" />
             </button>
             <div>
-              <h2 className="text-lg font-serif font-bold text-heading">Uyum Analizi</h2>
-              <p className="text-[10px] font-black text-muted uppercase tracking-widest">Enerji Frekanslarını Ölç</p>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">Kozmik Uyum</h2>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Frekans Arşivi & Laboratuvar</p>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-purple-500/10 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-purple-600" />
+          <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 flex items-center justify-center">
+            <Zap className="w-5 h-5 text-indigo-600 fill-indigo-600" />
           </div>
         </div>
       )}
 
-      {/* Main Content */}
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        {/* Section 1: New Analysis Form (Premium Laboratory Scene) */}
-        <div className="px-4 py-8">
-          <div className="relative bg-white rounded-[3rem] p-6 border border-black/5 shadow-2xl shadow-indigo-900/5 overflow-hidden">
-            {/* Soft Ambient Backgrounds */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 blur-[100px] rounded-full pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/5 blur-[100px] rounded-full pointer-events-none" />
+        {/* LABORATORY FORM */}
+        <div className="px-2 py-6 sm:px-4 sm:py-8">
+          <div className="bg-white rounded-[2rem] sm:rounded-[3rem] p-4 sm:p-8 border border-slate-100 shadow-2xl shadow-indigo-900/10 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 blur-[100px] rounded-full pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 blur-[100px] rounded-full pointer-events-none" />
 
-            <div className="relative z-10 space-y-10">
-              {/* Dual Portrait Scene (Mistik Portreler) */}
-              <div className="flex items-center justify-center gap-4">
-                {/* Person 1 Portrait */}
-                <div className="flex flex-col items-center gap-4 w-36">
-                  <motion.button 
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handlePhotoUpload(1)}
-                    className="relative w-32 h-44 rounded-[2.5rem] bg-slate-50 border-2 border-slate-100 flex flex-col items-center justify-center overflow-hidden shadow-xl hover:border-rose-200 transition-colors"
-                  >
-                    {person1.photo ? (
-                      <img src={person1.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="flex flex-col items-center gap-2 opacity-30">
-                        <Camera className="w-6 h-6" />
-                        <span className="text-[8px] font-black uppercase tracking-tighter">Senin Fotoğrafın</span>
-                      </div>
-                    )}
-                    <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-black/20 to-transparent" />
-                  </motion.button>
-                  
-                  {/* Inline Form 1 */}
-                  <div className="w-full space-y-4 px-2">
-                    <div className="border-b border-slate-200 py-1">
-                      <input 
-                        type="text" 
-                        value={person1.name}
-                        onChange={(e) => setPerson1(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="İsmin"
-                        className="w-full bg-transparent text-[11px] font-black text-slate-900 border-none focus:ring-0 p-0 placeholder:text-slate-300 text-center uppercase tracking-tight"
-                      />
-                    </div>
-                    <div className="border-b border-slate-200 py-1">
-                      <input 
-                        type="date" 
-                        value={person1.birthDate}
-                        onChange={(e) => setPerson1(prev => ({ ...prev, birthDate: e.target.value }))}
-                        className="w-full bg-transparent text-[10px] font-bold text-slate-500 border-none focus:ring-0 p-0 text-center"
-                      />
-                    </div>
+            <div className="relative z-10 space-y-10 sm:space-y-12">
+              <div className="flex items-center justify-between sm:justify-center gap-2 sm:gap-8">
+                {/* Person 1 (Self) */}
+                <div className="flex flex-col items-center gap-3 sm:gap-4 flex-1">
+                  <div className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-100 overflow-hidden shadow-lg w-full max-w-[128px]">
+                    <img src={person1.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <div className="absolute inset-x-0 bottom-0 py-2 bg-black/40 backdrop-blur-md text-white text-[8px] sm:text-[9px] font-black uppercase text-center tracking-widest">SEN</div>
+                  </div>
+                  <div className="w-full max-w-[128px] text-center space-y-1 px-1">
+                    <div className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase truncate w-full">{person1.name}</div>
+                    <div className="text-[9px] sm:text-[10px] font-bold text-slate-400 truncate">{person1.birthDate || "Belirtilmedi"}</div>
                   </div>
                 </div>
 
-                {/* Connection Heart */}
-                <div className="flex flex-col items-center justify-center gap-4">
+                {/* HEART BRIDGE */}
+                <div className="flex flex-col items-center gap-2 sm:gap-4 shrink-0 px-1">
                   <motion.div 
-                    animate={{ 
-                      scale: [1, 1.15, 1],
-                      filter: ["drop-shadow(0 0 0px #f43f5e)", "drop-shadow(0 0 10px #f43f5e)", "drop-shadow(0 0 0px #f43f5e)"] 
-                    }}
-                    transition={{ duration: 3, repeat: Infinity }}
-                    className="w-12 h-12 rounded-full bg-white shadow-xl flex items-center justify-center border border-slate-100 z-10"
+                    animate={{ scale: [1, 1.2, 1], filter: ["drop-shadow(0 0 0px #F43F5E)", "drop-shadow(0 0 15px #F43F5E)", "drop-shadow(0 0 0px #F43F5E)"] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-white shadow-xl flex items-center justify-center border-2 border-slate-50 relative z-10"
                   >
-                    <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
+                    <Heart className="w-5 h-5 sm:w-7 sm:h-7 text-rose-500 fill-rose-500" />
                   </motion.div>
-                  <div className="h-20 w-px bg-gradient-to-b from-rose-200 via-indigo-200 to-amber-200 rounded-full" />
+                  <div className="h-16 sm:h-24 w-px bg-gradient-to-b from-indigo-200 via-rose-200 to-amber-200" />
                 </div>
 
-                {/* Person 2 Portrait */}
-                <div className="flex flex-col items-center gap-4 w-36">
+                {/* Person 2 (Target) */}
+                <div className="flex flex-col items-center gap-3 sm:gap-4 flex-1">
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => handlePhotoUpload(2)}
-                    className="relative w-32 h-44 rounded-[2.5rem] bg-slate-50 border-2 border-slate-100 flex flex-col items-center justify-center overflow-hidden shadow-xl hover:border-indigo-200 transition-colors"
+                    onClick={handlePhotoUpload}
+                    disabled={isUploadingPhoto}
+                    className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-xl hover:border-rose-300 transition-colors w-full max-w-[128px]"
                   >
-                    {person2.photo ? (
+                    {isUploadingPhoto ? (
+                      <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-indigo-500 animate-spin" />
+                    ) : person2.photo ? (
                       <img src={person2.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
-                      <div className="flex flex-col items-center gap-2 opacity-30">
-                        <Camera className="w-6 h-6" />
-                        <span className="text-[8px] font-black uppercase tracking-tighter">O'nun Fotoğrafı</span>
+                      <div className="flex flex-col items-center gap-1 sm:gap-2 opacity-30">
+                        <Camera className="w-6 h-6 sm:w-8 sm:h-8 text-slate-500" />
+                        <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-tighter text-center px-2">O'NUN FOTO</span>
                       </div>
                     )}
-                    <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-black/20 to-transparent" />
                   </motion.button>
-
-                  {/* Inline Form 2 */}
-                  <div className="w-full space-y-4 px-2">
-                    <div className="border-b border-slate-200 py-1">
+                  <div className="w-full max-w-[128px] space-y-1 sm:space-y-2 px-1">
+                    <div className="border-b border-slate-200 py-[2px] sm:py-1">
                       <input 
                         type="text" 
                         value={person2.name}
                         onChange={(e) => setPerson2(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="İsmi"
-                        className="w-full bg-transparent text-[11px] font-black text-slate-900 border-none focus:ring-0 p-0 placeholder:text-slate-300 text-center uppercase tracking-tight"
+                        placeholder="İSMİ?"
+                        className="w-full bg-transparent text-[10px] sm:text-[11px] font-black text-slate-900 border-none focus:ring-0 p-0 placeholder:text-slate-300 text-center uppercase tracking-tight"
                       />
                     </div>
-                    <div className="border-b border-slate-200 py-1">
+                    <div className="border-b border-slate-200 py-[2px] sm:py-1 relative">
                       <input 
                         type="date" 
                         value={person2.birthDate}
                         onChange={(e) => setPerson2(prev => ({ ...prev, birthDate: e.target.value }))}
-                        className="w-full bg-transparent text-[10px] font-bold text-slate-500 border-none focus:ring-0 p-0 text-center"
+                        className="w-full bg-transparent text-[9px] sm:text-[10px] font-bold text-slate-500 border-none focus:ring-0 p-0 text-center tracking-widest uppercase [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                       />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Relationship Type Tags */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-center gap-3">
-                  <div className="h-[1px] w-8 bg-slate-200" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">İlişki Dinamiği</span>
-                  <div className="h-[1px] w-8 bg-slate-200" />
-                </div>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {relationshipTypes.map(type => (
-                    <motion.button
-                      key={type.id}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setRelationshipType(type.id)}
-                      className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-wider transition-all border ${
-                        relationshipType === type.id 
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-black/10' 
-                          : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'
-                      }`}
-                    >
-                      {type.label}
-                    </motion.button>
-                  ))}
-                </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {relationshipTypes.map(type => (
+                  <button
+                    key={type.id}
+                    onClick={() => setRelationshipType(type.id)}
+                    className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                      relationshipType === type.id 
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xl' 
+                        : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'
+                    }`}
+                  >
+                    {type.label}
+                  </button>
+                ))}
               </div>
 
-              {/* Analysis Trigger (Vibrant Premium Button) */}
-              <div className="pt-4">
-                <motion.button 
-                  whileHover={{ scale: 1.02, y: -2 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleManualAnalysis}
-                  disabled={isAnalyzing}
-                  className={`relative w-full py-5 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.25em] shadow-2xl transition-all flex items-center justify-center gap-3 overflow-hidden ${
-                    isAnalyzing 
-                      ? 'bg-slate-100 text-slate-400 border border-slate-200 shadow-none cursor-not-allowed' 
-                      : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-500 text-white shadow-indigo-600/30'
-                  }`}
-                >
-                  <AnimatePresence mode="wait">
-                    {isAnalyzing ? (
-                      <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="flex items-center gap-3"
-                      >
-                        <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
-                        <span>Analiz Ediliyor %{timeLeft > 0 ? Math.floor(((300 - timeLeft) / 300) * 100) : 100}</span>
-                      </motion.div>
-                    ) : (
-                      <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="flex items-center gap-3"
-                      >
-                        <HeartHandshake className="w-5 h-5" />
-                        <span>Uyumu Hesapla</span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              </div>
+              <motion.button 
+                whileTap={{ scale: 0.98 }}
+                onClick={handleManualAnalysis}
+                disabled={isAnalyzing}
+                className={`w-full py-5 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 shadow-2xl transition-all ${
+                  isAnalyzing 
+                    ? 'bg-slate-100 text-slate-300 shadow-none' 
+                    : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-500 text-white shadow-indigo-600/30'
+                }`}
+              >
+                {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {isAnalyzing ? 'KODLAR OKUNUYOR...' : `ANALİZ ET (${currentUser.compatibilityCount})`}
+              </motion.button>
             </div>
           </div>
         </div>
 
-        {/* Section 2: Past History (Minimal Cards) */}
-        <div className="px-6 space-y-4">
+        {/* HISTORY LIST */}
+        <div className="px-6 space-y-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-              </div>
-              <h3 className="text-xs font-black text-heading uppercase tracking-wider">Analiz Geçmişi</h3>
-            </div>
-            
-            <div className="relative w-28">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted/40" />
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5" /> Frekans Arşivi
+            </h3>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
               <input 
-                type="text"
-                placeholder="Ara..."
+                type="text" 
+                placeholder="İSİM ARA..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-7 pr-2 py-1.5 bg-white border border-black/5 rounded-lg text-[9px] font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/10 transition-all"
+                className="pl-9 pr-4 py-2 bg-white border border-slate-100 rounded-2xl text-[10px] font-black focus:outline-none focus:ring-4 focus:ring-indigo-500/5 w-32 transition-all focus:w-44"
               />
             </div>
           </div>
 
-          {/* List */}
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-1 gap-3">
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-6 gap-2">
-                <div className="w-6 h-6 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
-              </div>
-            ) : filteredHistory.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-[9px] font-black text-muted/30 uppercase tracking-widest">Henüz analiz yok</p>
+              <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-indigo-500 animate-spin" /></div>
+            ) : mergedList.length === 0 ? (
+              <div className="text-center py-20 opacity-20">
+                <Ghost className="w-12 h-12 mx-auto mb-4" />
+                <p className="text-[10px] font-black uppercase tracking-widest">Henüz bir veri yok</p>
               </div>
             ) : (
-              filteredHistory.map((item) => (
-                <motion.div 
-                  key={item.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  onClick={() => setSelectedAnalysis(item)}
-                  className="p-2.5 bg-white rounded-2xl border border-black/5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-center gap-3"
-                >
-                  <div className="relative flex-shrink-0">
-                    <img 
-                      src={item.targetPhoto || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.targetUserId}`}
-                      className="w-10 h-10 rounded-xl object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-md bg-rose-500 flex items-center justify-center border-2 border-white shadow-sm">
-                      <span className="text-[7px] font-black text-white">{item.loveScore}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[10px] font-black text-heading truncate uppercase tracking-tight">{item.targetName}</h4>
-                      <span className="text-[7px] font-bold text-muted/40 uppercase">
-                        {toSafeDate(item.createdAt).toLocaleDateString('tr-TR')}
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-muted/60 font-medium truncate italic">
-                      "{item.summaryShort}"
-                    </p>
-                  </div>
-                </motion.div>
+              mergedList.map((item: any) => (
+                <HistoryCard 
+                  key={item.id} 
+                  item={item} 
+                  speedUpPrice={speedUpPrice}
+                  onSpeedUp={handleSpeedUp}
+                  isSpeedingUp={isSpeedingUp === item.id}
+                  onClick={() => !item.isPending && setSelectedAnalysis(item)}
+                />
               ))
             )}
           </div>
         </div>
       </div>
 
-      {/* Detail Popup (WOW Effect) */}
       <AnimatePresence>
         {selectedAnalysis && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedAnalysis(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 40 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 40 }}
-              className="relative w-full max-w-sm bg-white rounded-[3rem] overflow-hidden shadow-2xl"
-            >
-              {/* Result Header Scene */}
-              <div className="relative h-56">
-                {selectedAnalysis.source === 'manual' && selectedAnalysis.person1 && selectedAnalysis.person2 ? (
-                  <div className="flex h-full">
-                    <div className="relative w-1/2 h-full">
-                      <img 
-                        src={selectedAnalysis.person1.photo}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/20 to-transparent" />
-                    </div>
-                    <div className="relative w-1/2 h-full">
-                      <img 
-                        src={selectedAnalysis.person2.photo}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-l from-black/20 to-transparent" />
-                    </div>
-                    
-                    {/* Floating Connection Icon */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <motion.div 
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: "spring", delay: 0.5 }}
-                        className="w-14 h-14 rounded-full bg-white shadow-2xl flex items-center justify-center border-4 border-rose-500/20"
-                      >
-                        <Heart className="w-7 h-7 text-rose-500 fill-rose-500" />
-                      </motion.div>
-                    </div>
-                  </div>
-                ) : (
-                  <img 
-                    src={selectedAnalysis.targetPhoto || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedAnalysis.targetUserId}`}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent" />
-                
-                <button 
-                  onClick={() => setSelectedAnalysis(null)}
-                  className="absolute top-6 right-6 p-2 bg-black/20 backdrop-blur-md rounded-full text-white hover:bg-black/40 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="px-8 pb-10 space-y-8 overflow-y-auto max-h-[60vh] no-scrollbar">
-                {/* Names & Title */}
-                <div className="text-center space-y-2 mt-4">
-                  <motion.h3 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="text-2xl font-serif font-bold text-heading"
-                  >
-                    {selectedAnalysis.source === 'manual' && selectedAnalysis.person1 && selectedAnalysis.person2 
-                      ? `${selectedAnalysis.person1.name} & ${selectedAnalysis.person2.name}`
-                      : selectedAnalysis.targetName
-                    }
-                  </motion.h3>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-purple-500/10 to-rose-500/10 text-purple-600 border border-purple-500/20">
-                    <Sparkles className="w-3 h-3" />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Premium Frekans Analizi</span>
-                  </div>
-                </div>
-
-                {/* Animated Scores Grid (WOW Factor) */}
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    { label: 'Aşk', value: selectedAnalysis.loveScore, color: '#f43f5e', icon: Heart },
-                    { label: 'Dostluk', value: selectedAnalysis.friendshipScore, color: '#3b82f6', icon: Users },
-                    { label: 'Enerji', value: selectedAnalysis.energyScore, color: '#f59e0b', icon: Sparkles }
-                  ].map((item, idx) => (
-                    <div key={idx} className="flex flex-col items-center gap-3">
-                      <div className="relative w-20 h-20 flex items-center justify-center">
-                        {/* Glow Effect */}
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: [0.1, 0.3, 0.1], scale: [1, 1.2, 1] }}
-                          transition={{ duration: 3, repeat: Infinity }}
-                          className="absolute inset-0 blur-xl rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <svg className="w-full h-full -rotate-90 relative z-10">
-                          <circle cx="40" cy="40" r="34" fill="none" stroke="currentColor" strokeWidth="5" className="text-black/5" />
-                          <motion.circle 
-                            cx="40" cy="40" r="34" fill="none" stroke={item.color} strokeWidth="5" 
-                            strokeDasharray="213.6"
-                            initial={{ strokeDashoffset: 213.6 }}
-                            animate={{ strokeDashoffset: 213.6 - (213.6 * item.value) / 100 }}
-                            transition={{ duration: 2.5, ease: "circOut", delay: 0.8 + idx * 0.3 }}
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.5 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 2 + idx * 0.3 }}
-                          className="absolute inset-0 flex flex-col items-center justify-center z-20"
-                        >
-                          <span className="text-sm font-black text-heading">%{item.value}</span>
-                        </motion.div>
-                      </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted/60">{item.label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Interpretation (Mystic Vibe) */}
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 2.5 }}
-                  className="relative space-y-4 bg-slate-50 p-6 rounded-[2.5rem] border border-black/5 overflow-hidden"
-                >
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 via-rose-500 to-amber-500 opacity-30" />
-                  <div className="text-center space-y-3">
-                    <div className="flex justify-center">
-                      <Sparkles className="w-5 h-5 text-purple-500/40" />
-                    </div>
-                    <p className="text-sm font-black text-heading leading-tight italic">"{selectedAnalysis.summaryShort}"</p>
-                    <div className="h-px w-12 bg-black/5 mx-auto" />
-                    <p className="text-[11px] text-body leading-relaxed opacity-80 font-medium whitespace-pre-wrap">{selectedAnalysis.summaryLong}</p>
-                  </div>
-                </motion.div>
-
-                <button 
-                  onClick={() => setSelectedAnalysis(null)}
-                  className="w-full py-5 bg-heading text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] active:scale-[0.98] transition-transform shadow-xl shadow-black/10"
-                >
-                  Kapat
-                </button>
-              </div>
-            </motion.div>
-          </div>
+          <AnalysisPopup analysis={selectedAnalysis} onClose={() => setSelectedAnalysis(null)} />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: any) {
+  const [timeLeft, setTimeLeft] = useState("");
+  
+  useEffect(() => {
+    if (!item.isPending) return;
+    
+    // Fallback: 5 minutes from creation if no finishTime
+    const createdAtTime = toSafeDate(item.createdAt).getTime();
+    const target = item.finishTime ? new Date(item.finishTime).getTime() : createdAtTime + 5 * 60 * 1000;
+
+    const timer = setInterval(() => {
+      const diff = target - Date.now();
+      if (diff <= 0) {
+        setTimeLeft("Hazır!");
+        clearInterval(timer);
+      } else {
+        const mins = Math.floor(diff / 60000);
+        const secs = Math.floor((diff % 60000) / 1000);
+        setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [item.isPending, item.finishTime, item.createdAt]);
+
+  const person2Name = item.targetName || item.person2?.name || "Bilinmiyor";
+  const person2Photo = item.targetPhoto || item.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.targetUserId || person2Name}`;
+
+  return (
+    <motion.div 
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onClick}
+      className={`relative p-4 rounded-[2rem] border transition-all overflow-hidden ${
+        item.isPending 
+          ? 'bg-slate-50 border-slate-100 cursor-default' 
+          : 'bg-white border-white shadow-sm hover:shadow-xl hover:border-indigo-100 cursor-pointer group'
+      }`}
+    >
+      <div className="flex items-center gap-4 relative z-10">
+        <div className="flex -space-x-3">
+          <div className="w-12 h-12 rounded-2xl border-2 border-white shadow-md overflow-hidden relative z-10">
+            <img src={item.person1?.photo || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} className="w-full h-full object-cover" />
+          </div>
+          <div className="w-12 h-12 rounded-2xl border-2 border-white shadow-md overflow-hidden relative z-20">
+            <img src={person2Photo} className="w-full h-full object-cover" />
+            {item.isPending && (
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center">
+                <Loader2 className="w-5 h-5 text-white animate-spin" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-0.5">
+            <h4 className="text-[11px] font-black text-slate-900 truncate uppercase tracking-tighter">
+              {item.person1?.name || 'Sen'} & {person2Name}
+            </h4>
+            {!item.isPending && (
+              <div className="px-2 py-0.5 bg-rose-50 text-rose-500 rounded-lg text-[9px] font-black">%{item.loveScore}</div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+              {toSafeDate(item.createdAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+            </span>
+            <div className="w-1 h-1 rounded-full bg-slate-200" />
+            <span className="text-[8px] font-bold text-slate-400 italic truncate max-w-[120px]">
+              {item.isPending ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
+            </span>
+          </div>
+        </div>
+
+        {item.isPending && (
+          <div className="flex flex-col items-end gap-1.5 min-w-[70px]">
+            <div className="px-2 py-1 bg-indigo-500 text-white rounded-lg text-[9px] font-black flex items-center gap-1.5 shadow-lg shadow-indigo-500/20">
+              <Clock className="w-3 h-3" />
+              {timeLeft}
+            </div>
+            <motion.button 
+              whileTap={{ scale: 0.9 }}
+              onClick={(e) => { e.stopPropagation(); onSpeedUp(item.id); }}
+              disabled={isSpeedingUp || timeLeft === "Hazır!"}
+              className="px-2 py-1 bg-amber-400 hover:bg-amber-500 text-white rounded-lg text-[8px] font-black flex items-center gap-1 shadow-lg shadow-amber-400/20 uppercase tracking-tighter disabled:opacity-50"
+            >
+              <FastForward className="w-2.5 h-2.5" />
+              {isSpeedingUp ? '...' : `HIZLANDIR (${speedUpPrice} J)`}
+            </motion.button>
+          </div>
+        )}
+      </div>
+
+      {!item.isPending && (
+        <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-indigo-500/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity rounded-full" />
+      )}
+    </motion.div>
+  );
+}
+
+function AnalysisPopup({ analysis, onClose }: { analysis: CompatibilityHistory, onClose: () => void }) {
+  const person2Name = analysis.targetName || analysis.person2?.name || "Bilinmiyor";
+  const person2Photo = analysis.targetPhoto || analysis.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${analysis.targetUserId || person2Name}`;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-900">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 40 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 40 }}
+        className="relative w-full max-w-sm bg-white rounded-[3.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+      >
+        <div className="relative h-64 flex shrink-0">
+          <div className="w-1/2 h-full relative">
+            <img src={analysis.person1?.photo || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} className="w-full h-full object-cover" />
+            <div className="absolute inset-x-0 bottom-0 py-2 bg-black/40 backdrop-blur-md text-white text-[8px] font-black text-center tracking-widest truncate px-2">{analysis.person1?.name || "SEN"}</div>
+          </div>
+          <div className="w-1/2 h-full relative">
+            <img src={person2Photo} className="w-full h-full object-cover" />
+            <div className="absolute inset-x-0 bottom-0 py-2 bg-black/40 backdrop-blur-md text-white text-[8px] font-black text-center tracking-widest uppercase truncate px-2">{person2Name}</div>
+          </div>
+          
+          <div className="absolute inset-0 flex items-center justify-center">
+            <motion.div 
+              initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", bounce: 0.4, delay: 0.2 }}
+              className="w-16 h-16 rounded-full bg-white shadow-2xl flex items-center justify-center border-4 border-rose-50 relative z-10"
+            >
+              <Heart className="w-8 h-8 text-rose-500 fill-rose-500" />
+              <motion.div animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 rounded-full border-2 border-rose-500" />
+            </motion.div>
+          </div>
+          
+          <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 bg-white/20 backdrop-blur-xl border border-white/40 rounded-full flex items-center justify-center text-white"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-6 md:p-8 space-y-6 md:space-y-8 overflow-y-auto no-scrollbar pb-12">
+          <div className="text-center space-y-2">
+            <h3 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter shrink-0">İkili Frekans Raporu</h3>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 md:gap-6 shrink-0 shrink">
+            {[
+              { label: 'AŞK', val: analysis.loveScore || 0, color: '#F43F5E', icon: Heart },
+              { label: 'DOSTLUK', val: analysis.friendshipScore || 0, color: '#6366F1', icon: Users },
+              { label: 'ENERJİ', val: analysis.energyScore || 0, color: '#F59E0B', icon: Sparkles }
+            ].map((s, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 md:gap-3">
+                <div className="relative w-12 h-12 md:w-16 md:h-16 flex items-center justify-center">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#F1F5F9" strokeWidth="8" />
+                    <motion.circle 
+                      cx="50" cy="50" r="40" fill="none" stroke={s.color} strokeWidth="8" 
+                      strokeDasharray="251.2" initial={{ strokeDashoffset: 251.2 }} animate={{ strokeDashoffset: 251.2 - (251.2 * s.val) / 100 }}
+                      transition={{ duration: 2, delay: 0.5 + i * 0.2 }} strokeLinecap="round"
+                    />
+                  </svg>
+                  <span className="absolute text-[9px] md:text-[10px] font-black text-slate-900">%{s.val}</span>
+                </div>
+                <span className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase tracking-widest">{s.label}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="h-px bg-slate-100 shrink-0" />
+
+          <div className="space-y-4 shrink-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">Yıldızların Yorumu</h4>
+            </div>
+            <div className="p-4 md:p-6 bg-slate-50 rounded-[2rem] border border-slate-100 relative">
+              <p className="text-sm font-black text-slate-900 leading-tight italic mb-3 opacity-90 text-center">
+                "{analysis.summaryShort || "Enerjiler hesaplandı."}"
+              </p>
+              <p className="text-[10px] md:text-[11px] font-medium text-slate-600 leading-relaxed whitespace-pre-wrap">
+                {analysis.summaryLong || analysis.aiComment || "Yeni yorumlar hala göklerin derinliklerinde hazırlanıyor..."}
+              </p>
+            </div>
+          </div>
+
+          <button onClick={onClose} className="w-full py-4 md:py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] md:text-[12px] uppercase tracking-[0.3em] shadow-xl shrink-0">Anladım</button>
+        </div>
+      </motion.div>
     </div>
   );
 }

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkDailyReminders = exports.runManualCompatibilityAnalysis = exports.processCompatibilityRequests = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscoverFeed = exports.refreshDiscover = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = void 0;
+exports.generateThumbnails = exports.onMessageCreated = exports.runManualCompatibilityAnalysis = exports.speedUpCompatibilityAnalysis = exports.processCompatibilityRequests = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscoverFeed = exports.refreshDiscover = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const base_1 = require("./base");
@@ -303,12 +303,40 @@ exports.refreshDiscover = functions.region('us-central1').https.onCall(async (da
             }
             let available = usersSnap.docs
                 .filter(doc => !exclusionList.has(doc.id))
-                .map(doc => ({ id: doc.id, ...doc.data() }));
+                .map(doc => {
+                const d = doc.data();
+                return {
+                    id: doc.id,
+                    uid: doc.id,
+                    nickname: d.social?.nickname || d.displayName || "Kullanıcı",
+                    age: d.age || d.social?.age || 0,
+                    gender: d.social?.gender || d.gender || "",
+                    photoURL: d.social?.photos?.[0] || d.photoURL || "",
+                    zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
+                    element: d.element || "",
+                    birthDate: d.birthDate || d.social?.birthDate || "",
+                    bio: d.social?.bio || d.bio || ""
+                };
+            });
             if (available.length < 5) {
                 const absoluteExclusion = new Set([userId, ...swipedUserIds]);
                 available = usersSnap.docs
                     .filter(doc => !absoluteExclusion.has(doc.id))
-                    .map(doc => ({ id: doc.id, ...doc.data() }));
+                    .map(doc => {
+                    const d = doc.data();
+                    return {
+                        id: doc.id,
+                        uid: doc.id,
+                        nickname: d.social?.nickname || d.displayName || "Kullanıcı",
+                        age: d.age || d.social?.age || 0,
+                        gender: d.social?.gender || d.gender || "",
+                        photoURL: d.social?.photos?.[0] || d.photoURL || "",
+                        zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
+                        element: d.element || "",
+                        birthDate: d.birthDate || d.social?.birthDate || "",
+                        bio: d.social?.bio || d.bio || ""
+                    };
+                });
             }
             available = available.sort(() => Math.random() - 0.5).slice(0, 20);
             updates["social.recentDiscoverIds"] = Array.from(new Set([...recentIds, ...available.map(u => u.id)])).slice(-100);
@@ -551,16 +579,33 @@ exports.markAsSeen = functions.region('us-central1').https.onCall(async (data, c
         if (!data || !data.chatId)
             throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
         const { chatId } = data;
-        const unreads = await base_1.db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "!=", "seen").limit(100).get();
-        if (unreads.empty) {
-            await base_1.db.collection("chats").doc(chatId).update({ [`unreadCount.${userId}`]: 0 });
-            return { success: true, status: 'SUCCESS' };
+        try {
+            const chatRef = base_1.db.collection("chats").doc(chatId);
+            const chatSnap = await chatRef.get();
+            if (chatSnap.exists) {
+                const chatData = chatSnap.data();
+                const updates = { [`unreadCount.${userId}`]: 0 };
+                if (chatData?.lastMessageSenderId && chatData.lastMessageSenderId !== userId) {
+                    updates.lastMessageStatus = 'seen';
+                }
+                await chatRef.update(updates);
+            }
         }
-        const batch = base_1.db.batch();
-        unreads.docs.forEach(doc => batch.update(doc.ref, { status: 'seen', seen: true }));
-        batch.update(base_1.db.collection("chats").doc(chatId), { [`unreadCount.${userId}`]: 0, lastMessageStatus: 'seen' });
-        batch.update(base_1.db.collection("users").doc(userId), { unreadMessagesCount: base_1.FieldValue.increment(-unreads.size) });
-        await batch.commit();
+        catch (e) {
+            console.error("markAsSeen chat update error:", e);
+        }
+        try {
+            const unreadsInfo = await base_1.db.collection("messages").where("chatId", "==", chatId).where("receiverId", "==", userId).where("status", "in", ["sent", "delivered"]).limit(100).get();
+            if (!unreadsInfo.empty) {
+                const batch = base_1.db.batch();
+                unreadsInfo.docs.forEach(doc => batch.update(doc.ref, { status: 'seen', seen: true }));
+                batch.update(base_1.db.collection("users").doc(userId), { unreadMessagesCount: base_1.FieldValue.increment(-unreadsInfo.size) });
+                await batch.commit();
+            }
+        }
+        catch (e) {
+            console.error("markAsSeen messages query error:", e);
+        }
         return { success: true, status: 'SUCCESS' };
     }
     catch (error) {
@@ -843,25 +888,119 @@ exports.processCompatibilityRequests = functions.region('us-central1').pubsub.sc
     if (pendings.empty)
         return null;
     const openai = (0, base_1.getOpenAI)();
-    for (const doc of pendings.docs) {
-        const req = doc.data();
+    for (const docSnap of pendings.docs) {
+        const req = docSnap.data();
         try {
-            const response = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "system", content: "Sen uzman bir ilişki danışmanısın." }, { role: "user", content: `Analyze compatibility for ${req.person1.name} and ${req.person2.name}.` }], max_tokens: 1000 });
-            const aiComment = response.choices[0].message.content || "";
-            const analysisData = { ...req, status: 'completed', loveScore: 85, aiComment, createdAt: now };
+            const response = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                response_format: { type: "json_object" },
+                messages: [{
+                        role: "system",
+                        content: "Sen bir AI değilsin. Sen evrenin frekanslarını okuyan, Türkçe konuşan, mistik ve iddialı bir ASTROLOGSUN. Kullanıcıdan asla bilgi isteme, soru sorma. Verilen bilgilerden yola çıkarak KESİN bir analiz yap. Dilin %100 TÜRKÇE olmalı."
+                    }, {
+                        role: "user",
+                        content: `Kişi 1: ${req.person1?.name || 'Bilinmiyor'} (Doğum: ${req.person1?.birthDate || 'Bilinmiyor'})
+Kişi 2: ${req.person2?.name || 'Bilinmiyor'} (Doğum: ${req.person2?.birthDate || 'Bilinmiyor'})
+İlişki Türü: ${req.relationshipType || 'Bilinmiyor'}
+
+Lütfen analizini aşağıdaki JSON formatında döndür. Skorlar 40 ile 100 arasında anlamlı tam sayılar olmalıdır (%0 KESİNLİKLE YASAKTIR).
+
+{
+  "loveScore": 40-100 arası sayı,
+  "friendshipScore": 40-100 arası sayı,
+  "energyScore": 40-100 arası sayı,
+  "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, iddialı, isimleri de kullanarak yapılmış Türkçe astrolojik analiz."
+}
+
+Asla analiz dışında bir kelime yazma, json dön.`
+                    }],
+                max_tokens: 1000
+            });
+            const aiContent = response.choices[0].message.content || "{}";
+            let parsed = {};
+            try {
+                parsed = JSON.parse(aiContent);
+            }
+            catch (e) {
+                console.error("GPT JSON parse error:", e, "Content was:", aiContent);
+            }
+            const summaryContent = parsed.summaryLong || parsed.interpretation || parsed.summary || "";
+            const parseScore = (val) => {
+                const num = parseInt(val);
+                return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40);
+            };
+            const analysisData = {
+                ...req,
+                requestId: docSnap.id,
+                status: 'completed',
+                loveScore: parseScore(parsed.loveScore),
+                friendshipScore: parseScore(parsed.friendshipScore),
+                energyScore: parseScore(parsed.energyScore),
+                summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
+                summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
+                createdAt: now
+            };
             const batch = base_1.db.batch();
-            batch.update(doc.ref, { status: 'completed', updatedAt: now });
+            batch.update(docSnap.ref, { status: 'completed', updatedAt: now });
             const histRef = base_1.db.collection("compatibilityHistory").doc();
             batch.set(histRef, analysisData);
-            batch.set(base_1.db.collection("notifications").doc(), { userId: req.userId, type: 'system', title: 'Analiz Hazır!', message: 'Sonuçları hemen incele!', read: false, createdAt: base_1.FieldValue.serverTimestamp() });
+            batch.set(base_1.db.collection("notifications").doc(), { userId: req.userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: base_1.FieldValue.serverTimestamp() });
             await batch.commit();
             await (0, base_1.sendPushToUser)(req.userId, { title: 'Uyum Analiziniz Hazır!', body: 'Hemen incele!', category: 'compatibility' });
         }
         catch (e) {
-            await doc.ref.update({ status: 'error', error: String(e) });
+            await docSnap.ref.update({ status: 'error', error: String(e) });
         }
     }
     return null;
+});
+exports.speedUpCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    const userId = context.auth.uid;
+    const requestId = data.requestId;
+    if (!requestId)
+        throw new functions.https.HttpsError('invalid-argument', 'RequestId gerekli.');
+    try {
+        return await base_1.db.runTransaction(async (transaction) => {
+            const userRef = base_1.db.collection("users").doc(userId);
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists)
+                throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+            const configSnap = await transaction.get(base_1.db.collection("config").doc("global"));
+            let speedUpPrice = 10;
+            if (configSnap.exists) {
+                const configData = configSnap.data();
+                speedUpPrice = configData?.socialEconomy?.compatibilitySpeedUpPrice ?? 10;
+            }
+            const userData = userSnap.data() || {};
+            if ((userData.mainCoins || 0) < speedUpPrice) {
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
+            }
+            const reqRef = base_1.db.collection("compatibilityRequests").doc(requestId);
+            const reqSnap = await transaction.get(reqRef);
+            if (!reqSnap.exists)
+                throw new functions.https.HttpsError('not-found', 'Analiz isteği bulunamadı.');
+            const reqData = reqSnap.data() || {};
+            if (reqData.userId !== userId)
+                throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
+            if (reqData.status !== 'pending')
+                throw new functions.https.HttpsError('failed-precondition', 'Bu analiz zaten tamamlanmış veya hata almış.');
+            transaction.update(userRef, {
+                mainCoins: base_1.FieldValue.increment(-speedUpPrice)
+            });
+            transaction.update(reqRef, {
+                readyAt: new Date().toISOString()
+            });
+            return { success: true, message: `Hızlandırma başarılı.` };
+        });
+    }
+    catch (error) {
+        console.error("speedUpCompatibilityAnalysis error:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+    }
 });
 exports.runManualCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
@@ -871,6 +1010,8 @@ exports.runManualCompatibilityAnalysis = functions.region('us-central1').https.o
         if (!data || !data.person1 || !data.person2)
             throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
         const { person1, person2, relationshipType } = data;
+        const cleanPerson1 = JSON.parse(JSON.stringify(person1));
+        const cleanPerson2 = JSON.parse(JSON.stringify(person2));
         const userRef = base_1.db.collection("users").doc(userId);
         return await base_1.db.runTransaction(async (transaction) => {
             const snap = await transaction.get(userRef);
@@ -881,7 +1022,7 @@ exports.runManualCompatibilityAnalysis = functions.region('us-central1').https.o
             transaction.update(userRef, { compatibilityCount: base_1.FieldValue.increment(-1) });
             const ref = base_1.db.collection("compatibilityRequests").doc();
             const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-            transaction.set(ref, { id: ref.id, userId, person1, person2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
+            transaction.set(ref, { id: ref.id, userId, person1: cleanPerson1, person2: cleanPerson2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
             return { success: true, requestId: ref.id, readyAt };
         });
     }
@@ -892,5 +1033,85 @@ exports.runManualCompatibilityAnalysis = functions.region('us-central1').https.o
         throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
     }
 });
-exports.checkDailyReminders = functions.region('us-central1').pubsub.schedule('every 24 hours').onRun(async (context) => { return null; });
+exports.onMessageCreated = functions.region('us-central1').firestore.document('messages/{messageId}').onCreate(async (snap, context) => {
+    const message = snap.data();
+    if (!message || !message.chatId || !message.senderId || !message.receiverId)
+        return;
+    try {
+        const senderSnap = await base_1.db.collection("users").doc(message.senderId).get();
+        if (!senderSnap.exists)
+            return;
+        const senderNickname = senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName || "Birisi";
+        let previewText = message.text || "Yeni bir mesaj";
+        if (message.type === 'image' || message.mediaType === 'image')
+            previewText = "📷 Fotoğraf";
+        else if (message.type === 'video' || message.mediaType === 'video')
+            previewText = "🎥 Video";
+        else if (message.type === 'file' || message.mediaType === 'file')
+            previewText = "📎 Dosya";
+        await (0, base_1.sendPushToUser)(message.receiverId, {
+            title: senderNickname,
+            body: previewText,
+            data: {
+                screen: "chat",
+                chatId: message.chatId
+            },
+            category: "messages",
+            senderId: message.senderId
+        });
+    }
+    catch (error) {
+        console.error("onMessageCreated trigger error:", error);
+    }
+});
+const os = __importStar(require("os"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+exports.generateThumbnails = functions.region('us-central1')
+    .runWith({ memory: '1GB', timeoutSeconds: 120 })
+    .storage.object().onFinalize(async (object) => {
+    const fileBucket = object.bucket;
+    const filePath = object.name;
+    const contentType = object.contentType;
+    if (!contentType?.startsWith('image/'))
+        return;
+    if (!filePath || filePath.includes('_thumb_'))
+        return;
+    try {
+        const { Storage } = require('@google-cloud/storage');
+        const sharp = require('sharp');
+        const storageClient = new Storage();
+        const bucket = storageClient.bucket(fileBucket);
+        const fileName = path.basename(filePath);
+        const fileDir = path.dirname(filePath);
+        const workingDir = path.join(os.tmpdir(), "thumbs");
+        if (!fs.existsSync(workingDir))
+            fs.mkdirSync(workingDir, { recursive: true });
+        const tempFilePath = path.join(workingDir, fileName);
+        await bucket.file(filePath).download({ destination: tempFilePath });
+        const sizes = [200, 600];
+        const uploadPromises = sizes.map(async (size) => {
+            const thumbFileName = `${size}x${size}_thumb_${fileName}`;
+            const thumbFilePath = path.join(workingDir, thumbFileName);
+            await sharp(tempFilePath)
+                .resize(size, size, { fit: 'inside', withoutEnlargement: true })
+                .toFile(thumbFilePath);
+            const destination = path.join(fileDir, thumbFileName);
+            await bucket.upload(thumbFilePath, {
+                destination,
+                metadata: {
+                    contentType,
+                    cacheControl: 'public, max-age=31536000, s-maxage=31536000'
+                }
+            });
+            fs.unlinkSync(thumbFilePath);
+        });
+        await Promise.all(uploadPromises);
+        fs.unlinkSync(tempFilePath);
+        console.log(`Thumbnails generated for ${filePath}`);
+    }
+    catch (error) {
+        console.error("generateThumbnails error:", error);
+    }
+});
 //# sourceMappingURL=social.js.map

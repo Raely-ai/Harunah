@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   Video,
   Paperclip,
+  Camera,
   Trash2,
   Edit2,
   Clock,
@@ -26,6 +27,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
+import OptimizedImage from './OptimizedImage';
 import { 
   collection, 
   query, 
@@ -40,7 +42,8 @@ import {
   getDocs,
   limit
 } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db, handleFirestoreError, OperationType, storage } from "../lib/firebase";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message, normalizeUserProfile } from "../types";
 import { format, formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -71,7 +74,7 @@ export default function SocialMessagesScreen({
   const [likers, setLikers] = useState<{ id: string, user: UserProfile, createdAt: any }[]>([]);
   const [selectedChat, setSelectedChat] = useState<(Chat & { otherUser: UserProfile }) | null>(null);
   const [selectedLiker, setSelectedLiker] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const profilesCache = useRef<Record<string, UserProfile>>({});
@@ -100,42 +103,54 @@ export default function SocialMessagesScreen({
     }
   }, [currentUser?.uid]);
 
-  // Real-time data fetching based on active tab
+  // 1. Initial Cache Load (Instant Preview)
+  useEffect(() => {
+    const cachedChats = cacheManager.get<(Chat & { otherUser: UserProfile })[]>(CHAT_LIST_CACHE_KEY);
+    const cachedRequests = cacheManager.get<InteractionRequestType[]>(REQUESTS_CACHE_KEY);
+    const cachedLikers = cacheManager.get<{ id: string, user: UserProfile, createdAt: any }[]>(LIKERS_CACHE_KEY);
+
+    if (cachedChats) setChats(cachedChats);
+    if (cachedRequests) setRequests(cachedRequests);
+    if (cachedLikers) setLikers(cachedLikers);
+    
+    // If we have cached data for the current tab, we can stop "hard" loading
+    const hasDataForTab = (activeTab === 'chats' && cachedChats?.length) || 
+                         (activeTab === 'requests' && cachedRequests?.length) || 
+                         (activeTab === 'likers' && cachedLikers?.length);
+    
+    if (hasDataForTab) setIsLoading(false);
+  }, [activeTab]);
+
+  // 2. Real-time persistent listeners
   useEffect(() => {
     if (!currentUser.uid || !isSocialProfileReady(currentUser)) return;
 
-    let unsubscribe: () => void = () => {};
+    let unsubChats: () => void = () => {};
+    let unsubRequests: () => void = () => {};
+    let unsubLikers: () => void = () => {};
 
-    const handleFetch = async () => {
-      if (activeTab === 'chats') {
-        const cached = cacheManager.get<any>(CHAT_LIST_CACHE_KEY);
-        if (cached) {
-          setChats(cached);
-          // If cache is fresh (< 30s), don't background fetch
-          if (Date.now() - (cached._timestamp || 0) < 30000) return;
-        }
-
-        setLoading(true);
-        try {
-          const q = query(
-            collection(db, "chats"),
-            where("participants", "array-contains", currentUser.uid),
-            orderBy("lastMessageAt", "desc"),
-            limit(30)
-          );
-          
-          const snapshot = await getDocs(q);
+    // 1. CHATS LISTENER
+    const setupChatsListener = () => {
+      try {
+        const q = query(
+          collection(db, "chats"),
+          where("participants", "array-contains", currentUser.uid),
+          limit(60)
+        );
+        
+        unsubChats = onSnapshot(q, async (snapshot) => {
           const chatDocs = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
             .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
           
-          // Batch fetch user profiles to avoid N+1
-          const otherUserIds = Array.from(new Set(chatDocs.map(c => c.participants.find(id => id !== currentUser.uid)).filter(Boolean))) as string[];
-          const missingUserIds = otherUserIds.filter(id => !profilesCache.current[id]);
+          const otherUserIds = Array.from(new Set(
+            chatDocs.flatMap(c => (c.participants || []).filter(id => id && id !== currentUser.uid))
+          ));
+          const missingUserIds = otherUserIds.filter(id => id && !profilesCache.current[id]);
           
           if (missingUserIds.length > 0) {
-            // Firestore 'in' query limit is 30, which perfectly matches our chat limit
-            const usersQ = query(collection(db, "users"), where("uid", "in", missingUserIds));
+            // Fetch missing profiles
+            const usersQ = query(collection(db, "users"), where("uid", "in", missingUserIds.slice(0, 30)));
             const usersSnap = await getDocs(usersQ);
             usersSnap.forEach(uDoc => {
               const uData = uDoc.data();
@@ -144,70 +159,73 @@ export default function SocialMessagesScreen({
           }
 
           const chatList = chatDocs.map((chatData) => {
-            const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
-            const otherUser = profilesCache.current[otherUserId!];
+            const participants = chatData.participants || [];
+            // Robust check: filter out current user and take the first non-matching ID
+            // We use filter(Boolean) to skip any null/undefined IDs in the array
+            const others = participants.filter(id => id && id !== currentUser.uid);
+            
+            // If it's a self-chat (only one participant or both are same) or mismatch, 
+            // the above filter will be empty if both IDs == currentUser.uid. 
+            // In that case, we MUST NOT show the current user as otherUser.
+            const otherUserId = others.length > 0 ? others[0] : (participants.find(id => id !== currentUser.uid) || null);
+            
+            if (!otherUserId) return null;
+            
+            const otherUser = profilesCache.current[otherUserId];
+            if (!otherUser) return null; // Wait for profile fetch in next cycle
+            
             return { ...chatData, otherUser };
-          });
+          }).filter((c): c is (Chat & { otherUser: UserProfile }) => c !== null);
           
-          chatList.sort((a, b) => {
-            const timeA = toSafeDate(a.lastMessageAt).getTime();
-            const timeB = toSafeDate(b.lastMessageAt).getTime();
-            return timeB - timeA;
-          });
+          chatList.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
 
           setChats(chatList);
           cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 600, true);
-        } catch (error: any) {
-          if (error.message?.toLowerCase().includes("quota")) {
-            toast.error("Sohbet listesi güncellenemedi.");
-          }
-          console.error("Error fetching chats:", error);
-        } finally {
-          setLoading(false);
-        }
-      } else if (activeTab === 'requests') {
-        const cached = cacheManager.get<any>(REQUESTS_CACHE_KEY);
-        if (cached) {
-          setRequests(cached);
-          if (Date.now() - (cached._timestamp || 0) < 30000) return;
-        }
+          setIsLoading(false);
+        }, (error) => {
+          console.error("Error listening to chats:", error);
+          setIsLoading(false);
+        });
+      } catch (err) {
+        console.error("Chats listener setup error:", err);
+      }
+    };
 
-        setLoading(true);
-        try {
-          const q = query(
-            collection(db, "interactionRequests"),
-            where("toUserId", "==", currentUser.uid),
-            where("status", "==", "pending"),
-            orderBy("createdAt", "desc"),
-            limit(20)
-          );
-          
-          const snapshot = await getDocs(q);
+    // 2. REQUESTS LISTENER (REAL-TIME)
+    const setupRequestsListener = () => {
+      try {
+        const q = query(
+          collection(db, "interactionRequests"),
+          where("toUserId", "==", currentUser.uid),
+          where("status", "==", "pending"),
+          limit(50)
+        );
+
+        unsubRequests = onSnapshot(q, (snapshot) => {
           const requestList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InteractionRequestType));
+          requestList.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
           setRequests(requestList);
           cacheManager.set(REQUESTS_CACHE_KEY, requestList, 600, true);
-        } catch (error) {
-          console.error("Error fetching requests:", error);
-        } finally {
-          setLoading(false);
-        }
-      } else if (activeTab === 'likers') {
-        const cached = cacheManager.get<any>(LIKERS_CACHE_KEY);
-        if (cached) {
-          setLikers(cached);
-          if (Date.now() - (cached._timestamp || 0) < 60000) return;
-        }
+          setIsLoading(false);
+        }, (err) => {
+          console.error("Requests listener error:", err);
+        });
+      } catch (err) {
+        console.error("Requests listener setup error:", err);
+      }
+    };
 
-        setLoading(true);
-        try {
-          const q = query(
-            collection(db, "swipes"),
-            where("toUserId", "==", currentUser.uid),
-            where("type", "in", ["like", "super_like"]),
-            limit(40)
-          );
-          
-          const snapshot = await getDocs(q);
+    // 3. LIKERS LISTENER (REAL-TIME)
+    const setupLikersListener = () => {
+      try {
+        const q = query(
+          collection(db, "swipes"),
+          where("toUserId", "==", currentUser.uid),
+          where("type", "in", ["like", "super_like"]),
+          limit(40)
+        );
+
+        unsubLikers = onSnapshot(q, async (snapshot) => {
           const likerList = await Promise.all(snapshot.docs.map(async (swipeDoc) => {
             const swipeData = swipeDoc.data();
             let sender = profilesCache.current[swipeData.fromUserId];
@@ -233,19 +251,26 @@ export default function SocialMessagesScreen({
           validLikers.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
           setLikers(validLikers);
           cacheManager.set(LIKERS_CACHE_KEY, validLikers, 600, true);
-        } catch (error) {
-          console.error("Error fetching likers:", error);
-        } finally {
-          setLoading(false);
-        }
+          setIsLoading(false);
+        }, (err) => {
+          console.error("Likers listener error:", err);
+        });
+      } catch (err) {
+        console.error("Likers listener setup error:", err);
       }
     };
 
-    handleFetch();
+    setupChatsListener();
+    setupRequestsListener();
+    setupLikersListener();
+
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubChats();
+      unsubRequests();
+      unsubLikers();
     };
-  }, [activeTab, currentUser.uid]);
+  }, [currentUser.uid]);
+
 
   const filteredChats = useMemo(() => {
     if (!searchQuery.trim()) return chats;
@@ -258,6 +283,10 @@ export default function SocialMessagesScreen({
   const handleAcceptRequest = async (request: InteractionRequestType) => {
     if (isProcessing) return;
     setIsProcessing(true);
+    
+    // Optimistic UI Update: Remove from list immediately
+    setRequests(prev => prev.filter(r => r.id !== request.id));
+    
     try {
       const chatId = await socialService.acceptRequest(request);
       toast.success("İstek kabul edildi!");
@@ -271,15 +300,23 @@ export default function SocialMessagesScreen({
       const chatSnap = await getDoc(doc(db, "chats", chatId));
       if (chatSnap.exists()) {
         const chatData = chatSnap.data() as Chat;
-        const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
-        const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
-        setSelectedChat({
-          ...chatData,
-          id: chatSnap.id,
-          otherUser: normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id)
-        });
+        const participants = chatData.participants || [];
+        const others = participants.filter(id => id && id !== currentUser.uid);
+        const otherUserId = others.length > 0 ? others[0] : null;
+        
+        if (otherUserId) {
+          const otherUserSnap = await getDoc(doc(db, "users", otherUserId));
+          if (otherUserSnap.exists()) {
+            setSelectedChat({
+              ...chatData,
+              id: chatSnap.id,
+              otherUser: normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id)
+            });
+          }
+        }
       }
     } catch (error: any) {
+      // Revert if error occurs ? (Actually onSnapshot will handle it if it's still in DB)
       console.error("Error accepting request:", error);
       const errorMessage = error?.message || "İstek kabul edilirken bir hata oluştu.";
       toast.error(errorMessage);
@@ -291,6 +328,10 @@ export default function SocialMessagesScreen({
   const handleRejectRequest = async (requestId: string) => {
     if (isProcessing) return;
     setIsProcessing(true);
+    
+    // Optimistic UI Update
+    setRequests(prev => prev.filter(r => r.id !== requestId));
+
     try {
       await socialService.rejectRequest(requestId);
       toast.info("İstek reddedildi.");
@@ -301,6 +342,7 @@ export default function SocialMessagesScreen({
       setIsProcessing(false);
     }
   };
+
 
   const handleStartChatFromLiker = async (liker: UserProfile) => {
     if (isProcessing) return;
@@ -317,13 +359,20 @@ export default function SocialMessagesScreen({
       const chatSnap = await getDoc(doc(db, "chats", chatId));
       if (chatSnap.exists()) {
         const chatData = chatSnap.data() as Chat;
-        const otherUserId = chatData.participants.find(id => id !== currentUser.uid);
-        const otherUserSnap = await getDoc(doc(db, "users", otherUserId!));
-        setSelectedChat({
-          ...chatData,
-          id: chatSnap.id,
-          otherUser: normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id)
-        });
+        const participants = chatData.participants || [];
+        const others = participants.filter(id => id && id !== currentUser.uid);
+        const otherUserId = others.length > 0 ? others[0] : null;
+
+        if (otherUserId) {
+          const otherUserSnap = await getDoc(doc(db, "users", otherUserId));
+          if (otherUserSnap.exists()) {
+            setSelectedChat({
+              ...chatData,
+              id: chatSnap.id,
+              otherUser: normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id)
+            });
+          }
+        }
       }
     } catch (error: any) {
       console.error("Error starting chat:", error);
@@ -502,7 +551,7 @@ export default function SocialMessagesScreen({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              {loading ? (
+              {isLoading ? (
                 <div className="flex justify-center py-20">
                   <div className="w-8 h-8 border-2 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
                 </div>
@@ -546,7 +595,11 @@ export default function SocialMessagesScreen({
               exit={{ opacity: 0 }}
               className="px-4 pt-2 space-y-4"
             >
-              {requests.length === 0 ? (
+              {isLoading ? (
+                <div className="flex justify-center py-20">
+                  <div className="w-8 h-8 border-2 border-slate-100 border-t-amber-500 rounded-full animate-spin" />
+                </div>
+              ) : requests.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-amber-500/5 blur-3xl rounded-full" />
@@ -564,11 +617,10 @@ export default function SocialMessagesScreen({
                   <div key={request.id} className="bg-white rounded-[2.5rem] p-6 border border-black/5 shadow-sm flex flex-col gap-6">
                     <div className="flex gap-5">
                       <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
-                        <img 
+                        <OptimizedImage 
                           src={request?.senderSnapshot?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${request?.fromUserId || 'default'}`} 
                           alt="User"
                           className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
                         />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -611,7 +663,11 @@ export default function SocialMessagesScreen({
               exit={{ opacity: 0 }}
               className="px-4 pt-2 space-y-3"
             >
-              {likers.length === 0 ? (
+              {isLoading ? (
+                <div className="flex justify-center py-20">
+                  <div className="w-8 h-8 border-2 border-slate-100 border-t-rose-500 rounded-full animate-spin" />
+                </div>
+              ) : likers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-rose-500/5 blur-3xl rounded-full" />
@@ -711,11 +767,10 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
         <div className={`w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 border transition-all duration-300 ${
           unreadCount > 0 ? 'border-indigo-300 shadow-lg shadow-indigo-500/10' : 'border-slate-200'
         }`}>
-          <img 
+          <OptimizedImage 
             src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
             alt={otherUser?.social?.nickname || otherUser?.nickname || 'Sohbet'}
             className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
           />
         </div>
         {otherUser.social?.isOnline && (
@@ -812,13 +867,25 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
   const typingTimeoutRef = useRef<any>(null);
   const lastProcessedSeenId = useRef<string | null>(null);
   const lastProcessedDeliveredId = useRef<string | null>(null);
+  const lastMessageTimeRef = useRef<number>(0);
 
   // Sync chat doc updates (typing status, unread counts, etc.)
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, "chats", initialChat.id), (snap) => {
-      if (snap.exists()) {
-        setChat({ ...initialChat, ...snap.data() } as any);
-      }
+        const chatData = snap.data() as any;
+        const participants = chatData.participants || [];
+        const others = participants.filter((id: string) => id && id !== currentUser.uid);
+        const otherUserId = others.length > 0 ? others[0] : null;
+
+        if (otherUserId && otherUserId !== otherUser.uid) {
+          getDoc(doc(db, "users", otherUserId)).then(userSnap => {
+            if (userSnap.exists()) {
+              setOtherUser({ uid: userSnap.id, ...userSnap.data() } as UserProfile);
+            }
+          }).catch(console.error);
+        }
+        
+        setChat({ ...initialChat, ...chatData } as any);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `chats/${initialChat.id}`);
     });
@@ -848,8 +915,8 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     if (!file) return;
 
     // Size limits
-    if (file.type.startsWith('video/') && file.size > 10 * 1024 * 1024) {
-      toast.error("Video boyutu 10MB'dan küçük olmalıdır.");
+    if (file.size > 20 * 1024 * 1024) { // 20MB limit for any file
+      toast.error("Dosya boyutu 20MB'dan küçük olmalıdır.");
       return;
     }
 
@@ -858,7 +925,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     reader.onloadend = () => {
       setMediaPreview(reader.result as string);
     };
-    reader.readAsDataURL(file);
+    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+      reader.readAsDataURL(file);
+    } else {
+      setMediaPreview('file'); // just a flag that it's a file
+    }
   };
 
   // Close emoji picker when clicking outside
@@ -896,9 +967,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     const q = query(
       collection(db, "messages"),
       where("chatId", "==", chat.id),
-      where("participants", "array-contains", currentUser.uid),
-      orderBy("createdAt", "asc"),
-      limit(50)
+      limit(150)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -906,6 +975,13 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
         id: doc.id,
         ...doc.data()
       } as Message));
+      
+      // Client-side sort by createdAt to avoid index requirement
+      msgs.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds || 0;
+        const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds || 0;
+        return timeA - timeB;
+      });
       
       setMessages(msgs);
       cacheManager.set(CACHE_KEY, msgs, 1800, true); // Cache for 30 mins persistently
@@ -947,6 +1023,14 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     e.preventDefault();
     if ((!newMessage.trim() && !mediaFile) || isSending) return;
 
+    // Rate Limiting
+    const now = Date.now();
+    if (now - lastMessageTimeRef.current < 1000) {
+      toast.error("Lütfen mesaj göndermeden önce biraz bekleyin.");
+      return;
+    }
+    lastMessageTimeRef.current = now;
+
     setIsSending(true);
     const messageText = newMessage.trim();
     const currentMediaFile = mediaFile;
@@ -961,11 +1045,12 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
       participants: [currentUser.uid, otherUser.uid],
       text: messageText,
       mediaUrl: mediaPreview,
-      mediaType: currentMediaFile ? (currentMediaFile.type.startsWith('image/') ? 'image' : 'video') : null,
+      mediaType: currentMediaFile ? (currentMediaFile.type.startsWith('image/') ? 'image' : currentMediaFile.type.startsWith('video/') ? 'video' : 'file') : null,
+      fileName: currentMediaFile ? currentMediaFile.name : undefined,
       createdAt: { toDate: () => new Date() } as any,
       status: 'sending',
       seen: false,
-      type: currentMediaFile ? (currentMediaFile.type.startsWith('image/') ? 'image' : 'video') : 'text'
+      type: currentMediaFile ? (currentMediaFile.type.startsWith('image/') ? 'image' : currentMediaFile.type.startsWith('video/') ? 'video' : 'file') : 'text'
     };
 
     setMessages(prev => [...prev, optimisticMsg]);
@@ -980,7 +1065,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
         await socialService.editMessage(editingMessage.id, messageText);
         setEditingMessage(null);
       } else if (currentMediaFile) {
-        const type = currentMediaFile.type.startsWith('image/') ? 'image' : 'video';
+        const type = currentMediaFile.type.startsWith('image/') ? 'image' : currentMediaFile.type.startsWith('video/') ? 'video' : 'file';
         await socialService.sendMedia(chat.id, currentUser.uid, otherUser.uid, currentMediaFile, type);
       } else {
         await socialService.sendMessage(chat.id, currentUser.uid, otherUser.uid, { text: messageText });
@@ -1127,11 +1212,10 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
           >
             <div className="relative">
               <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-200 border-2 border-white shadow-md transition-transform group-hover:scale-105">
-                <img 
+                <OptimizedImage 
                   src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
                   alt={otherUser?.social?.nickname || otherUser?.nickname || 'Sohbet'}
                   className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
                 />
               </div>
               {otherUser?.social?.isOnline && (
@@ -1332,11 +1416,10 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
                     <div className="w-10 flex-shrink-0 flex items-end mb-1">
                       {isLastInGroup && (
                         <div className="w-8 h-8 rounded-full overflow-hidden border border-white shadow-sm">
-                          <img 
+                          <OptimizedImage 
                             src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
                             alt="avatar"
                             className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
                           />
                         </div>
                       )}
@@ -1399,18 +1482,31 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
                       {msg.mediaUrl && (
                         <div className="mb-2 rounded-xl overflow-hidden bg-black/5 shadow-inner border border-white/10">
                           {msg.mediaType === 'image' ? (
-                            <img 
+                            <OptimizedImage 
                               src={msg.mediaUrl} 
                               alt="Media" 
                               className="max-w-full max-h-72 object-contain"
-                              referrerPolicy="no-referrer"
                             />
-                          ) : (
+                          ) : msg.mediaType === 'video' ? (
                             <video 
                               src={msg.mediaUrl} 
                               controls 
                               className="max-w-full max-h-72"
                             />
+                          ) : (
+                            <a 
+                              href={msg.mediaUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 p-3 bg-white/10 hover:bg-white/20 transition-all rounded-lg"
+                            >
+                              <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                                <Paperclip className="w-5 h-5 text-indigo-400" />
+                              </div>
+                              <span className="text-sm font-medium underline underline-offset-2 opacity-90 break-all line-clamp-2">
+                                {(msg as any).fileName || "Ekli Dosya"}
+                              </span>
+                            </a>
                           )}
                         </div>
                       )}
@@ -1462,9 +1558,14 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
             >
               <div className="w-20 h-20 rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 relative shadow-inner">
                 {mediaFile?.type.startsWith('image/') ? (
-                  <img src={mediaPreview} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
+                  <OptimizedImage src={mediaPreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : mediaFile?.type.startsWith('video/') ? (
                   <video src={mediaPreview} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-2 text-indigo-500">
+                    <Paperclip className="w-8 h-8 mb-1" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider">DOSYA</span>
+                  </div>
                 )}
                 <button 
                   onClick={() => { setMediaFile(null); setMediaPreview(null); }}
@@ -1550,15 +1651,33 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
             </button>
             <button 
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.capture = '';
+                  fileInputRef.current.accept = 'image/*,video/*,application/*';
+                  fileInputRef.current.click();
+                }
+              }}
               className="p-2.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
             >
               <Paperclip className="w-6 h-6" />
             </button>
+            <button 
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.capture = 'environment';
+                  fileInputRef.current.accept = 'image/*,video/*';
+                  fileInputRef.current.click();
+                }
+              }}
+              className="p-2.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+            >
+              <Camera className="w-6 h-6" />
+            </button>
             <input 
               ref={fileInputRef}
               type="file"
-              accept="image/*,video/*"
               className="hidden"
               onChange={handleFileSelect}
             />

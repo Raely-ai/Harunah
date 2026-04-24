@@ -208,7 +208,6 @@ export default function HomeScreen({
                       onNavigate={onNavigate}
                       config={config}
                       onRefresh={handleRefreshDiscover}
-                      refreshTimer={refreshTimer}
                       isActive={activeTopTab === 'discover'}
                     />
                   </div>

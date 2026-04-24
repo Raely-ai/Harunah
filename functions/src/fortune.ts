@@ -44,11 +44,16 @@ export const createFortuneReading = functions.region('us-central1').https.onCall
 
     const duplicateCheck = await db.collection("readings")
       .where("requestHash", "==", requestHash)
-      .where("createdAt", ">", new Date(Date.now() - 5 * 60 * 1000).toISOString())
-      .limit(1)
+      .limit(5)
       .get();
 
-    if (!duplicateCheck.empty) {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const hasRecentReading = duplicateCheck.docs.some(doc => {
+      const data = doc.data();
+      return data.createdAt > fiveMinutesAgo;
+    });
+
+    if (hasRecentReading) {
       throw new functions.https.HttpsError('already-exists', 'Bu fal talebi zaten gönderilmiş.');
     }
 
@@ -152,7 +157,7 @@ export const createFortuneReading = functions.region('us-central1').https.onCall
 });
 
 // 2. Process Fortune AI
-export const processFortuneAI = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+export const processFortuneAI = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -270,7 +275,7 @@ export const upgradeFortunePriority = functions.region('us-central1').https.onCa
 });
 
 // 4. Generate Daily Message
-export const generateDailyMessage = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
+export const generateDailyMessage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {

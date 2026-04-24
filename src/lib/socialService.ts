@@ -13,12 +13,13 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, handleFirestoreError, OperationType } from "./firebase";
-import { UserProfile, InteractionRequest, SocialActionResult } from "../types";
+import { UserProfile, InteractionRequest, SocialActionResult, normalizeUserProfile } from "../types";
 import { callFunction } from "./walletService";
 
 import { toast } from "sonner";
 
 import { cacheManager } from "./cacheManager";
+import { matchingService } from "../services/matchingService";
 
 let lastPresenceStatus: boolean | null = null;
 
@@ -41,11 +42,8 @@ export const socialService = {
     if (!toUserId) return 'INVALID_TARGET';
     if (fromUser.uid === toUserId) return 'SELF_ACTION';
 
-    // Optimistic Update: Add to swiped list in cache immediately
-    const swipedIds = cacheManager.get<string[]>("socialSwipedIds") || [];
-    if (!swipedIds.includes(toUserId)) {
-      cacheManager.set("socialSwipedIds", [...swipedIds, toUserId], 86400, true);
-    }
+    // Optimistic Update: Add to swiped list in matchingService cache immediately
+    matchingService.trackSwipe(toUserId);
 
     try {
       const result = await callFunction('sendLike', { targetUserId: toUserId, type });
@@ -100,6 +98,29 @@ export const socialService = {
     } catch (error) {
       console.error("Error checking block status:", error);
       return false;
+    }
+  },
+
+  // 2.3 Get Matches (Users with existing chats)
+  async getMatches(userId: string): Promise<{ uid: string }[]> {
+    try {
+      const q = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", userId)
+      );
+      const snap = await getDocs(q);
+      const matchIds = new Set<string>();
+      
+      snap.docs.forEach(d => {
+        const data = d.data();
+        const otherId = data.participants.find((p: string) => p !== userId);
+        if (otherId) matchIds.add(otherId);
+      });
+
+      return Array.from(matchIds).map(uid => ({ uid }));
+    } catch (error) {
+      console.error("socialService: Error fetching matches:", error);
+      return [];
     }
   },
 
@@ -258,7 +279,7 @@ export const socialService = {
 
   // --- Advanced Messaging Features ---
 
-  async sendMessage(chatId: string, senderId: string, otherUserId: string, content: { text?: string, mediaUrl?: string, mediaType?: 'image' | 'video' }) {
+  async sendMessage(chatId: string, senderId: string, otherUserId: string, content: { text?: string, mediaUrl?: string, mediaType?: 'image' | 'video' | 'file', fileName?: string }) {
     try {
       const batch = writeBatch(db);
       const msgRef = doc(collection(db, "messages"));
@@ -267,7 +288,7 @@ export const socialService = {
 
       const now = serverTimestamp();
       const type = content.mediaType || 'text';
-      const lastMsgText = type === 'text' ? (content.text || "") : (type === 'image' ? "📷 Görsel" : "🎥 Video");
+      const lastMsgText = type === 'text' ? (content.text || "") : (type === 'image' ? "📷 Görsel" : type === 'video' ? "🎥 Video" : "📎 Dosya");
 
       const messageDoc = {
         id: msgRef.id,
@@ -278,6 +299,7 @@ export const socialService = {
         text: content.text || "",
         mediaUrl: content.mediaUrl || null,
         mediaType: content.mediaType || null,
+        fileName: content.fileName || null,
         createdAt: now,
         status: 'sent',
         seen: false,
@@ -305,16 +327,36 @@ export const socialService = {
     }
   },
 
-  async sendMedia(chatId: string, senderId: string, otherUserId: string, file: File, type: 'image' | 'video') {
-    const storagePath = `chats/${chatId}/${Date.now()}_${file.name}`;
+  async sendMedia(chatId: string, senderId: string, otherUserId: string, file: File, type: 'image' | 'video' | 'file') {
+    let fileToUpload = file;
+
+    if (type === 'image') {
+      try {
+        const imageCompression = (await import('browser-image-compression')).default;
+        const options = {
+          maxSizeMB: 1,
+          maxWidthOrHeight: 1200,
+          useWebWorker: true,
+          initialQuality: 0.8
+        };
+        fileToUpload = await imageCompression(file, options);
+      } catch (error) {
+        console.error("Image compression error:", error);
+      }
+    }
+
+    const storagePath = `chats/${chatId}/media/${Date.now()}_${fileToUpload.name}`;
     const storageRef = ref(storage, storagePath);
     
-    await uploadBytes(storageRef, file);
+    await uploadBytes(storageRef, fileToUpload, {
+      cacheControl: 'public, max-age=31536000, s-maxage=31536000',
+    });
     const downloadUrl = await getDownloadURL(storageRef);
     
     return await this.sendMessage(chatId, senderId, otherUserId, {
       mediaUrl: downloadUrl,
-      mediaType: type
+      mediaType: type,
+      fileName: file.name // keep the original name
     });
   },
 
@@ -332,18 +374,18 @@ export const socialService = {
 
   async markAsSeen(chatId: string, currentUserId: string, _otherUserId: string) {
     try {
-      const chatRef = doc(db, "chats", chatId);
-      await updateDoc(chatRef, {
-        [`unreadCount.${currentUserId}`]: 0,
-        lastMessageStatus: 'seen'
-      });
+      await callFunction('markAsSeen', { chatId });
     } catch (error: any) {
       console.error("socialService: Error in markAsSeen:", error);
     }
   },
 
-  async markAsDelivered(chatId: string, _currentUserId: string, _otherUserId: string) {
-    // No-op client-side for now
+  async markAsDelivered(chatId: string, currentUserId: string, _otherUserId: string) {
+    try {
+      await callFunction('markAsDelivered', { chatId });
+    } catch (error: any) {
+      console.error("socialService: Error in markAsDelivered:", error);
+    }
   },
 
   async updateSocialSettings(settings: any) {
@@ -383,9 +425,11 @@ export const socialService = {
     }
   },
 
-  async setTypingStatus(chatId: string, _userId: string, isTyping: boolean) {
+  async setTypingStatus(chatId: string, userId: string, isTyping: boolean) {
     try {
-      await callFunction('setTypingStatus', { chatId, isTyping });
+      await updateDoc(doc(db, "chats", chatId), {
+        [`typing.${userId}`]: isTyping
+      });
     } catch (error: any) {
       console.error("socialService: Error in setTypingStatus:", error);
     }
@@ -419,13 +463,33 @@ export const socialService = {
   // 6. Refresh Discover (Optimized Search)
   async refreshDiscover() {
     try {
-      // Backend'deki refreshDiscover Cloud Function'ını çağırıyoruz.
-      // Bu fonksiyon exclusionList (swiped, blocked vb.) kontrolünü sunucu tarafında yapar.
+      // Get current user from cache (App.tsx ensures it's there)
+      const cachedProfile = cacheManager.get<UserProfile>("userProfile");
+      if (!cachedProfile && auth.currentUser) {
+        // Fallback: Fetch if not in cache
+        try {
+          const snap = await getDoc(doc(db, "users", auth.currentUser.uid));
+          if (snap.exists()) {
+            const profile = normalizeUserProfile(snap.data(), snap.id);
+            const users = await matchingService.fetchPotentialMatches(profile);
+            return { success: true, users };
+          }
+        } catch (innerError) {
+          console.warn("refreshDiscover: Failed to fetch profile from Firestore, using function fallback");
+        }
+      }
+
+      if (cachedProfile) {
+        const users = await matchingService.fetchPotentialMatches(cachedProfile);
+        return { success: true, users };
+      }
+
+      // Backend fallback if somehow we can't get profile
       const result = await callFunction('refreshDiscover', {});
       return result;
     } catch (error: any) {
       console.error("socialService: Error in refreshDiscover:", error);
-      return { success: false, message: error.message };
+      return { success: false, message: error.message, users: [] };
     }
   }
 };

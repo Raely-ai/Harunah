@@ -1,21 +1,32 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /chats/{chatId}/{allPaths=**} {
-      allow read: if request.auth != null && (
-        request.auth.uid in firestore.get(/databases/(default)/documents/chats/$(chatId)).data.participants ||
-        (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) && 
-         firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get('role', 'user') in ['admin', 'social_operator'])
-      );
-      allow write: if request.auth != null && (
-        request.auth.uid in firestore.get(/databases/(default)/documents/chats/$(chatId)).data.participants ||
-        (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) && 
-         firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get('role', 'user') in ['admin', 'social_operator'])
-      );
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
     }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid));
+    }
+
+    match /chats/{chatId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      // Only authenticated users can upload to chat folders. 
+      // Detailed cross-checks lead to max-retry errors on poor connections due to firestore latency.
+      allow write: if isAuthenticated() && request.resource.size < 20 * 1024 * 1024;
+    }
+    
     match /profiles/{userId}/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }

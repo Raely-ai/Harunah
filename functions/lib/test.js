@@ -33,8 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.testPing = void 0;
+exports.testPingV2 = exports.testPing = void 0;
 const functions = __importStar(require("firebase-functions"));
+const https_1 = require("firebase-functions/v2/https");
 exports.testPing = functions
     .region("us-central1")
     .https.onCall(async (data, context) => {
@@ -43,6 +44,13 @@ exports.testPing = functions
         success: true,
         message: "Function is working",
         uid: context.auth?.uid || null,
+    };
+});
+exports.testPingV2 = (0, https_1.onCall)({ cors: true, region: "us-central1" }, async (request) => {
+    return {
+        success: true,
+        message: "V2 Function is working",
+        uid: request.auth?.uid || null,
     };
 });
 //# sourceMappingURL=test.js.map
