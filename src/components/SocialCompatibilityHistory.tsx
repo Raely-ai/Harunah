@@ -77,6 +77,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
     const q = query(
       collection(db, "compatibilityHistory"),
       where("userId", "==", uid),
+      orderBy("createdAt", "desc"),
       limit(200) // Fallback via in-memory sorting
     );
 
@@ -431,16 +432,23 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
   }, [item.isPending, item.finishTime, item.createdAt]);
 
   const person2Name = item.targetName || item.person2?.name || "Bilinmiyor";
-  const person2Photo = item.targetPhoto || item.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.targetUserId || person2Name}`;
+  
+  // Decide if revealed - Hardened check for retro-compatibility
+  // A record is revealed if:
+  // 1. Explicitly marked as revealed: true OR status: 'revealed'
+  // 2. OR it's from compatibilityHistory (isPending: false) AND NOT a new pending request
+  const isActuallyRevealed = item.revealed === true || 
+                             item.status === 'revealed' || 
+                             (!item.isPending && !item.targetUserId); // Heuristic for old history records
 
   return (
     <motion.div 
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      onClick={onClick}
+      onClick={!item.isPending && isActuallyRevealed ? onClick : undefined}
       className={`relative p-4 rounded-[2rem] border transition-all overflow-hidden ${
-        item.isPending 
+        item.isPending || !isActuallyRevealed
           ? 'bg-slate-50 border-slate-100 cursor-default' 
           : 'bg-white border-white shadow-sm hover:shadow-xl hover:border-indigo-100 cursor-pointer group'
       }`}
@@ -451,8 +459,8 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
             <img src={item.person1?.photo || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} className="w-full h-full object-cover" />
           </div>
           <div className="w-12 h-12 rounded-2xl border-2 border-white shadow-md overflow-hidden relative z-20">
-            <img src={person2Photo} className="w-full h-full object-cover" />
-            {item.isPending && (
+            <img src={item.targetPhoto || item.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.targetUserId || person2Name}`} className="w-full h-full object-cover" />
+            {(item.isPending || !isActuallyRevealed) && (
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center">
                 <Loader2 className="w-5 h-5 text-white animate-spin" />
               </div>
@@ -465,7 +473,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
             <h4 className="text-[11px] font-black text-slate-900 truncate uppercase tracking-tighter">
               {item.person1?.name || 'Sen'} & {person2Name}
             </h4>
-            {!item.isPending && (
+            {(isActuallyRevealed) && (
               <div className="px-2 py-0.5 bg-rose-50 text-rose-500 rounded-lg text-[9px] font-black">%{item.loveScore}</div>
             )}
           </div>
@@ -475,12 +483,12 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
             </span>
             <div className="w-1 h-1 rounded-full bg-slate-200" />
             <span className="text-[8px] font-bold text-slate-400 italic truncate max-w-[120px]">
-              {item.isPending ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
+              {(item.isPending || !isActuallyRevealed) ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
             </span>
           </div>
         </div>
 
-        {item.isPending && (
+        {(item.isPending) && (
           <div className="flex flex-col items-end gap-1.5 min-w-[70px]">
             <div className="px-2 py-1 bg-indigo-500 text-white rounded-lg text-[9px] font-black flex items-center gap-1.5 shadow-lg shadow-indigo-500/20">
               <Clock className="w-3 h-3" />
@@ -499,7 +507,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
         )}
       </div>
 
-      {!item.isPending && (
+      {(isActuallyRevealed) && (
         <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-indigo-500/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity rounded-full" />
       )}
     </motion.div>

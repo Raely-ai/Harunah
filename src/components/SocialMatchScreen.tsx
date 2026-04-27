@@ -194,28 +194,28 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
   }, [liveUser, activeUser]);
 
   return (
-    <div className="flex-1 flex flex-col relative w-full h-full bg-black pt-[calc(env(safe-area-inset-top,1rem)+72px)] pb-18 overflow-hidden">
+    <div className="flex-1 flex flex-col relative w-full h-full bg-[#FAFAFA] pt-[calc(env(safe-area-inset-top,1rem)+72px)] pb-18 overflow-hidden">
       {loading ? (
         <div className="flex-1 flex flex-col items-center justify-center space-y-6">
           <div className="relative">
-            <div className="w-12 h-12 border-2 border-white/10 border-t-amber-500 rounded-full animate-spin" />
+            <div className="w-12 h-12 border-2 border-slate-200 border-t-amber-500 rounded-full animate-spin" />
             <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-amber-500 animate-pulse" />
           </div>
-          <p className="text-white/40 text-sm font-medium animate-pulse">Yıldızlar hizalanıyor...</p>
+          <p className="text-slate-500 text-sm font-medium animate-pulse">Yıldızlar hizalanıyor...</p>
         </div>
       ) : !activeUser ? (
-        <div className="flex-1 flex items-center justify-center px-8 bg-[#f8f7f9]">
+        <div className="flex-1 flex items-center justify-center px-8 bg-[#FAFAFA]">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-sm space-y-8">
             <div className="relative mx-auto w-20 h-20">
               <div className="absolute inset-0 bg-amber-500/10 blur-2xl rounded-full" />
-              <div className="relative h-full bg-white border border-black/5 rounded-[2rem] flex items-center justify-center shadow-xl">
+              <div className="relative h-full bg-white border border-slate-100 rounded-[2rem] flex items-center justify-center shadow-lg">
                  <Sparkles className="w-8 h-8 text-amber-500" />
               </div>
             </div>
             <div className="space-y-3">
-              <h3 className="text-xl font-serif font-black text-heading leading-tight">Gökyüzü Şimdilik Sessiz</h3>
-              <p className="text-body text-xs leading-relaxed px-4 opacity-70">
-                Sana uygun ruhlar aranıyor, frekanslar eşleştiğinde burada belirecekler...
+              <h3 className="text-xl font-serif font-bold text-slate-900 leading-tight">Şu an yeni ruh bulunamadı</h3>
+              <p className="text-slate-500 text-sm leading-relaxed px-4">
+                Biraz sonra tekrar deneyebilirsin.
               </p>
             </div>
           </motion.div>
@@ -235,7 +235,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
               }}
               exit={{ opacity: 0, scale: 0.5 }}
               transition={{ type: "spring", damping: 25, stiffness: 120 }}
-              className="absolute inset-0 w-full h-full overflow-hidden shadow-2xl bg-black group cursor-pointer"
+              className="absolute inset-0 w-full h-full overflow-hidden shadow-2xl bg-white group cursor-pointer"
               onClick={() => setSelectedProfile(activeUser)}
             >
               {/* TOP LIMIT INDICATORS */}

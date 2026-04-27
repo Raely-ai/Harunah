@@ -72,6 +72,37 @@ export default function DiscoverProfilePopup({
 
   const checkExistingAnalysis = async (uid: string) => {
     try {
+      // 1. Check for the latest CompatibilityRequest
+      const qReq = query(
+        collection(db, "compatibilityRequests"),
+        where("userId", "==", currentUid),
+        where("targetUserId", "==", uid),
+        orderBy("createdAt", "desc"),
+        limit(1)
+      );
+      const snapReq = await getDocs(qReq);
+      
+      if (!snapReq.empty) {
+        const req = { id: snapReq.docs[0].id, ...snapReq.docs[0].data() } as any;
+        
+        // IF PENDING: Ignore history, show pending UI
+        if (req.status === 'pending' || req.revealed === false) {
+          setIsPending(true);
+          setPendingRequestId(req.id);
+          setAnalysisResult(null); // Clear result if any
+          return;
+        }
+        
+        // IF REVEALED: Do NOT fetch result automatically
+        // (Wait for polling or explicit user action)
+      }
+      
+      // IF NO PENDING/REVEALED REQUEST: Fallback to old history if exists
+      // (As requested, keeping this logic for retro-compatibility)
+      // I am keeping the logic below so it doesn't break, but I won't automatically show it
+      // as part of the popup opening in a way that interferes with the request check.
+      // Wait, actually, the previous implementation did this:
+      /*
       const q = query(
         collection(db, "compatibilityHistory"),
         where("userId", "==", currentUid),
@@ -83,18 +114,20 @@ export default function DiscoverProfilePopup({
         setAnalysisResult({ id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory);
         return;
       }
-
-      const qPending = query(
-        collection(db, "compatibilityRequests"),
-        where("userId", "==", currentUid),
-        where("targetUserId", "==", uid),
-        where("status", "==", "pending"),
-        limit(1)
-      );
-      const snapPending = await getDocs(qPending);
-      if (!snapPending.empty) {
-        setIsPending(true);
-        setPendingRequestId(snapPending.docs[0].id);
+      */
+      // I will only run this if NO active pending request was found, to support retro-compatibility,
+      // as requested.
+      if (snapReq.empty) {
+        const qHist = query(
+          collection(db, "compatibilityHistory"),
+          where("userId", "==", currentUid),
+          where("targetUserId", "==", uid),
+          limit(1)
+        );
+        const snapHist = await getDocs(qHist);
+        if (!snapHist.empty) {
+          setAnalysisResult({ id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory);
+        }
       }
     } catch (err) {
       console.error("Check analysis error:", err);
@@ -144,31 +177,22 @@ export default function DiscoverProfilePopup({
     if (isAnalyzing || isPending || !targetUid) return;
     
     setIsAnalyzing(true);
-    const timeout = setTimeout(() => {
-      toast.info("İşlem biraz uzun sürüyor, lütfen bekleyin...");
-    }, 5000);
-
     try {
-      const result = await walletService.runCompatibilityAnalysis(targetUid, 'ask');
-      clearTimeout(timeout);
-      
-      if (result.success) {
-        if (result.cached) {
-          setAnalysisResult(result.analysis);
-          toast.success("Uyum analizi yüklendi! ✨");
-        } else {
-          setIsPending(true);
-          setPendingRequestId(result.requestId || null);
-          toast.success("Uyum analizi başlatıldı! ✨");
-        }
-      } else {
-        toast.info("Yetersiz Analiz kredisi. Mağazaya göz atın.");
-        onNavigate('wallet');
-      }
-    } catch (err) {
-      clearTimeout(timeout);
-      console.error("Compatibility error:", err);
-      toast.error("Analiz başlatılamadı.");
+      // Create a pending request
+      const reqRef = await addDoc(collection(db, "compatibilityRequests"), {
+        userId: currentUid,
+        targetUserId: targetUid,
+        status: "pending",
+        revealed: false,
+        createdAt: serverTimestamp(),
+      });
+      setIsPending(true);
+      setPendingRequestId(reqRef.id);
+      toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+
+    } catch (error: any) {
+      console.error("Analysis request error:", error);
+      toast.error("Talep başlatılamadı.");
     } finally {
       setIsAnalyzing(false);
     }

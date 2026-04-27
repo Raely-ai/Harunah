@@ -13,7 +13,9 @@ import {
   setDoc,
   increment,
   Timestamp,
-  serverTimestamp
+  serverTimestamp,
+  getCountFromServer,
+  startAfter
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions, handleFirestoreError, OperationType } from "../lib/firebase";
@@ -37,6 +39,27 @@ function setCachedData(key: string, data: any) {
 }
 
 export const adminService = {
+  // Stats
+  async getUserStats(): Promise<{ totalUsers: number; activeUsers: number }> {
+    try {
+      const allUsersQuery = query(collection(db, "users"));
+      const activeUsersQuery = query(collection(db, "users"), where("isBanned", "!=", true));
+      
+      const [allSnap, activeSnap] = await Promise.all([
+        getCountFromServer(allUsersQuery),
+        getCountFromServer(activeUsersQuery)
+      ]);
+      
+      return {
+        totalUsers: allSnap.data().count,
+        activeUsers: activeSnap.data().count
+      };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, "users/stats");
+      return { totalUsers: 0, activeUsers: 0 };
+    }
+  },
+
   // User Management
   async getUsers(forceRefresh = false): Promise<UserProfile[]> {
     if (!forceRefresh) {
@@ -44,7 +67,8 @@ export const adminService = {
       if (cached) return cached;
     }
     try {
-      const snap = await getDocs(collection(db, "users"));
+      // SADECE 100 kullanıcı çekilecek, fatura tuzağı önlendi
+      const snap = await getDocs(query(collection(db, "users"), limit(100)));
       const users = snap.docs.map(d => normalizeUserProfile(d.data(), d.id));
       setCachedData('users', users);
       return users;
@@ -103,15 +127,14 @@ export const adminService = {
   },
 
   // Report Management
-  async getReports(forceRefresh = false): Promise<CentralizedReport[]> {
-    if (!forceRefresh) {
-      const cached = getCachedData('reports');
-      if (cached) return cached;
-    }
+  async getReports(forceRefresh = false, lastVisible?: any): Promise<CentralizedReport[]> {
     try {
-      const snap = await getDocs(query(collection(db, "reports"), orderBy("createdAt", "desc"), limit(100)));
+      let q = query(collection(db, "reports"), orderBy("createdAt", "desc"), limit(100));
+      if (lastVisible) {
+        q = query(collection(db, "reports"), orderBy("createdAt", "desc"), startAfter(lastVisible), limit(100));
+      }
+      const snap = await getDocs(q);
       const reports = snap.docs.map(d => ({ id: d.id, ...d.data() } as CentralizedReport));
-      setCachedData('reports', reports);
       return reports;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, "reports");

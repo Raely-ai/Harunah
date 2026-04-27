@@ -187,12 +187,15 @@ export const spendBalance = functions.region('us-central1').https.onCall(async (
     if (balanceType === 'energy') {
       const snaps = await db.collection("walletTransactions")
         .where("userId", "==", userId)
-        .where("balanceType", "==", "energy")
-        .where("status", "==", "active")
-        .where("expiresAt", ">", now)
-        .orderBy("expiresAt", "asc")
         .get();
-      energyTxs = snaps.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() }));
+      
+      energyTxs = snaps.docs.map(d => ({ id: d.id, ref: d.ref, ...(d.data() as any) }))
+        .filter((tx: any) => tx.balanceType === "energy" && tx.status === "active" && tx.expiresAt && tx.expiresAt > now)
+        .sort((a: any, b: any) => {
+          if (a.expiresAt < b.expiresAt) return -1;
+          if (a.expiresAt > b.expiresAt) return 1;
+          return 0;
+        });
     }
 
     return await db.runTransaction(async (transaction) => {
@@ -324,22 +327,35 @@ export const buyFortuneSubscription = functions.region('us-central1').https.onCa
   }
 });
 
-// 5. Purchase Boost Package (TL-based)
+// 5. Purchase Boost Package (J-Coin based)
 export const purchaseBoostPackage = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
   try {
     if (!data || !data.type) throw new functions.https.HttpsError('invalid-argument', 'Boost tipi gerekli.');
-    const { type } = data; // 'weekly' or 'monthly'
+    const { type } = data; // Usually package id like 'weekly' or 'monthly'
     
-    // HARDENING: Fetch config from Firestore
-    const configSnap = await db.collection("adminSettings").doc("economy").get();
-    if (!configSnap.exists) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
-    const economy = configSnap.data() as any;
+    // HARDENING: Fetch social market config from Firestore
+    const configSnap = await db.collection("config").doc("socialCommerce").get();
+    let durationDays = 7;
+    let priceCoins = 100;
     
-    // Boost packages are defined in economy.boostPackages or similar
-    const boostConfig = economy.boostPackages?.[type] || (type === 'weekly' ? { days: 7, priceTRY: 49.99 } : { days: 30, priceTRY: 149.99 });
+    if (configSnap.exists) {
+        const commerceConfig = configSnap.data() as any;
+        const boostPackages = commerceConfig.boostPackages || [];
+        const boostConfig = boostPackages.find((p: any) => p.id === type);
+        
+        if (!boostConfig) {
+             throw new functions.https.HttpsError('invalid-argument', 'Geçersiz boost paketi.');
+        }
+        
+        durationDays = boostConfig.durationHours ? boostConfig.durationHours / 24 : (boostConfig.value || 7);
+        priceCoins = boostConfig.price;
+    } else {
+        // Fallback if config is missing but let's throw instead based on user rules
+        throw new functions.https.HttpsError('internal', 'Sosyal market yapılandırması bulunamadı.');
+    }
 
     const userRef = db.collection("users").doc(userId);
     const now = new Date();
@@ -349,11 +365,16 @@ export const purchaseBoostPackage = functions.region('us-central1').https.onCall
       if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const userData = userSnap.data() as any;
 
+      if ((userData.mainCoins || 0) < priceCoins) {
+        throw new functions.https.HttpsError('failed-precondition', "Yetersiz J-Coin bakiyesi.");
+      }
+
       const currentBoost = userData.boostExpiresAt ? new Date(userData.boostExpiresAt) : new Date();
       const baseDate = currentBoost > now ? currentBoost : now;
-      baseDate.setDate(baseDate.getDate() + boostConfig.days);
+      baseDate.setDate(baseDate.getDate() + durationDays);
 
       transaction.update(userRef, {
+        mainCoins: FieldValue.increment(-priceCoins),
         boostExpiresAt: baseDate.toISOString()
       });
 
@@ -361,12 +382,12 @@ export const purchaseBoostPackage = functions.region('us-central1').https.onCall
       transaction.set(txRef, {
         id: txRef.id,
         userId,
-        type: 'purchase',
+        type: 'spend',
         source: 'boost',
-        amount: boostConfig.priceTRY,
-        balanceType: 'fiat',
+        amount: -priceCoins,
+        balanceType: 'main',
         createdAt: now.toISOString(),
-        status: 'active',
+        status: 'spent', // Tamamlanmış harcama
         description: `Boost Paketi (${type})`
       });
 
@@ -390,29 +411,33 @@ export const purchaseSocialItem = functions.region('us-central1').https.onCall(a
 
     console.log(`[purchaseSocialItem] User: ${userId}, Type: ${type}, Qty: ${quantity}`);
 
-    // 1. Fetch config
-    const configSnap = await db.collection("adminSettings").doc("economy").get();
-    if (!configSnap.exists) throw new functions.https.HttpsError('internal', "Sistem yapılandırması bulunamadı.");
-    const economy = configSnap.data() as any;
+    // 1. Fetch config from socialCommerce
+    const configSnap = await db.collection("config").doc("socialCommerce").get();
+    if (!configSnap.exists) throw new functions.https.HttpsError('internal', "Sosyal market yapılandırması bulunamadı.");
+    const commerceConfig = configSnap.data() as any;
     
     // 2. Determine Price (Try to find matching package, fallback to unit price)
-    const priceKey = type === 'superLike' ? 'superLike' : type === 'refresh' ? 'refresh' : 'compatibility';
-    if (!economy.socialPricing || !economy.socialPricing[priceKey]) throw new functions.https.HttpsError('invalid-argument', "Geçersiz öğe.");
+    let packageArray = [];
+    if (type === 'superLike') packageArray = commerceConfig.superLikePackages || [];
+    else if (type === 'refresh') packageArray = commerceConfig.discoverRefreshPackages || [];
+    else if (type === 'compatibility') packageArray = commerceConfig.analysisPackages || [];
+    else throw new functions.https.HttpsError('invalid-argument', "Geçersiz öğe tipi.");
     
-    const pricingArray = economy.socialPricing[priceKey] || [];
     const qty = Math.max(1, parseInt(quantity) || 1);
     
-    const matchingPkg = pricingArray.find((p: any) => p.count === qty);
+    const matchingPkg = packageArray.find((p: any) => p.count === qty || p.value === qty);
     let totalPrice: number;
+    let actualQty = qty;
     
     if (matchingPkg) {
-      totalPrice = matchingPkg.priceCoins;
+      totalPrice = matchingPkg.price; // use .price from CommercePackage
+      actualQty = matchingPkg.count || matchingPkg.value || qty;
     } else {
-      const unitPrice = pricingArray[0]?.priceCoins || 20;
+      const unitPrice = packageArray[0]?.price || 20;
       totalPrice = unitPrice * qty;
     }
 
-    console.log(`[purchaseSocialItem] Qty: ${qty}, TotalPrice: ${totalPrice} (Matched: ${!!matchingPkg})`);
+    console.log(`[purchaseSocialItem] Actual Qty: ${actualQty}, TotalPrice: ${totalPrice} (Matched: ${!!matchingPkg})`);
 
     // 3. Run Transaction
     const userRef = db.collection("users").doc(userId);
@@ -429,9 +454,9 @@ export const purchaseSocialItem = functions.region('us-central1').https.onCall(a
         mainCoins: FieldValue.increment(-totalPrice)
       };
       
-      if (type === 'superLike') updates.superLikes = FieldValue.increment(qty);
-      else if (type === 'refresh') updates.refreshCount = FieldValue.increment(qty);
-      else if (type === 'compatibility') updates.compatibilityCount = FieldValue.increment(qty);
+      if (type === 'superLike') updates.superLikes = FieldValue.increment(actualQty);
+      else if (type === 'refresh') updates.refreshCount = FieldValue.increment(actualQty);
+      else if (type === 'compatibility') updates.compatibilityCount = FieldValue.increment(actualQty);
       else return { success: false, status: 'INVALID_ITEM' };
       
       transaction.update(userRef, updates);
@@ -446,7 +471,7 @@ export const purchaseSocialItem = functions.region('us-central1').https.onCall(a
         balanceType: 'main',
         createdAt: new Date().toISOString(),
         status: 'spent',
-        description: `${description || type} (${qty} adet) satın alımı`
+        description: `${description || type} (${actualQty} adet) satın alımı`
       });
 
       return { success: true, status: 'SUCCESS' };

@@ -808,6 +808,18 @@ export const createReport = functions.region('us-central1').https.onCall(async (
   try {
     if (!data || !data.reportedUserId) throw new functions.https.HttpsError('invalid-argument', 'Raporlanan kullanıcı ID gerekli.');
     const { reportedUserId, source, reason, description, metadata } = data;
+    
+    // Spam kontrolü
+    const existingReports = await db.collection("reports")
+      .where("reporterId", "==", context.auth.uid)
+      .where("reportedUserId", "==", reportedUserId)
+      .where("status", "==", "pending")
+      .get();
+      
+    if (!existingReports.empty) {
+      throw new functions.https.HttpsError('already-exists', 'Bu kullanıcı için zaten incelemede olan bir raporunuz bulunmaktadır.');
+    }
+
     const ref = db.collection("reports").doc();
     await ref.set({ id: ref.id, reporterId: context.auth.uid, reportedUserId, source, reason, description: description || "", metadata: metadata || {}, createdAt: FieldValue.serverTimestamp(), status: 'pending' });
     return { success: true, status: 'SUCCESS' };
@@ -838,54 +850,124 @@ export const createChat = functions.region('us-central1').https.onCall(async (da
 });
 
 // 22. Compatibility Analysis
-export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
+async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, cacheKey?: string) {
+  const now = new Date().toISOString();
+  const openai = getOpenAI();
+  try {
+    const response = await openai.chat.completions.create({ 
+      model: "gpt-4o-mini", 
+      response_format: { type: "json_object" },
+      messages: [{ 
+        role: "system", 
+        content: "Sen evrenin frekanslarını okuyan, sadece TÜRKÇE konuşan, mistik ve iddialı bir ASTROLOGSUN. Senden %100 Türkçe ve JSON formatında astrolog analizi isteniyor. Başka hiçbir dil KULLANILAMAZ." 
+      }, { 
+        role: "user", 
+        content: `Kişi 1: ${person1?.name || 'Bilinmiyor'} (Doğum: ${person1?.birthDate || 'Bilinmiyor'})
+Kişi 2: ${person2?.name || 'Bilinmiyor'} (Doğum: ${person2?.birthDate || 'Bilinmiyor'})
+İlişki Türü: ${relationshipType || 'Bilinmiyor'}
+
+Lütfen analizini KESİNLİKLE AŞAĞIDAKİ JSON YAPISINA sahip olarak ve %100 TÜRKÇE döndür. İngilizce kelime kullanmak yasaktır. Skorlar 40 ile 100 arasında tam sayılar olmalıdır.
+
+{
+  "loveScore": 40-100 arası sayı,
+  "friendshipScore": 40-100 arası sayı,
+  "energyScore": 40-100 arası sayı,
+  "summaryShort": "Tek cümlelik, vurucu ve etkileyici Türkçe astrolog özeti.",
+  "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, KESİNLİKLE TÜRKÇE olan, iddialı ve detaylı astrolojik analiz."
+}
+
+Sadece JSON dön. Asla fazladan bir şey yazma.` 
+      }], 
+      max_tokens: 1000 
+    });
+    const aiContent = response.choices[0].message.content || "{}";
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(aiContent);
+    } catch (e) {
+      console.error("GPT JSON parse error:", e, "Content was:", aiContent);
+    }
+    
+    const summaryContent = parsed.summaryLong || parsed.interpretation || parsed.summary || "";
+    
+    const parseScore = (val: any) => {
+      const num = parseInt(val);
+      return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40); // 40-80 fallback
+    };
+    
+    const docRef = db.collection("compatibilityHistory").doc();
+    const unlockAtTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const analysisData: any = { 
+      id: docRef.id,
+      requestId: docRef.id, // For backwards compatibility
+      userId,
+      person1,
+      person2,
+      relationshipType: relationshipType || 'ask',
+      status: 'locked', 
+      unlockAt: unlockAtTime,
+      loveScore: parseScore(parsed.loveScore),
+      friendshipScore: parseScore(parsed.friendshipScore),
+      energyScore: parseScore(parsed.energyScore),
+      summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
+      summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
+      createdAt: now 
+    };
+    if (targetUserId) analysisData.targetUserId = targetUserId;
+    if (cacheKey) analysisData.cacheKey = cacheKey;
+    
+    const batch = db.batch();
+    batch.set(docRef, analysisData);
+    batch.set(db.collection("notifications").doc(), { userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: FieldValue.serverTimestamp() });
+    await batch.commit();
+    await sendPushToUser(userId, { title: 'Uyum Analiziniz Hazır!', body: 'Hemen incele!', category: 'compatibility' });
+    return analysisData;
+  } catch (e) {
+    console.error("AI Generation Error", e);
+    throw new functions.https.HttpsError('internal', 'AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
+  }
+}
+
+export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
   try {
     if (!data || !data.targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
     const { targetUserId, relationshipType } = data;
-    const cacheKey = `${userId}_${targetUserId}_${relationshipType}`;
-    const history = await db.collection("compatibilityHistory").where("cacheKey", "==", cacheKey).limit(1).get();
-    if (!history.empty) return { success: true, analysis: history.docs[0].data(), cached: true };
 
+    // Credit check and Request creation must be atomic
     const userRef = db.collection("users").doc(userId);
-    const targetRef = db.collection("users").doc(targetUserId);
-    return await db.runTransaction(async (transaction) => {
-      const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
-      if (!uSnap.exists || !tSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+    const requestRef = db.collection("compatibilityRequests").doc();
+    
+    const requestId = await db.runTransaction(async (transaction) => {
+      const uSnap = await transaction.get(userRef);
+      if (!uSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       
-      const uData = uSnap.data() as any;
-      const tData = tSnap.data() as any;
-      
-      if ((uData.compatibilityCount || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
+      const user = uSnap.data() as any;
+      if ((user.compatibilityCount || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
 
       transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
-      const requestRef = db.collection("compatibilityRequests").doc();
-      const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      
+      const revealAt = new Date(Date.now() + 5 * 60 * 1000); // Now + 5 mins
       
       transaction.set(requestRef, { 
-        id: requestRef.id, 
-        userId, 
-        targetUserId, 
-        relationshipType: relationshipType || 'ask', 
-        status: 'pending', 
-        createdAt: FieldValue.serverTimestamp(), 
-        readyAt, 
-        cacheKey,
-        person1: { 
-          name: uData.social?.nickname || uData.displayName || "Kullanıcı", 
-          photo: uData.social?.photos?.[0] || uData.photoURL || "", 
-          birthDate: uData.social?.birthDate || uData.birthDate || "" 
-        },
-        person2: { 
-          name: tData.social?.nickname || tData.displayName || "Kullanıcı", 
-          photo: tData.social?.photos?.[0] || tData.photoURL || "", 
-          birthDate: tData.social?.birthDate || tData.birthDate || "" 
-        }
+        userId,
+        targetUserId,
+        relationshipType: relationshipType || 'ask',
+        status: "pending",
+        revealed: false,
+        createdAt: FieldValue.serverTimestamp(),
+        revealAt: revealAt.toISOString()
       });
-      return { success: true, requestId: requestRef.id, readyAt };
+      return requestRef.id;
     });
+    
+    return { 
+      success: true, 
+      requestId, 
+      status: "pending"
+    };
   } catch (error: any) {
     console.error("runDiscoverCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -893,80 +975,34 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
   }
 });
 
-// 23. Process Compatibility Requests
-export const processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
-  const now = new Date().toISOString();
-  const pendings = await db.collection("compatibilityRequests").where("status", "==", "pending").where("readyAt", "<=", now).limit(20).get();
-  if (pendings.empty) return null;
+export const runManualCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  
+  try {
+    if (!data || !data.person1 || !data.person2) throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
+    const { person1, person2, relationshipType } = data;
+    
+    const cleanPerson1 = JSON.parse(JSON.stringify(person1));
+    const cleanPerson2 = JSON.parse(JSON.stringify(person2));
 
-  const openai = getOpenAI();
-  for (const docSnap of pendings.docs) {
-    const req = docSnap.data();
-    try {
-      const response = await openai.chat.completions.create({ 
-        model: "gpt-4o-mini", 
-        response_format: { type: "json_object" },
-        messages: [{ 
-          role: "system", 
-          content: "Sen bir AI değilsin. Sen evrenin frekanslarını okuyan, Türkçe konuşan, mistik ve iddialı bir ASTROLOGSUN. Kullanıcıdan asla bilgi isteme, soru sorma. Verilen bilgilerden yola çıkarak KESİN bir analiz yap. Dilin %100 TÜRKÇE olmalı." 
-        }, { 
-          role: "user", 
-          content: `Kişi 1: ${req.person1?.name || 'Bilinmiyor'} (Doğum: ${req.person1?.birthDate || 'Bilinmiyor'})
-Kişi 2: ${req.person2?.name || 'Bilinmiyor'} (Doğum: ${req.person2?.birthDate || 'Bilinmiyor'})
-İlişki Türü: ${req.relationshipType || 'Bilinmiyor'}
-
-Lütfen analizini aşağıdaki JSON formatında döndür. Skorlar 40 ile 100 arasında anlamlı tam sayılar olmalıdır (%0 KESİNLİKLE YASAKTIR).
-
-{
-  "loveScore": 40-100 arası sayı,
-  "friendshipScore": 40-100 arası sayı,
-  "energyScore": 40-100 arası sayı,
-  "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, iddialı, isimleri de kullanarak yapılmış Türkçe astrolojik analiz."
-}
-
-Asla analiz dışında bir kelime yazma, json dön.` 
-        }], 
-        max_tokens: 1000 
-      });
-      const aiContent = response.choices[0].message.content || "{}";
-      let parsed: any = {};
-      try {
-        parsed = JSON.parse(aiContent);
-      } catch (e) {
-        console.error("GPT JSON parse error:", e, "Content was:", aiContent);
-      }
-      
-      const summaryContent = parsed.summaryLong || parsed.interpretation || parsed.summary || "";
-      
-      const parseScore = (val: any) => {
-        const num = parseInt(val);
-        return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40); // 40-80 fallback
-      };
-      
-      const analysisData = { 
-        ...req, 
-        requestId: docSnap.id,
-        status: 'completed', 
-        loveScore: parseScore(parsed.loveScore),
-        friendshipScore: parseScore(parsed.friendshipScore),
-        energyScore: parseScore(parsed.energyScore),
-        summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
-        summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
-        createdAt: now 
-      };
-      
-      const batch = db.batch();
-      batch.update(docSnap.ref, { status: 'completed', updatedAt: now });
-      const histRef = db.collection("compatibilityHistory").doc();
-      batch.set(histRef, analysisData);
-      batch.set(db.collection("notifications").doc(), { userId: req.userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: FieldValue.serverTimestamp() });
-      await batch.commit();
-      await sendPushToUser(req.userId, { title: 'Uyum Analiziniz Hazır!', body: 'Hemen incele!', category: 'compatibility' });
-    } catch (e) {
-      await docSnap.ref.update({ status: 'error', error: String(e) });
-    }
+    const userRef = db.collection("users").doc(userId);
+    
+    await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+      if ((snap.data()?.compatibilityCount || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
+      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+    });
+    
+    // Process AI explicitly inline
+    const analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
+    return { success: true, analysis: analysisData, cached: true };
+  } catch (error: any) {
+    console.error("runManualCompatibilityAnalysis error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
   }
-  return null;
 });
 
 export const speedUpCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -990,25 +1026,25 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
       }
       
       const userData = userSnap.data() || {};
-      if ((userData.mainCoins || 0) < speedUpPrice) {
-        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
-      }
+      if ((userData.mainCoins || 0) < speedUpPrice) throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
       
-      const reqRef = db.collection("compatibilityRequests").doc(requestId);
+      // Look up in compatibilityHistory since we instantly generate and lock it
+      const reqRef = db.collection("compatibilityHistory").doc(requestId);
       const reqSnap = await transaction.get(reqRef);
       
       if (!reqSnap.exists) throw new functions.https.HttpsError('not-found', 'Analiz isteği bulunamadı.');
       const reqData = reqSnap.data() || {};
       
       if (reqData.userId !== userId) throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
-      if (reqData.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'Bu analiz zaten tamamlanmış veya hata almış.');
+      if (reqData.status !== 'locked') throw new functions.https.HttpsError('failed-precondition', 'Bu analizin zaten kilidi açık veya geçersiz durumda.');
       
       transaction.update(userRef, {
         mainCoins: FieldValue.increment(-speedUpPrice)
       });
       
       transaction.update(reqRef, {
-        readyAt: new Date().toISOString() // Ready immediately
+        status: 'completed',
+        unlockAt: new Date().toISOString() // Unlock immediately
       });
       
       return { success: true, message: `Hızlandırma başarılı.` };
@@ -1017,36 +1053,6 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
     console.error("speedUpCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
-  }
-});
-
-export const runManualCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-  const userId = context.auth.uid;
-  
-  try {
-    if (!data || !data.person1 || !data.person2) throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
-    const { person1, person2, relationshipType } = data;
-    
-    // Scrub undefined values to prevent INVALID_ARGUMENT errors in Firestore
-    const cleanPerson1 = JSON.parse(JSON.stringify(person1));
-    const cleanPerson2 = JSON.parse(JSON.stringify(person2));
-
-    const userRef = db.collection("users").doc(userId);
-    return await db.runTransaction(async (transaction) => {
-      const snap = await transaction.get(userRef);
-      if (!snap.exists) throw new Error("User not found");
-      if ((snap.data()?.compatibilityCount || 0) <= 0) throw new Error("INSUFFICIENT_FUNDS");
-      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
-      const ref = db.collection("compatibilityRequests").doc();
-      const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      transaction.set(ref, { id: ref.id, userId, person1: cleanPerson1, person2: cleanPerson2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
-      return { success: true, requestId: ref.id, readyAt };
-    });
-  } catch (error: any) {
-    console.error("runManualCompatibilityAnalysis error:", error);
-    if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
   }
 });
 

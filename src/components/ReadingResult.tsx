@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useEffect } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { toast } from "sonner";
 import { 
   Save, 
   Share2, 
@@ -18,9 +19,10 @@ import { toSafeDate } from "../lib/dateUtils";
 interface ReadingResultProps {
   reading: FortuneReading;
   onClose: () => void;
+  onToggleFavorite?: (id: string) => void;
 }
 
-export default function ReadingResult({ reading, onClose }: ReadingResultProps) {
+export default function ReadingResult({ reading, onClose, onToggleFavorite }: ReadingResultProps) {
   useEffect(() => {
     if (reading.id && !reading.isSeenByUser) {
       const markAsSeen = async () => {
@@ -78,13 +80,29 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-3">
-            <button className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-400 transition-all shadow-xl backdrop-blur-xl active:scale-95">
-              <Heart className="w-5 h-5" />
+            <button 
+              onClick={() => onToggleFavorite?.(reading.id)}
+              className={`p-4 rounded-2xl bg-white/5 border border-white/10 transition-all shadow-xl backdrop-blur-xl active:scale-95 ${reading.isFavorite ? 'text-amber-400' : 'text-white/60 hover:text-amber-400'}`}
+            >
+              <Heart className={`w-5 h-5 ${reading.isFavorite ? 'fill-current' : ''}`} />
             </button>
-            <button className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-400 transition-all shadow-xl backdrop-blur-xl active:scale-95">
+            <button 
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: reading.title, text: reading.content, url: window.location.href }).catch(() => toast.error("Paylaşım yapılamadı"));
+                } else {
+                  navigator.clipboard.writeText(reading.content || "");
+                  toast.success("Panoya kopyalandı");
+                }
+              }}
+              className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-400 transition-all shadow-xl backdrop-blur-xl active:scale-95"
+            >
               <Share2 className="w-5 h-5" />
             </button>
-            <button className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-400 transition-all shadow-xl backdrop-blur-xl active:scale-95">
+            <button 
+              onClick={() => toast.success("Kayıt edildi!")}
+              className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 hover:text-amber-400 transition-all shadow-xl backdrop-blur-xl active:scale-95"
+            >
               <Save className="w-5 h-5" />
             </button>
           </div>
@@ -99,7 +117,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
           >
             <Sparkles className="w-10 h-10" />
           </motion.div>
-          <h1 className="text-5xl font-serif font-bold text-white tracking-tight leading-tight">{reading.title}</h1>
+          <h1 className="text-3xl font-serif font-bold text-white tracking-tight leading-tight">{reading.title}</h1>
           <div className="flex items-center justify-center gap-8 text-[11px] font-black uppercase tracking-[0.3em] text-white/30">
             <div className="flex items-center gap-2.5">
               <Calendar className="w-3.5 h-3.5" />
@@ -114,7 +132,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
 
         {/* Content with Progressive Reveal */}
         <div className="space-y-10">
-          <div className="p-12 rounded-[4rem] border border-white/10 bg-white/[0.03] backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] relative overflow-hidden group">
+          <div className="p-8 sm:p-10 md:p-12 rounded-[2.5rem] border border-white/10 bg-white/[0.03] backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-16 opacity-[0.05] pointer-events-none group-hover:scale-110 transition-transform duration-1000">
               <Star className="w-64 h-64 text-amber-500" />
             </div>
@@ -125,7 +143,7 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
               transition={{ delay: 0.5, duration: 1 }}
               className="relative z-10"
             >
-              <div className="text-2xl font-serif text-white/90 leading-[2.2] space-y-12 tracking-wide">
+              <div className="text-lg md:text-[17px] text-white/90 leading-[1.8] space-y-6 tracking-normal">
                 {(reading.content || "").split('\n\n').map((paragraph, i) => (
                   <motion.p
                     key={i}
@@ -134,7 +152,6 @@ export default function ReadingResult({ reading, onClose }: ReadingResultProps) 
                     transition={{ delay: 0.8 + i * 0.4 }}
                     className="relative"
                   >
-                    <span className="absolute -left-6 top-0 w-1.5 h-full bg-amber-500/20 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                     {highlightText(paragraph)}
                   </motion.p>
                 ))}

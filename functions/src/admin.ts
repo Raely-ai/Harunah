@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions";
-import { db, FieldValue, sendPushToUser } from "./base";
+import { db, FieldValue, sendPushToUser, messaging } from "./base";
 
 // 1. Admin Broadcast Notification
 export const adminBroadcastNotification = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -24,24 +24,79 @@ export const adminBroadcastNotification = functions.region('us-central1').https.
     
     console.log(`Broadcasting to ${usersSnap.size} users...`);
 
+    const tokens: string[] = [];
+    const tokenToUid: Record<string, string> = {};
+
+    usersSnap.docs.forEach(doc => {
+      const data = doc.data();
+      const token = data.fcmToken;
+      if (typeof token === 'string' && token.trim().length > 0) {
+        tokens.push(token);
+        tokenToUid[token] = doc.id;
+      }
+    });
+
     const results = {
       successCount: 0,
       failureCount: 0
     };
 
-    // Batch send
-    for (const userDoc of usersSnap.docs) {
+    const invalidTokens: string[] = [];
+
+    // Send in chunks of 500 (Firebase limit)
+    for (let i = 0; i < tokens.length; i += 500) {
+      const chunk = tokens.slice(i, i + 500);
       try {
-        await sendPushToUser(userDoc.id, {
-          title,
-          body,
-          data: { ...extraData, screen: screen || 'home' },
-          category: 'system'
-        });
-        results.successCount++;
+         const response = await messaging.sendEachForMulticast({
+            tokens: chunk,
+            notification: { title, body },
+            data: { 
+                ...Object.fromEntries(Object.entries(extraData || {}).map(([k, v]) => [k, String(v)])),
+                screen: String(screen || 'home'),
+                category: 'system' 
+            }
+         });
+         
+         results.successCount += response.successCount;
+         results.failureCount += response.failureCount;
+
+         response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+               const errCode = resp.error?.code;
+               if (errCode === 'messaging/invalid-registration-token' ||
+                   errCode === 'messaging/registration-token-not-registered') {
+                  invalidTokens.push(chunk[idx]);
+               }
+            }
+         });
       } catch (err) {
-        results.failureCount++;
+         console.error("Multicast error for chunk", err);
+         results.failureCount += chunk.length;
       }
+    }
+
+    // Token Cleanup
+    if (invalidTokens.length > 0) {
+       console.log(`Cleaning up ${invalidTokens.length} invalid tokens...`);
+       let batch = db.batch();
+       let opCount = 0;
+       
+       for (const t of invalidTokens) {
+          const uid = tokenToUid[t];
+          if (uid) {
+             const userRef = db.collection("users").doc(uid);
+             batch.update(userRef, { fcmToken: FieldValue.delete() });
+             opCount++;
+             if (opCount === 500) {
+               await batch.commit();
+               batch = db.batch();
+               opCount = 0;
+             }
+          }
+       }
+       if (opCount > 0) {
+          await batch.commit();
+       }
     }
 
     return { success: true, results };
@@ -170,12 +225,21 @@ export const getAdminChatMessages = functions.region('us-central1').https.onCall
 
     const messagesSnap = await db.collection("messages")
       .where("chatId", "==", chatId)
-      .orderBy("createdAt", "desc")
-      .limit(500)
       .get();
 
-    const messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Sort in memory
+    let messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort in memory (descending first to get latest 500, or ascending as requested)
+    messages.sort((a: any, b: any) => {
+      const t1 = a.createdAt?.seconds || 0;
+      const t2 = b.createdAt?.seconds || 0;
+      return t2 - t1; // Sort descending
+    });
+    
+    // Limit to 500
+    messages = messages.slice(0, 500);
+
+    // Sort ascending for UI (oldest to newest)
     messages.sort((a: any, b: any) => {
       const t1 = a.createdAt?.seconds || 0;
       const t2 = b.createdAt?.seconds || 0;

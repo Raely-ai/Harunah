@@ -59,14 +59,17 @@ export default function SocialManagementScreen({ user, onNavigate }: SocialManag
     try {
       const q = query(
         collection(db, 'chats'),
-        where('participants', 'array-contains', uid),
-        orderBy('lastMessageAt', 'desc'),
-        limit(3)
+        where('participants', 'array-contains', uid)
       );
 
       const snap = await getDocs(q);
       const chats = snap.docs.map(d => d.data() as Chat);
-      setRecentChats(prev => ({ ...prev, [uid]: chats }));
+      chats.sort((a, b) => {
+        const t1 = a.lastMessageAt?.seconds || 0;
+        const t2 = b.lastMessageAt?.seconds || 0;
+        return t2 - t1;
+      });
+      setRecentChats(prev => ({ ...prev, [uid]: chats.slice(0, 3) }));
     } catch (error) {
       console.error("Error fetching recent chats:", error);
     }

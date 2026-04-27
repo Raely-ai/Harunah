@@ -61,18 +61,79 @@ export default function SocialMessagesScreen({
   currentUser, 
   onBack, 
   onNavigate,
-  onChatOpenChange 
+  onChatOpenChange,
+  setActiveChatId
 }: { 
   currentUser: UserProfile, 
   onBack?: () => void, 
   onNavigate: (tab: any) => void,
-  onChatOpenChange?: (isOpen: boolean) => void
+  onChatOpenChange?: (isOpen: boolean) => void,
+  setActiveChatId?: (id: string | null) => void
 }) {
   const [activeTab, setActiveTab] = useState<'chats' | 'requests' | 'likers'>('chats');
   const [chats, setChats] = useState<(Chat & { otherUser: UserProfile })[]>([]);
   const [requests, setRequests] = useState<InteractionRequestType[]>([]);
   const [likers, setLikers] = useState<{ id: string, user: UserProfile, createdAt: any }[]>([]);
   const [selectedChat, setSelectedChat] = useState<(Chat & { otherUser: UserProfile }) | null>(null);
+
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
+
+  // Handle open-chat event from notifications
+  useEffect(() => {
+    const handleOpenChat = async (e: any) => {
+      const { chatId, messageId } = e.detail;
+      if (!chatId) return;
+
+      if (messageId) {
+        setPendingMessageId(messageId);
+      }
+
+      // First check if it's already in our local chats list
+      const existingChat = chats.find(c => c.id === chatId);
+      if (existingChat) {
+        setSelectedChat(existingChat);
+        setActiveTab('chats');
+        return;
+      }
+
+      // If not in list, fetch it manually (could be a new match/request)
+      try {
+        const chatSnap = await getDoc(doc(db, "chats", chatId));
+        if (chatSnap.exists()) {
+          const chatData = chatSnap.data() as Chat;
+          const participants = chatData.participants || [];
+          const otherUserId = participants.find(id => id && id !== currentUser.uid);
+          
+          if (otherUserId) {
+            const otherUserSnap = await getDoc(doc(db, "users", otherUserId));
+            if (otherUserSnap.exists()) {
+              const otherUser = normalizeUserProfile(otherUserSnap.data(), otherUserSnap.id);
+              setSelectedChat({
+                ...chatData,
+                id: chatSnap.id,
+                otherUser
+              });
+              setActiveTab('chats');
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error opening chat from event:", err);
+      }
+    };
+
+    window.addEventListener('openChatFromToast', handleOpenChat);
+    window.addEventListener('open-chat', handleOpenChat);
+    return () => {
+      window.removeEventListener('openChatFromToast', handleOpenChat);
+      window.removeEventListener('open-chat', handleOpenChat);
+    };
+  }, [chats, currentUser.uid]);
+
+  useEffect(() => {
+    setActiveChatId?.(selectedChat ? selectedChat.id : null);
+  }, [selectedChat, setActiveChatId]);
+
   const [selectedLiker, setSelectedLiker] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -90,7 +151,17 @@ export default function SocialMessagesScreen({
       // Mark as seen immediately when chat is selected from list
       socialService.markAsSeen(selectedChat.id, currentUser.uid, selectedChat.otherUser.uid);
     }
-  }, [selectedChat, onChatOpenChange, currentUser.uid]);
+  }, [selectedChat?.id, onChatOpenChange, currentUser.uid]); // Dep intentionally stripped down to just ID to prevent loops
+
+  // Update selectedChat local state if the global chats array changes (e.g., typing updates)
+  useEffect(() => {
+    if (selectedChat) {
+      const updated = chats.find(c => c.id === selectedChat.id);
+      if (updated && (JSON.stringify(updated.typing) !== JSON.stringify(selectedChat.typing) || updated.lastMessage !== selectedChat.lastMessage)) {
+        setSelectedChat(updated);
+      }
+    }
+  }, [chats]);
 
   useEffect(() => {
     if (currentUser?.uid) {
@@ -132,21 +203,13 @@ export default function SocialMessagesScreen({
     // 1. CHATS LISTENER
     const setupChatsListener = () => {
       try {
-        const q = query(
-          collection(db, "chats"),
-          where("participants", "array-contains", currentUser.uid),
-          limit(60)
-        );
-        
-        unsubChats = onSnapshot(q, async (snapshot) => {
-          const chatDocs = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as Chat))
-            .filter(chat => !chat.deletedFor?.includes(currentUser.uid));
+        unsubChats = socialService.listenToMatches(currentUser.uid, async (matches) => {
+          const chatDocs = matches.filter(chat => !chat.deletedFor?.includes(currentUser.uid));
           
           const otherUserIds = Array.from(new Set(
-            chatDocs.flatMap(c => (c.participants || []).filter(id => id && id !== currentUser.uid))
+            chatDocs.flatMap(c => (c.participants || []).filter((id: string) => id && id !== currentUser.uid))
           ));
-          const missingUserIds = otherUserIds.filter(id => id && !profilesCache.current[id]);
+          const missingUserIds = otherUserIds.filter(id => id && !profilesCache.current[id as string]);
           
           if (missingUserIds.length > 0) {
             // Fetch missing profiles
@@ -162,28 +225,31 @@ export default function SocialMessagesScreen({
             const participants = chatData.participants || [];
             // Robust check: filter out current user and take the first non-matching ID
             // We use filter(Boolean) to skip any null/undefined IDs in the array
-            const others = participants.filter(id => id && id !== currentUser.uid);
+            const others = participants.filter((id: string) => id && id !== currentUser.uid);
             
             // If it's a self-chat (only one participant or both are same) or mismatch, 
             // the above filter will be empty if both IDs == currentUser.uid. 
             // In that case, we MUST NOT show the current user as otherUser.
-            const otherUserId = others.length > 0 ? others[0] : (participants.find(id => id !== currentUser.uid) || null);
+            const otherUserId = others.length > 0 ? others[0] : (participants.find((id: string) => id !== currentUser.uid) || null);
             
             if (!otherUserId) return null;
             
             const otherUser = profilesCache.current[otherUserId];
             if (!otherUser) return null; // Wait for profile fetch in next cycle
             
-            return { ...chatData, otherUser };
+            return { ...chatData, otherUser } as Chat & { otherUser: UserProfile };
           }).filter((c): c is (Chat & { otherUser: UserProfile }) => c !== null);
           
           chatList.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
 
-          setChats(chatList);
-          cacheManager.set(CHAT_LIST_CACHE_KEY, chatList, 600, true);
-          setIsLoading(false);
-        }, (error) => {
-          console.error("Error listening to chats:", error);
+          setChats(prev => {
+            const chatMap = new Map(prev.map(c => [c.id, c]));
+            chatList.forEach(c => chatMap.set(c.id, c));
+            const merged = Array.from(chatMap.values());
+            merged.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
+            cacheManager.set(CHAT_LIST_CACHE_KEY, merged, 600, true);
+            return merged;
+          });
           setIsLoading(false);
         });
       } catch (err) {
@@ -721,8 +787,12 @@ export default function SocialMessagesScreen({
           <ChatDetail 
             chat={selectedChat} 
             currentUser={currentUser} 
-            onClose={() => setSelectedChat(null)} 
+            onClose={() => {
+              setSelectedChat(null);
+              setPendingMessageId(null);
+            }} 
             onNavigate={onNavigate}
+            initialMessageId={pendingMessageId}
           />
         )}
       </AnimatePresence>
@@ -823,7 +893,19 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
   );
 }
 
-function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { chat: Chat & { otherUser: UserProfile }, currentUser: UserProfile, onClose: () => void, onNavigate: (tab: any) => void }) {
+function ChatDetail({ 
+  chat: initialChat, 
+  currentUser, 
+  onClose, 
+  onNavigate, 
+  initialMessageId 
+}: { 
+  chat: Chat & { otherUser: UserProfile }, 
+  currentUser: UserProfile, 
+  onClose: () => void, 
+  onNavigate: (tab: any) => void,
+  initialMessageId?: string | null
+}) {
   const [chat, setChat] = useState(initialChat);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -869,28 +951,10 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
   const lastProcessedDeliveredId = useRef<string | null>(null);
   const lastMessageTimeRef = useRef<number>(0);
 
-  // Sync chat doc updates (typing status, unread counts, etc.)
+  // Sync chat doc updates (typing status, unread counts, etc.) from props
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, "chats", initialChat.id), (snap) => {
-        const chatData = snap.data() as any;
-        const participants = chatData.participants || [];
-        const others = participants.filter((id: string) => id && id !== currentUser.uid);
-        const otherUserId = others.length > 0 ? others[0] : null;
-
-        if (otherUserId && otherUserId !== otherUser.uid) {
-          getDoc(doc(db, "users", otherUserId)).then(userSnap => {
-            if (userSnap.exists()) {
-              setOtherUser({ uid: userSnap.id, ...userSnap.data() } as UserProfile);
-            }
-          }).catch(console.error);
-        }
-        
-        setChat({ ...initialChat, ...chatData } as any);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `chats/${initialChat.id}`);
-    });
-    return () => unsubscribe();
-  }, [initialChat.id]);
+    setChat(initialChat);
+  }, [initialChat]);
 
   // Handle typing status
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -964,27 +1028,22 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
     const cachedMessages = cacheManager.get<Message[]>(CACHE_KEY);
     if (cachedMessages) setMessages(cachedMessages);
 
-    const q = query(
-      collection(db, "messages"),
-      where("chatId", "==", chat.id),
-      limit(150)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Message));
+    const unsubscribe = socialService.listenToMessages(chat.id, (fetchedMsgs) => {
+      const msgs = fetchedMsgs as Message[];
       
       // Client-side sort by createdAt to avoid index requirement
-      msgs.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds || 0;
-        const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds || 0;
-        return timeA - timeB;
+      setMessages(prev => {
+        const msgMap = new Map(prev.map(m => [m.id, m]));
+        msgs.forEach(m => msgMap.set(m.id, m));
+        const merged = Array.from(msgMap.values());
+        merged.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds || 0;
+          const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds || 0;
+          return timeA - timeB;
+        });
+        cacheManager.set(CACHE_KEY, merged, 1800, true); // Cache for 30 mins persistently
+        return merged;
       });
-      
-      setMessages(msgs);
-      cacheManager.set(CACHE_KEY, msgs, 1800, true); // Cache for 30 mins persistently
       
       // Mark as seen when chat is open and there are unread messages for current user
       const unseenMessages = msgs.filter(m => m.senderId !== currentUser.uid && m.status !== 'seen' && m.type !== 'system');
@@ -1005,9 +1064,6 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
           socialService.markAsDelivered(chat.id, currentUser.uid, otherUser.uid);
         }
       }
-
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "messages");
     });
 
     return () => unsubscribe();
@@ -1015,9 +1071,16 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
 
   useEffect(() => {
     if (messages.length > 0) {
+      if (initialMessageId) {
+        const element = document.getElementById(`msg-${initialMessageId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+      }
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, initialMessageId]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1411,7 +1474,11 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
               const isEmojiOnly = msg.text && /^\p{Emoji}$/u.test(msg.text.trim());
 
               return (
-                <div key={msg.id} className={`relative z-10 flex ${isMe ? 'justify-end' : 'justify-start'} mb-1 group/msg`}>
+                <div 
+                  key={msg.id} 
+                  id={`msg-${msg.id}`}
+                  className={`relative z-10 flex ${isMe ? 'justify-end' : 'justify-start'} mb-1 group/msg`}
+                >
                   {!isMe && (
                     <div className="w-10 flex-shrink-0 flex items-end mb-1">
                       {isLastInGroup && (
@@ -1734,6 +1801,7 @@ function ChatDetail({ chat: initialChat, currentUser, onClose, onNavigate }: { c
             onSendMessage={() => setShowProfile(false)}
             onNavigate={onNavigate}
             context="match"
+            inChat={true}
           />
         )}
       </AnimatePresence>

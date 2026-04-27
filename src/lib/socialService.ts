@@ -10,6 +10,9 @@ import {
   query, 
   where, 
   getDocs,
+  onSnapshot,
+  orderBy,
+  limit
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, handleFirestoreError, OperationType } from "./firebase";
@@ -312,6 +315,7 @@ export const socialService = {
         lastMessageAt: now,
         lastMessageSenderId: senderId,
         lastMessageStatus: 'sent',
+        lastMessageId: msgRef.id,
         [`unreadCount.${otherUserId}`]: increment(1)
       });
       // Note: Updating other user's document will fail without rules change. 
@@ -491,5 +495,45 @@ export const socialService = {
       console.error("socialService: Error in refreshDiscover:", error);
       return { success: false, message: error.message, users: [] };
     }
+  },
+
+  // 7. Live Listeners for Messages and Matches
+  listenToMessages(chatId: string, callback: (messages: any[]) => void) {
+    if (!chatId) return () => {};
+    const q = query(
+      collection(db, "messages"),
+      where("chatId", "==", chatId),
+      limit(100)
+    );
+    
+    return onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      callback(messages);
+    }, (error) => {
+      console.error("listenToMessages error:", error);
+    });
+  },
+
+  listenToMatches(userId: string, callback: (matches: any[]) => void) {
+    if (!userId) return () => {};
+    // Matches are determined by active chats
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", userId),
+      limit(50)
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const matches = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      callback(matches);
+    }, (error) => {
+      console.error("listenToMatches error:", error);
+    });
   }
 };

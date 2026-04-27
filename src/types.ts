@@ -744,9 +744,10 @@ export interface CompatibilityRequest {
   person1: any;
   person2: any;
   relationshipType: string;
-  status: 'pending' | 'completed' | 'error';
+  status: 'pending' | 'ready' | 'revealed' | 'error';
   createdAt: string;
   readyAt: string;
+  revealed: boolean;
   loveScore?: number;
   friendshipScore?: number;
   energyScore?: number;

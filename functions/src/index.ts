@@ -51,7 +51,6 @@ export const {
   runDiscoverCompatibilityAnalysis,
   runManualCompatibilityAnalysis,
   speedUpCompatibilityAnalysis,
-  processCompatibilityRequests,
   onMessageCreated,
   generateThumbnails
 } = social;

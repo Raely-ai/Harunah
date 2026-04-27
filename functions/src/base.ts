@@ -85,17 +85,36 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
       return;
     }
 
+    // FCM HTTP v1 requires all data values to be strictly strings
+    const safeData: Record<string, string> = {};
+    if (payload.data) {
+      for (const [key, value] of Object.entries(payload.data)) {
+        if (value !== undefined && value !== null && value !== '') {
+          safeData[key] = String(value);
+        }
+      }
+    }
+    
+    // Add category and senderId into data payload if they exist
+    if (payload.category) {
+      safeData['category'] = String(payload.category);
+    }
+    if (payload.senderId) {
+      safeData['senderId'] = String(payload.senderId);
+    }
+
     const message = {
       token: fcmToken,
       notification: {
         title: payload.title,
         body: payload.body,
       },
-      data: payload.data || {},
+      data: safeData,
       android: {
         priority: 'high' as const,
         notification: {
           sound: 'default',
+          channelId: 'lasya_messages',
           clickAction: 'FLUTTER_NOTIFICATION_CLICK',
         }
       },

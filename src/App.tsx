@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
-import { signOut } from "firebase/auth";
+import { signOut, getRedirectResult } from "firebase/auth";
 import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
 import { cacheManager } from "./lib/cacheManager";
 import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment, startAfter } from "firebase/firestore";
@@ -42,6 +42,7 @@ import { notificationService } from "./services/notificationService";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { BadgeProvider } from "./lib/BadgeContext";
+import { NotificationToastListener } from "./components/NotificationToastListener";
 
 export default function App() {
   return (
@@ -54,6 +55,28 @@ export default function App() {
 function AppContent() {
   const [user, loading, error] = useAuthState(auth);
   const [showSplash, setShowSplash] = useState(true);
+
+  // Process redirect results securely on app startup
+  useEffect(() => {
+    const handleRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          console.log("App startup redirect login success:", result.user.uid);
+          toast.success("Başarıyla giriş yapıldı.");
+        }
+      } catch (err: any) {
+        console.error("App startup redirect error:", err);
+        // Special mapping for common Google login errors
+        let errorMessage = "Giriş işlemi tamamlanamadı.";
+        if (err.code === 'auth/popup-closed-by-user') {
+          errorMessage = "Giriş penceresi kapatıldı.";
+        }
+        toast.error("Giriş Hatası", { description: errorMessage });
+      }
+    };
+    handleRedirect();
+  }, []);
   const [authScreen, setAuthScreen] = useState<AuthScreen>('welcome');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [activeFortune, setActiveFortune] = useState<FortuneType | null>(null);
@@ -70,6 +93,7 @@ function AppContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Auto-reset quota exceeded after 1 minute to allow probing
@@ -91,15 +115,33 @@ function AppContent() {
   useEffect(() => {
     if (!user?.uid) return;
 
-    // Request permission and save token
-    notificationService.requestPermission(user.uid);
-    
-    // Setup foreground listener
-    notificationService.setupOnMessageListener();
-
-    return () => {
-      // No cleanup needed for foreground listener as it's global
+    const handleNotificationAction = (data: any) => {
+      // In this app routing is state-based via handleNavigate
+      if (data?.screen === 'chat' || data?.screen === 'messages') {
+        handleNavigate('messages');
+        if (data?.chatId) {
+          // Dispatch custom event for SocialMessagesScreen to pick up
+          window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId: data.chatId } }));
+        }
+      } else if (data?.screen === 'history' || data?.screen === 'fortunes') {
+        handleNavigate('history');
+      }
     };
+
+    const initPush = async () => {
+      try {
+        // First setup listeners
+        notificationService.setupListeners(user.uid, handleNotificationAction);
+        
+        // Then request permission
+        await notificationService.requestPermission(user.uid);
+      } catch (error) {
+        console.error("Error initializing push notifications:", error);
+      }
+    };
+
+    // Run non-blocking
+    initPush();
   }, [user?.uid]);
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
@@ -418,7 +460,7 @@ function AppContent() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 3500);
+    }, 1500);
     
     // Play splash sound after a short delay
     const soundTimer = setTimeout(() => {
@@ -734,6 +776,7 @@ function AppContent() {
   return (
     <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
       <BadgeProvider userProfile={userProfile} quotaExceeded={quotaExceeded}>
+        <NotificationToastListener userProfile={activeProfile} activeChatId={activeChatId} onNavigate={handleNavigate} />
         {/* Admin Preview Banner */}
         {previewUser && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-black py-2 px-4 flex items-center justify-between font-bold text-xs shadow-lg">
@@ -869,6 +912,7 @@ function AppContent() {
             currentUser={activeProfile}
             onNavigate={handleNavigate}
             onChatOpenChange={setIsChatOpen}
+            setActiveChatId={setActiveChatId}
           />
         </div>
         

@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "654177015558",
+    "project_id": "lasya-app",
+    "storage_bucket": "lasya-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:654177015558:android:d16b0b23704b2b3501b087",
+        "android_client_info": {
+          "package_name": "com.lasya.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "654177015558-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDy4qcu0_-dW1a_bml90fxeqfPZcqNy39I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "654177015558-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

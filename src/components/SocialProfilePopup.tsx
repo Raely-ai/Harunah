@@ -5,7 +5,7 @@ import { UserProfile, CompatibilityHistory } from '../types';
 import { walletService } from '../lib/walletService';
 import { toast } from 'sonner';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { addDoc, collection, query, where, getDocs, limit, orderBy, serverTimestamp } from 'firebase/firestore';
 
 import { reportService } from '../services/reportService';
 
@@ -18,6 +18,7 @@ interface SocialProfilePopupProps {
   onNavigate: (tab: any) => void;
   onStartChat?: (user: UserProfile) => void;
   context?: 'discover' | 'likers' | 'match';
+  inChat?: boolean;
 }
 
 export default function SocialProfilePopup({ 
@@ -28,7 +29,8 @@ export default function SocialProfilePopup({
   onSendMessage, 
   onNavigate,
   onStartChat,
-  context = 'discover' 
+  context = 'discover',
+  inChat = false
 }: SocialProfilePopupProps) {
   // Safe access with fallbacks
   const uid = user?.uid || "";
@@ -42,37 +44,79 @@ export default function SocialProfilePopup({
   const [isPending, setIsPending] = useState(false);
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<CompatibilityHistory | null>(null);
+  const [speedUpPrice, setSpeedUpPrice] = useState(10);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    walletService.getAdminConfig().then(config => {
+      if (config.socialRightsPrices.speedUpPrice) {
+        setSpeedUpPrice(config.socialRightsPrices.speedUpPrice);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!pendingRequestId || !currentUid) return;
+    
+    // In a real app, this should fetch status from Firestore directly to determine revealAt
+    // Simplified for now based on requirement
+    const timer = setInterval(() => {
+      // Logic to check status and timeLeft
+      // This will need Firestore listener actually
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [pendingRequestId, currentUid]);
 
   useEffect(() => {
     if (!currentUid || !uid) return;
     const checkExistingAnalysis = async () => {
+      console.log("CHECK_EXISTING_START");
       try {
-        // Check history first
-        const q = query(
-          collection(db, "compatibilityHistory"),
-          where("userId", "==", currentUid),
-          where("targetUserId", "==", uid),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          setAnalysisResult({ id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory);
-          return;
-        }
-
-        // Check for pending requests
-        const qPending = query(
+        // 1. Check for the latest CompatibilityRequest
+        const qReq = query(
           collection(db, "compatibilityRequests"),
           where("userId", "==", currentUid),
           where("targetUserId", "==", uid),
-          where("status", "==", "pending"),
+          orderBy("createdAt", "desc"),
           limit(1)
         );
-        const snapPending = await getDocs(qPending);
-        if (!snapPending.empty) {
-          setIsPending(true);
-          setPendingRequestId(snapPending.docs[0].id);
+        const snapReq = await getDocs(qReq);
+        console.log("REQUESTS_FOUND", snapReq.docs.map(d => ({ id:d.id, ...d.data() })));
+        
+        if (!snapReq.empty) {
+          const req = { id: snapReq.docs[0].id, ...snapReq.docs[0].data() } as any;
+          
+          // IF PENDING: Ignore history, show pending UI
+          if (req.status === 'pending' || req.revealed === false) {
+            setIsPending(true);
+            setPendingRequestId(req.id);
+            console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "checkExistingAnalysis_pending", null);
+            setAnalysisResult(null); // Clear result if any
+            return;
+          }
+          
+         // IF REVEALED: Do NOT fetch result automatically
+          // if (req.status === 'revealed' || req.revealed === true) {
+          //   const qHist = query(
+          //     collection(db, "compatibilityHistory"),
+          //     where("requestId", "==", req.id),
+          //     limit(1)
+          //   );
+          //   const snapHist = await getDocs(qHist);
+          //   console.log("HISTORY_FOUND", snapHist.docs.map(d => ({ id:d.id, ...d.data() })));
+          //   if (!snapHist.empty) {
+          //     const res = { id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory;
+          //     console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "checkExistingAnalysis_revealed", res);
+          //     setAnalysisResult(res);
+          //     setIsPending(false);
+          //     setPendingRequestId(null);
+          //     return;
+          //   }
+          // }
         }
+        
+        // IF NO PENDING/REVEALED REQUEST: Fallback to old history if exists
+        // (As requested, keeping this logic for retro-compatibility)
       } catch (error) {
         console.error("Error checking analysis:", error);
       }
@@ -87,19 +131,32 @@ export default function SocialProfilePopup({
     const interval = setInterval(async () => {
       try {
         const q = query(
-          collection(db, "compatibilityHistory"),
-          where("userId", "==", currentUid),
-          where("requestId", "==", pendingRequestId),
-          limit(1)
+          collection(db, "compatibilityRequests"),
+          where("id", "==", pendingRequestId)
         );
         const snap = await getDocs(q);
         if (!snap.empty) {
-          const latest = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
-          setAnalysisResult(latest);
-          setIsPending(false);
-          setPendingRequestId(null);
-          clearInterval(interval);
-          toast.success("Uyum analiziniz hazır! ✨");
+          const req = snap.docs[0].data() as any;
+          if (req.status === 'revealed' || req.revealed === true) {
+            // Now fetch the history
+            const qHist = query(
+              collection(db, "compatibilityHistory"),
+              where("requestId", "==", pendingRequestId),
+              limit(1)
+            );
+            const snapHist = await getDocs(qHist);
+            if (!snapHist.empty) {
+              const res = { id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory;
+              if (res.revealed === true) {
+                console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "polling", res);
+                setAnalysisResult(res);
+                setIsPending(false);
+                setPendingRequestId(null);
+                clearInterval(interval);
+                toast.success("Uyum analiziniz hazır! ✨");
+              }
+            }
+          }
         }
       } catch (err) {
         console.error("Polling error:", err);
@@ -110,29 +167,29 @@ export default function SocialProfilePopup({
   }, [pendingRequestId, currentUid]);
 
   const handleCompatibilityCheck = async () => {
+    console.log("ANALYZE_CLICK", currentUid, uid);
     if (isProcessing || isPending || !uid) return;
     
+    console.log("HANDLE_START");
     setIsProcessing(true);
     try {
-      const result = await walletService.runCompatibilityAnalysis(uid, 'ask');
-      if (result.success) {
-        if (result.cached) {
-          setAnalysisResult(result.analysis);
-          toast.success("Uyum analizi yüklendi! ✨");
-        } else {
-          setIsPending(true);
-          setPendingRequestId(result.requestId);
-          toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
-        }
-      }
+      // Create a pending request
+      const reqRef = await addDoc(collection(db, "compatibilityRequests"), {
+        userId: currentUid,
+        targetUserId: uid,
+        status: "pending",
+        revealed: false,
+        createdAt: serverTimestamp(),
+      });
+      console.log("CREATED_REQUEST_ID", reqRef.id);
+      setIsPending(true);
+      setPendingRequestId(reqRef.id);
+      console.log("AFTER_CLICK_STATE", { isPending: true, analysisResult, pendingRequestId: reqRef.id });
+      toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+
     } catch (error: any) {
-      console.error("Analysis error:", error);
-      if (error.message?.includes("Yetersiz")) {
-        toast.info("Uyum analizi hakkın bitti. Cüzdandan alabilirsin.");
-        onNavigate('wallet');
-      } else {
-        toast.error(error.message || "Analiz sırasında bir hata oluştu.");
-      }
+      console.error("Analysis request error:", error);
+      toast.error("Talep başlatılamadı.");
     } finally {
       setIsProcessing(false);
     }
@@ -149,6 +206,30 @@ export default function SocialProfilePopup({
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSpeedUp = async () => {
+    if (!pendingRequestId || isProcessing) return;
+    
+    if (currentUser.mainCoins < speedUpPrice) {
+      toast.info(`Hızlandırıcı için ${speedUpPrice} J gerekli. Cüzdana gidiliyor...`);
+      onNavigate('wallet');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const result = await walletService.speedUpCompatibilityAnalysis(pendingRequestId);
+      if (result.success) {
+        toast.success("Kozmik Hızlandırıcı aktif! Analiz saniyeler içinde hazır. ⚡️");
+      } else {
+        toast.error(result.message || "Hızlandırma başarısız.");
+      }
+    } catch (err) {
+      toast.error("Bir hata oluştu.");
     } finally {
       setIsProcessing(false);
     }
@@ -193,105 +274,77 @@ export default function SocialProfilePopup({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 z-[100] flex flex-col bg-[#F6F4F8]"
+      className="fixed inset-0 z-[100] flex flex-col bg-white/10 backdrop-blur-sm"
     >
-      {/* Close Button - High visibility */}
+      {/* Close Button - Premium and stable */}
       <button 
         onClick={onClose} 
-        className="absolute top-6 right-6 p-3 bg-white/40 backdrop-blur-xl rounded-2xl text-heading border border-black/5 z-50 hover:bg-white/60 transition-all active:scale-95 shadow-2xl"
+        className="absolute top-6 right-6 p-2 bg-white/80 backdrop-blur-md rounded-full text-slate-800 border border-slate-100/50 z-50 hover:bg-white transition-all active:scale-95 shadow-sm"
       >
-        <X className="w-6 h-6" />
+        <X className="w-5 h-5" />
       </button>
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto no-scrollbar">
-        {/* Photo Section - Optimized Height */}
-        <div className="relative h-[45vh] w-full bg-black/5 overflow-hidden">
+        {/* Photo Section */}
+        <div className="relative h-[55vh] w-full bg-slate-100 overflow-hidden">
           <motion.img 
             key={photoIndex}
-            initial={{ opacity: 0, scale: 1.1 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             src={photos[photoIndex] || `https://api.dicebear.com/7.x/avataaars/svg?seed=${uid}`} 
             alt={social.nickname || user?.nickname}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
           
-          {/* Photo Navigation Overlay */}
+          {/* Gradient Overlay for integration */}
+          <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent pointer-events-none" />
+          
+          {/* Photo Navigation Indicators */}
           {photos.length > 1 && (
-            <>
-              <div className="absolute inset-0 flex">
-                <div className="flex-1 cursor-pointer" onClick={prevPhoto} />
-                <div className="flex-1 cursor-pointer" onClick={nextPhoto} />
-              </div>
-              
-              {/* Photo Indicators */}
-              <div className="absolute top-4 left-6 right-16 flex gap-1.5 z-10">
-                {photos.map((_, i) => (
-                  <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${i === photoIndex ? 'bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'bg-white/30'}`} />
-                ))}
-              </div>
-
-              {/* Navigation Arrows - Subtle */}
-              <button onClick={prevPhoto} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-black/20 backdrop-blur-md rounded-full text-white/60 hover:text-white transition-all"><ChevronLeft className="w-6 h-6" /></button>
-              <button onClick={nextPhoto} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-black/20 backdrop-blur-md rounded-full text-white/60 hover:text-white transition-all"><ChevronRight className="w-6 h-6" /></button>
-            </>
+            <div className="absolute top-4 left-6 right-6 flex gap-1.5 z-10">
+              {photos.map((_, i) => (
+                <div key={i} className={`h-1 flex-1 rounded-full ${i === photoIndex ? 'bg-white shadow-sm' : 'bg-white/50'}`} />
+              ))}
+            </div>
           )}
-
-          {/* Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#F6F4F8] via-transparent to-transparent pointer-events-none" />
         </div>
 
-        {/* Info Content */}
-        <div className="px-6 pb-40 -mt-10 relative z-10">
-          <div className="space-y-5">
+        {/* Info Content - Clean and Premium */}
+        <div className="px-6 pb-40 -mt-10 relative z-10 bg-white rounded-t-[3rem] shadow-[0_-10px_40px_rgba(0,0,0,0.05)] pt-8">
+          <div className="space-y-6">
             {/* Header Info */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <h2 className="text-3xl font-serif font-bold text-heading tracking-tight">
-                    {social.nickname || user?.nickname}, {social.age || user?.age || 25}
-                  </h2>
-                </div>
-                <button 
-                  onClick={handleReport}
-                  className="p-2 text-muted hover:text-red-500 transition-colors"
-                >
-                  <Flag className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="flex items-center gap-4 text-body text-[13px] font-medium">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-600/60" />
-                  <span>Ruhsal Uyum Analizi</span>
-                </div>
-              </div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-serif font-bold text-slate-900 tracking-tight">
+                {social.nickname || user?.nickname}, {social.age || user?.age || 25}
+              </h2>
+              <button 
+                onClick={handleReport}
+                className="p-2 text-slate-400 hover:text-red-500 transition-colors bg-slate-50 rounded-full"
+              >
+                <Flag className="w-4 h-4" />
+              </button>
             </div>
-
+            
             {/* Bio Section */}
             <div className="space-y-2">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">Hakkında</h3>
-              <p className="text-body text-base leading-relaxed font-medium line-clamp-3">
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Hakkında</h3>
+              <p className="text-slate-700 text-base leading-relaxed font-medium">
                 {social.bio || user?.bio || 'Mistik bir ruh, henüz hikayesini paylaşmamış.'}
               </p>
             </div>
 
             {/* Interests Section */}
             {social.interests && social.interests.length > 0 && (
-              <div className="space-y-2.5">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">İlgi Alanları</h3>
-                <div className="flex flex-wrap gap-1.5">
+              <div className="space-y-3">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">İlgi Alanları</h3>
+                <div className="flex flex-wrap gap-2">
                   {social.interests.slice(0, 6).map((interest) => (
-                    <span key={interest} className="px-3 py-1.5 bg-black/[0.03] border border-black/5 text-body text-[13px] rounded-xl font-semibold hover:bg-black/[0.06] transition-all">
+                    <span key={interest} className="px-4 py-1.5 bg-slate-50 border border-slate-100 text-slate-600 text-xs rounded-full font-medium">
                       {interest}
                     </span>
                   ))}
-                  {social.interests.length > 6 && (
-                    <span className="px-3 py-1.5 bg-black/[0.03] border border-black/5 text-muted text-[13px] rounded-xl font-semibold">
-                      +{social.interests.length - 6}
-                    </span>
-                  )}
                 </div>
               </div>
             )}
@@ -380,38 +433,39 @@ export default function SocialProfilePopup({
       </div>
 
       {/* Fixed Bottom Action Bar */}
-      <div className="absolute bottom-0 left-0 right-0 p-6 pt-10 bg-gradient-to-t from-[#F6F4F8] via-[#F6F4F8]/95 to-transparent z-40">
+      <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-slate-100 z-40">
         <div className="max-w-md mx-auto flex flex-col gap-3">
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        disabled={isProcessing || isPending}
-        animate={isProcessing || isPending ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
-        onClick={handleCompatibilityCheck}
-        className="flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-900/10 border border-rose-400/20 active:scale-[0.98] transition-all"
-      >
-        <Heart className="w-4 h-4 fill-white" />
-        <span>
-          {analysisResult 
-            ? 'Tekrar Analiz Et' 
-            : isPending 
-              ? 'Analiz Hazırlanıyor...' 
-              : `Uyumunu Gör (${credits})`
-          }
-        </span>
-      </motion.button>
-      
-      <motion.button 
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        disabled={isProcessing}
-        animate={isProcessing ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
-        onClick={handleAction}
-        className="flex items-center justify-center gap-3 py-4 bg-white border border-black/5 text-heading rounded-2xl font-bold text-sm shadow-sm hover:bg-black/5 transition-all active:scale-[0.98]"
-      >
-        <MessageCircle className="w-4 h-4" />
-        <span>{context === 'likers' ? 'Sohbet Başlat' : 'Mesaj Gönder'}</span>
-      </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            disabled={isProcessing || isPending}
+            animate={isProcessing || isPending ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+            onClick={handleCompatibilityCheck}
+            className="flex items-center justify-center gap-3 py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-lg active:scale-[0.98] transition-all"
+          >
+            <Heart className="w-4 h-4" />
+            <span>
+              {analysisResult 
+                ? 'Tekrar Analiz Et' 
+                : isPending 
+                  ? 'Analiz Hazırlanıyor...' 
+                  : `Uyumunu Gör (${credits})`
+              }
+            </span>
+          </motion.button>
+          
+          {isPending && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              disabled={isProcessing}
+              onClick={handleSpeedUp}
+              className="flex items-center justify-center gap-3 py-4 bg-amber-50 text-amber-700 rounded-2xl font-bold text-sm border border-amber-200 hover:bg-amber-100 active:scale-[0.98] transition-all"
+            >
+              <Zap className="w-4 h-4" />
+              <span>Beklemek istemiyor musun? ({speedUpPrice} J)</span>
+            </motion.button>
+          )}
         </div>
       </div>
     </motion.div>

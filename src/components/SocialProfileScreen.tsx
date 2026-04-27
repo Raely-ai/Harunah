@@ -12,16 +12,13 @@ import {
   AtSign,
   User,
   MessageCircle,
-  UserPlus,
-  Users,
-  Gift
+  UserPlus
 } from "lucide-react";
 import { UserProfile, AppTab } from "../types";
 import PhotoGallery from "./PhotoGallery";
 import NicknameEditor from "./NicknameEditor";
 import BioEditor from "./BioEditor";
 import InterestsEditor from "./InterestsEditor";
-import SocialCompatibilityHistory from "./SocialCompatibilityHistory";
 import { walletService } from "../lib/walletService";
 import { toast } from "sonner";
 
@@ -298,8 +295,6 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
                     {[
                       { id: 'messages', label: 'Mesajlar', icon: MessageCircle },
                       { id: 'friendRequests', label: 'Arkadaşlık İstekleri', icon: UserPlus },
-                      { id: 'roomInvites', label: 'Oda Davetleri', icon: Users },
-                      { id: 'gifts', label: 'Hediyeler', icon: Gift },
                     ].map((item) => (
                       <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl bg-white border border-slate-100/50">
                         <div className="flex items-center gap-3">
@@ -323,23 +318,6 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
               )}
             </AnimatePresence>
           </div>
-
-          {/* Compatibility Link */}
-          <button 
-            onClick={() => setEditingField('compatibility_history')}
-            className="w-full bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between transition-all active:scale-[0.98] hover:bg-slate-50/50"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div className="text-left">
-                <h3 className="font-bold text-slate-800">Uyum Geçmişi</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Analizlerini Gözden Geçir</p>
-              </div>
-            </div>
-            <ChevronRight size={20} className="text-slate-300" />
-          </button>
         </section>
       </div>
 
@@ -351,12 +329,6 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
         {editingField === 'nickname' && <NicknameEditor uid={localUser.uid} currentNickname={localUser.social?.nickname || ''} onClose={() => setEditingField(null)} onUpdate={(val) => updateLocalUser('nickname', val)} />}
         {editingField === 'bio' && <BioEditor uid={localUser.uid} currentBio={localUser.social?.bio || ''} onClose={() => setEditingField(null)} onUpdate={(val) => updateLocalUser('bio', val)} />}
         {editingField === 'interests' && <InterestsEditor uid={localUser.uid} currentInterests={localUser.social?.interests || []} onClose={() => setEditingField(null)} onUpdate={(val) => updateLocalUser('interests', val)} />}
-        {editingField === 'compatibility_history' && (
-          <SocialCompatibilityHistory 
-            currentUser={currentUser} 
-            onBack={() => setEditingField(null)} 
-          />
-        )}
       </AnimatePresence>
     </div>
   );

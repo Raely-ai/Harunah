@@ -87,25 +87,30 @@ export const createFortuneReading = functions.region('us-central1').https.onCall
       if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
         const dailyUsed = sub.dailyLimitUsed || 0;
         const lastReset = sub.lastResetAt || "";
-        if (lastReset === today && dailyUsed >= subLimits.totalDaily) {
-          throw new functions.https.HttpsError('resource-exhausted', 'Günlük fal limitinize ulaştınız.');
+        // Günlük limit her gün sıfırlanır, günlük işlem sayısı sınırı takibi
+        if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
+          balanceType = 'subscription';
         }
-        balanceType = 'subscription';
       }
 
-      // Balance Separation: Energy preferred for Fortunes
+      // Balance hiyerarşisi: Abonelik limit dışı ise -> Enerji tercih et -> En son J-Coin
       if (balanceType === 'main' && (userData.energy || 0) >= totalCost) {
         balanceType = 'energy';
       }
 
-      if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
-        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji veya jeton (Mağaza\'dan enerji toplayabilirsin).');
+      // Güvenlik kilidi (Transaction Lock): Bakiye eksiye düşmemesi için katı koruma
+      if (balanceType === 'energy' && (userData.energy || 0) < totalCost) {
+        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji.');
+      } else if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
+        throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
       }
 
       const userUpdates: any = {};
-      if (balanceType === 'main') userUpdates.mainCoins = FieldValue.increment(-totalCost);
-      else if (balanceType === 'energy') userUpdates.energy = FieldValue.increment(-totalCost);
-      else if (balanceType === 'subscription') {
+      if (balanceType === 'main') {
+        userUpdates.mainCoins = FieldValue.increment(-totalCost);
+      } else if (balanceType === 'energy') {
+        userUpdates.energy = FieldValue.increment(-totalCost);
+      } else if (balanceType === 'subscription') {
         userUpdates["subscription.dailyLimitUsed"] = (userData.subscription?.lastResetAt !== today) ? 1 : FieldValue.increment(1);
         userUpdates["subscription.lastResetAt"] = today;
       }

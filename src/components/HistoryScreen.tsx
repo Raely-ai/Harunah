@@ -198,12 +198,12 @@ export default function HistoryScreen({
                     key={reading.id}
                     whileTap={{ scale: 0.98 }}
                     className={`p-5 rounded-[1.5rem] bg-white border border-gray-100 shadow-sm relative overflow-hidden ${
-                      reading.status === 'completed' && !reading.isSeenByUser
+                      (reading.status === 'completed' || reading.status === 'interpreting') && !reading.isSeenByUser
                         ? 'border-purple-100 bg-purple-50/10'
                         : ''
                     }`}
                   >
-                    {reading.status === 'completed' && !reading.isSeenByUser && (
+                    {(reading.status === 'completed' || reading.status === 'interpreting') && !reading.isSeenByUser && (
                       <div className="absolute top-0 right-0 px-3 py-1 bg-purple-600 text-white text-[9px] font-bold uppercase tracking-widest rounded-bl-xl shadow-sm z-10">
                         YENİ
                       </div>
@@ -251,7 +251,7 @@ export default function HistoryScreen({
                       </div>
                     </div>
 
-                    {reading.status === 'completed' && reading.content ? (
+                    {(reading.status === 'completed' || reading.status === 'interpreting') && reading.content ? (
                       <div className="space-y-4">
                         <p className="text-xs text-body line-clamp-2 leading-relaxed">
                           "{reading.content}"
@@ -331,7 +331,8 @@ export default function HistoryScreen({
         {selectedReading && (
           <ReadingResult 
             reading={selectedReading} 
-            onClose={() => setSelectedReading(null)} 
+            onClose={() => setSelectedReading(null)}
+            onToggleFavorite={onToggleFavorite}
           />
         )}
       </AnimatePresence>
