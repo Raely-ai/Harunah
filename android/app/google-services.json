@@ -7,27 +7,43 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:654177015558:android:d16b0b23704b2b3501b087",
+        "mobilesdk_app_id": "1:654177015558:android:8871f0d913bc7c4801b087",
         "android_client_info": {
           "package_name": "com.lasya.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "654177015558-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com",
+          "client_id": "654177015558-984tdrf1lc1jbrd05msarrdu279ojq3l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lasya.app",
+            "certificate_hash": "d62a49560e767e43a3ce9141c5110d6d1e17efff"
+          }
+        },
+        {
+          "client_id": "654177015558-ili8d7upv76st0m300rfhfc78cvbe8kd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lasya.app",
+            "certificate_hash": "0362d82c87ff27c56b9d36ead8a8d5a395feadbb"
+          }
+        },
+        {
+          "client_id": "654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDy4qcu0_-dW1a_bml90fxeqfPZcqNy39I"
+          "current_key": "AIzaSyAPxt4JyaZMdbeAJjHhvSJNQeN00NV3frY"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "654177015558-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com",
+              "client_id": "654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

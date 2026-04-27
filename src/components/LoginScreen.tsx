@@ -12,7 +12,6 @@ import {
   ChevronLeft
 } from "lucide-react";
 import { 
-  signInWithRedirect,
   signInWithEmailAndPassword,
   signInWithCredential,
   GoogleAuthProvider
@@ -67,21 +66,34 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
     setError(null);
     try {
       if (isCapacitor) {
+        console.log("Capacitor detected, initializing GoogleAuth");
         GoogleAuth.initialize();
+        console.log("GoogleAuth.initialize done");
 
+        console.log("Calling GoogleAuth.signIn()");
         const googleUser = await GoogleAuth.signIn();
-        if (googleUser.authentication.idToken) {
+        console.log("GoogleAuth.signIn response received:", googleUser ? "yes" : "no");
+        
+        if (googleUser && googleUser.authentication && googleUser.authentication.idToken) {
+            console.log("idToken found, creating credential");
             const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
-            await signInWithCredential(auth, credential);
+            
+            console.log("signInWithCredential starting");
+            const result = await signInWithCredential(auth, credential);
+            console.log("signInWithCredential success:", result.user.uid, result.user.email);
             console.log("native google login success");
         } else {
+            console.log("idToken NOT found in response");
             throw new Error("No idToken found");
         }
       } else {
          setError("Web üzerinden Google girişi şu an desteklenmiyor.");
       }
     } catch (err: any) {
-      console.log("google login error", err);
+      console.log("google login error:", err);
+      if (err.code || err.message) {
+        console.log("Detailed error info:", err.code, err.message);
+      }
       setError(err.message || "Google ile giriş yapılamadı.");
     } finally {
       setSocialLoading(false);
@@ -89,17 +101,7 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
   };
 
   const handleFacebookAuth = async () => {
-    console.log("facebook login start");
-    setSocialLoading(true);
-    setError(null);
-    try {
-      await signInWithRedirect(auth, facebookProvider);
-      // Will not reach here because of redirect
-    } catch (err: any) {
-      console.log("facebook login error", err);
-      setError(err.message || "Facebook ile giriş yapılamadı.");
-      setSocialLoading(false);
-    }
+    setError("Facebook ile giriş şu an Capacitor üzerinde desteklenmiyor. Lütfen Google veya E-posta kullanın.");
   };
 
   return (

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
-import { signOut, getRedirectResult } from "firebase/auth";
+import { signOut } from "firebase/auth";
 import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
 import { cacheManager } from "./lib/cacheManager";
 import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment, startAfter } from "firebase/firestore";
@@ -56,27 +56,7 @@ function AppContent() {
   const [user, loading, error] = useAuthState(auth);
   const [showSplash, setShowSplash] = useState(true);
 
-  // Process redirect results securely on app startup
-  useEffect(() => {
-    const handleRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          console.log("App startup redirect login success:", result.user.uid);
-          toast.success("Başarıyla giriş yapıldı.");
-        }
-      } catch (err: any) {
-        console.error("App startup redirect error:", err);
-        // Special mapping for common Google login errors
-        let errorMessage = "Giriş işlemi tamamlanamadı.";
-        if (err.code === 'auth/popup-closed-by-user') {
-          errorMessage = "Giriş penceresi kapatıldı.";
-        }
-        toast.error("Giriş Hatası", { description: errorMessage });
-      }
-    };
-    handleRedirect();
-  }, []);
+  // Social login results are handled directly in components or via Auth state change
   const [authScreen, setAuthScreen] = useState<AuthScreen>('welcome');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [activeFortune, setActiveFortune] = useState<FortuneType | null>(null);
