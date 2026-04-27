@@ -133,7 +133,7 @@ async function sendPushToUser(userId, payload) {
                 priority: 'high',
                 notification: {
                     sound: 'default',
-                    channelId: 'lasya_messages',
+                    channelId: 'lasya_default_channel',
                     clickAction: 'FLUTTER_NOTIFICATION_CLICK',
                     image: payload.imageUrl,
                 }

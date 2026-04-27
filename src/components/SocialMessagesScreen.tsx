@@ -204,56 +204,68 @@ export default function SocialMessagesScreen({
     const setupChatsListener = () => {
       try {
         unsubChats = socialService.listenToMatches(currentUser.uid, async (matches) => {
-          const chatDocs = matches.filter(chat => !chat.deletedFor?.includes(currentUser.uid));
-          
-          const otherUserIds = Array.from(new Set(
-            chatDocs.flatMap(c => (c.participants || []).filter((id: string) => id && id !== currentUser.uid))
-          ));
-          const missingUserIds = otherUserIds.filter(id => id && !profilesCache.current[id as string]);
-          
-          if (missingUserIds.length > 0) {
-            // Fetch missing profiles
-            const usersQ = query(collection(db, "users"), where("uid", "in", missingUserIds.slice(0, 30)));
-            const usersSnap = await getDocs(usersQ);
-            usersSnap.forEach(uDoc => {
-              const uData = uDoc.data();
-              profilesCache.current[uDoc.id] = normalizeUserProfile(uData, uDoc.id);
+          try {
+            const chatDocs = matches.filter(chat => !chat.deletedFor?.includes(currentUser.uid));
+            
+            if (chatDocs.length === 0) {
+              setChats([]);
+              setIsLoading(false);
+              return;
+            }
+
+            const otherUserIds = Array.from(new Set(
+              chatDocs.flatMap(c => (c.participants || []).filter((id: string) => id && id !== currentUser.uid))
+            ));
+            const missingUserIds = otherUserIds.filter(id => id && !profilesCache.current[id as string]);
+            
+            if (missingUserIds.length > 0) {
+              // Fetch missing profiles
+              const usersQ = query(collection(db, "users"), where("uid", "in", missingUserIds.slice(0, 30)));
+              const usersSnap = await getDocs(usersQ);
+              usersSnap.forEach(uDoc => {
+                const uData = uDoc.data();
+                profilesCache.current[uDoc.id] = normalizeUserProfile(uData, uDoc.id);
+              });
+            }
+
+            const chatList = chatDocs.map((chatData) => {
+              const participants = chatData.participants || [];
+              const others = participants.filter((id: string) => id && id !== currentUser.uid);
+              const otherUserId = others.length > 0 ? others[0] : (participants.find((id: string) => id !== currentUser.uid) || null);
+              
+              if (!otherUserId) return null;
+              
+              let otherUser = profilesCache.current[otherUserId];
+              if (!otherUser) {
+                 // Return partial if profile not cached yet, or placeholder
+                 return null;
+              }
+              
+              return { ...chatData, otherUser } as Chat & { otherUser: UserProfile };
+            }).filter((c): c is (Chat & { otherUser: UserProfile }) => c !== null);
+            
+            chatList.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
+
+            setChats(prev => {
+              const chatMap = new Map(prev.map(c => [c.id, c]));
+              chatList.forEach(c => chatMap.set(c.id, c));
+              const merged = Array.from(chatMap.values());
+              merged.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
+              cacheManager.set(CHAT_LIST_CACHE_KEY, merged, 600, true);
+              return merged;
             });
+            setIsLoading(false);
+          } catch (innerErr) {
+            console.error("Error processing chats:", innerErr);
+            setIsLoading(false);
           }
-
-          const chatList = chatDocs.map((chatData) => {
-            const participants = chatData.participants || [];
-            // Robust check: filter out current user and take the first non-matching ID
-            // We use filter(Boolean) to skip any null/undefined IDs in the array
-            const others = participants.filter((id: string) => id && id !== currentUser.uid);
-            
-            // If it's a self-chat (only one participant or both are same) or mismatch, 
-            // the above filter will be empty if both IDs == currentUser.uid. 
-            // In that case, we MUST NOT show the current user as otherUser.
-            const otherUserId = others.length > 0 ? others[0] : (participants.find((id: string) => id !== currentUser.uid) || null);
-            
-            if (!otherUserId) return null;
-            
-            const otherUser = profilesCache.current[otherUserId];
-            if (!otherUser) return null; // Wait for profile fetch in next cycle
-            
-            return { ...chatData, otherUser } as Chat & { otherUser: UserProfile };
-          }).filter((c): c is (Chat & { otherUser: UserProfile }) => c !== null);
-          
-          chatList.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
-
-          setChats(prev => {
-            const chatMap = new Map(prev.map(c => [c.id, c]));
-            chatList.forEach(c => chatMap.set(c.id, c));
-            const merged = Array.from(chatMap.values());
-            merged.sort((a, b) => toSafeDate(b.lastMessageAt).getTime() - toSafeDate(a.lastMessageAt).getTime());
-            cacheManager.set(CHAT_LIST_CACHE_KEY, merged, 600, true);
-            return merged;
-          });
+        }, (err) => {
+          console.error("Chats listener error:", err);
           setIsLoading(false);
         });
       } catch (err) {
         console.error("Chats listener setup error:", err);
+        setIsLoading(false);
       }
     };
 
@@ -275,9 +287,11 @@ export default function SocialMessagesScreen({
           setIsLoading(false);
         }, (err) => {
           console.error("Requests listener error:", err);
+          setIsLoading(false);
         });
       } catch (err) {
         console.error("Requests listener setup error:", err);
+        setIsLoading(false);
       }
     };
 
@@ -320,9 +334,11 @@ export default function SocialMessagesScreen({
           setIsLoading(false);
         }, (err) => {
           console.error("Likers listener error:", err);
+          setIsLoading(false);
         });
       } catch (err) {
         console.error("Likers listener setup error:", err);
+        setIsLoading(false);
       }
     };
 
@@ -330,7 +346,13 @@ export default function SocialMessagesScreen({
     setupRequestsListener();
     setupLikersListener();
 
+    // Safety timeout to ensure loading never gets stuck
+    const loadingTimeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 8000);
+
     return () => {
+      clearTimeout(loadingTimeout);
       unsubChats();
       unsubRequests();
       unsubLikers();
@@ -631,7 +653,7 @@ export default function SocialMessagesScreen({
                   </div>
                   <div className="space-y-2">
                     <h3 className="text-xl font-bold text-slate-900 tracking-tight">
-                      {searchQuery ? "Sonuç Bulunamadı" : "Sohbetlerin Burada"}
+                      {searchQuery ? "Sonuç Bulunamadı" : "Henüz sohbet yok"}
                     </h3>
                     <p className="text-[13px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">
                       {searchQuery ? "Aramanla eşleşen bir sohbet bulamadık." : "Eşleştiğin kişilerle olan tüm konuşmaların burada listelenir."}

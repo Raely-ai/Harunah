@@ -20,7 +20,7 @@ import { walletService } from "../lib/walletService";
 import { socialService } from "../lib/socialService";
 import { toast } from "sonner";
 import { db } from "../lib/firebase";
-import { collection, query, where, getDocs, limit, onSnapshot } from "firebase/firestore";
+import { collection, query, where, getDocs, limit, onSnapshot, orderBy, serverTimestamp, addDoc } from "firebase/firestore";
 
 interface DiscoverProfilePopupProps {
   users: UserProfile[];

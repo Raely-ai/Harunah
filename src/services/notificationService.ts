@@ -3,13 +3,16 @@ import { Capacitor } from '@capacitor/core';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'sonner';
+import { isNotificationProcessed, markNotificationProcessed } from '../lib/notificationStore';
+
+let pushInitialized = false;
 
 export const notificationService = {
   async createChannel() {
     if (!Capacitor.isNativePlatform()) return;
     try {
       await PushNotifications.createChannel({
-        id: 'lasya_messages',
+        id: 'lasya_default_channel',
         name: 'Lasya Bildirimleri',
         description: 'Mesaj ve fal bildirimleri',
         importance: 5, // High
@@ -22,7 +25,7 @@ export const notificationService = {
     }
   },
 
-  async requestPermission(userId?: string) {
+  async requestPermission(userId?: string, retryCount = 0) {
     if (!Capacitor.isNativePlatform()) {
       console.warn("Push notifications are only available on native platforms.");
       return null;
@@ -51,7 +54,15 @@ export const notificationService = {
       }
 
       // Register with Apple / Google to receive push via APNS/FCM
-      await PushNotifications.register();
+      try {
+        await PushNotifications.register();
+      } catch (regErr: any) {
+        console.error(`Push register failed (Attempt ${retryCount + 1}):`, regErr);
+        if (retryCount < 3) {
+          console.log("Retrying push registration in 5 seconds...");
+          setTimeout(() => this.requestPermission(userId, retryCount + 1), 5000);
+        }
+      }
       
       return true;
     } catch (error) {
@@ -101,7 +112,23 @@ export const notificationService = {
   setupListeners(userId?: string, onAction?: (data: any) => void) {
     if (!Capacitor.isNativePlatform()) return;
 
+    if (pushInitialized && !userId) {
+       console.log("Push listeners already initialized, skipping global setup.");
+       return;
+    }
+
+    pushInitialized = true;
     PushNotifications.removeAllListeners();
+
+    // Disable native banners while app is in foreground to prevent double notifications
+    // We handle foreground notifications via our own CustomToast
+    if (Capacitor.getPlatform() === 'ios') {
+      // Cast to any to bypass lint error if types are stale, 
+      // but only call on iOS as guarded above.
+      (PushNotifications as any).setPresentationOptions({
+        presentationOptions: [], 
+      });
+    }
 
     PushNotifications.addListener('registration', async (token) => {
         console.log("Push registration success, token: " + token.value);
@@ -116,18 +143,19 @@ export const notificationService = {
     });
 
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        console.log("Push received: ", notification);
-        toast(notification.title || "Yeni Bildirim", {
-          description: notification.body,
-          action: {
-            label: "Görüntüle",
-            onClick: () => {
-              if (onAction && notification.data) {
-                onAction(notification.data);
-              }
-            }
-          }
-        });
+        console.log("Push received (foreground): ", notification);
+        
+        // Extract logical IDs for deduplication
+        const { chatId, messageId, type, id: requestId } = notification.data || {};
+        const logicalId = messageId ? `${chatId}_${messageId}` : (requestId || notification.id);
+        
+        // Always mark as processed in foreground so Firestore listener or actionPerformed
+        // can handle logic, or just prevent triple processing.
+        // We REMOVE the toast(notification.title...) call here because SocialMessages/Firestore
+        // will show the CustomToast in foreground.
+        if (logicalId) {
+          markNotificationProcessed(logicalId);
+        }
     });
 
     PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {

@@ -94,50 +94,36 @@ function AppContent() {
   // Notification Service Setup (Global)
   useEffect(() => {
     const handleNotificationAction = (data: any) => {
+      console.log("NOTIFICATION_ACTION_TRIGGERED", data);
       if (data?.screen === 'chat' || data?.screen === 'messages' || (data?.type === 'message')) {
         handleNavigate('messages');
         const chatId = data?.chatId;
         if (chatId) {
-          window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId } }));
+          // Small delay to ensure navigation completes first
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId } }));
+          }, 300);
         }
       } else if (data?.screen === 'history' || data?.screen === 'fortunes' || data?.type === 'reading') {
         handleNavigate('history');
       } else if (data?.type === 'like' || data?.type === 'super_like') {
-        handleNavigate('social');
+        handleNavigate('social-intro');
       }
     };
 
-    const initPushOnStart = async () => {
+    const initPush = async () => {
       try {
-        notificationService.setupListeners(undefined, handleNotificationAction);
-        await notificationService.requestPermission();
+        notificationService.setupListeners(user?.uid, handleNotificationAction);
+        if (!user) {
+          await notificationService.requestPermission();
+        } else {
+          notificationService.syncPendingToken(user.uid);
+        }
       } catch (err) {
         console.error("Non-blocking push init failed:", err);
       }
     };
-    initPushOnStart();
-  }, []);
-
-  // Sync token when user logs in
-  useEffect(() => {
-    if (user?.uid) {
-      notificationService.syncPendingToken(user.uid);
-      // Re-setup listeners with active UID
-      const handleNotificationAction = (data: any) => {
-        if (data?.screen === 'chat' || data?.screen === 'messages' || (data?.type === 'message')) {
-          handleNavigate('messages');
-          const chatId = data?.chatId;
-          if (chatId) {
-            window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId } }));
-          }
-        } else if (data?.screen === 'history' || data?.screen === 'fortunes' || data?.type === 'reading') {
-          handleNavigate('history');
-        } else if (data?.type === 'like' || data?.type === 'super_like') {
-          handleNavigate('social');
-        }
-      };
-      notificationService.setupListeners(user.uid, handleNotificationAction);
-    }
+    initPush();
   }, [user?.uid]);
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';

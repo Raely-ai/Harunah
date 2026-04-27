@@ -517,7 +517,7 @@ export const socialService = {
     });
   },
 
-  listenToMatches(userId: string, callback: (matches: any[]) => void) {
+  listenToMatches(userId: string, callback: (matches: any[]) => void, onError?: (error: any) => void) {
     if (!userId) return () => {};
     // Matches are determined by active chats
     const q = query(
@@ -534,6 +534,8 @@ export const socialService = {
       callback(matches);
     }, (error) => {
       console.error("listenToMatches error:", error);
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.LIST, "chats");
     });
   }
 };

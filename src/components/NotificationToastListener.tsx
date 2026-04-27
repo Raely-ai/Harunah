@@ -6,9 +6,8 @@ import { toast } from 'sonner';
 import { CustomToast } from './CustomToast';
 
 import { UserProfile, normalizeUserProfile } from '../types';
+import { isNotificationProcessed, markNotificationProcessed } from '../lib/notificationStore';
 
-// Use a ref to track shown message IDs to prevent double processing same message snapshot
-const processedMessageIds = new Set<string>();
 // Cache for user profiles to avoid redundant fetches
 const profileCache = new Map<string, { name: string, photo: string }>();
 
@@ -22,6 +21,16 @@ export const NotificationToastListener: React.FC<{
   onNavigate
 }) => {
   const mountTime = useRef(new Date());
+  const activeChatIdRef = useRef(activeChatId);
+  const onNavigateRef = useRef(onNavigate);
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    onNavigateRef.current = onNavigate;
+  }, [onNavigate]);
 
   // Helper to safely parse Firestore Timestamps or strings
   const parseDate = (val: any) => {
@@ -46,18 +55,18 @@ export const NotificationToastListener: React.FC<{
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
           const docId = change.doc.id;
-          if (processedMessageIds.has(docId)) return;
+          if (isNotificationProcessed(docId)) return;
 
           const data = change.doc.data();
           const createdAt = parseDate(data.createdAt);
           
           if (createdAt && createdAt > mountTime.current) {
-            processedMessageIds.add(docId);
+            markNotificationProcessed(docId);
             toast(<CustomToast 
                 name={data.senderName || 'Yeni Beğeni'}
                 message={data.type === 'super_like' ? 'Sana bir Süper Like gönderdi! 🔥' : 'Seni beğendi, hemen bak! ❤️'}
                 avatar={data.senderPhoto || ''}
-                onNavigate={() => onNavigate('messages')} 
+                onNavigate={() => onNavigateRef.current('messages')} 
                 onDismiss={() => {}}
             />, { id: `request-${docId}` });
           }
@@ -76,18 +85,18 @@ export const NotificationToastListener: React.FC<{
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
           const docId = change.doc.id;
-          if (processedMessageIds.has(docId)) return;
+          if (isNotificationProcessed(docId)) return;
 
           const data = change.doc.data();
           const createdAt = parseDate(data.createdAt);
           
           if (createdAt && createdAt > mountTime.current) {
-            processedMessageIds.add(docId);
+            markNotificationProcessed(docId);
             toast(<CustomToast 
                 name="Kahve Falı"
                 message="Kahve falın yorumlandı, hemen incele! ☕"
                 avatar=""
-                onNavigate={() => onNavigate('history')} 
+                onNavigate={() => onNavigateRef.current('history')} 
                 onDismiss={() => {}}
             />, { id: `reading-${docId}` });
           }
@@ -114,73 +123,73 @@ export const NotificationToastListener: React.FC<{
         const messageId = data.lastMessageId || 
                          (lastMessageAt && senderId ? `${lastMessageAt.getTime()}_${senderId}_${lastMessage.slice(0, 10)}` : null);
 
-        const uniqueMessageKey = `${chatId}_${messageId}`;
-        console.log("UNIQUE_MESSAGE_KEY", uniqueMessageKey);
-
-        console.log("MESSAGE_DEBUG", {
-          chatId,
-          messageId,
-          uniqueMessageKey,
-          senderId,
-          rawLastMessageId: data.lastMessageId,
-          currentUserId: userProfile.uid,
-          activeChatId,
-          createdAt: lastMessageAt,
-          isOwnMessage: senderId === userProfile.uid,
-          isActiveChat: activeChatId && String(chatId).trim() === String(activeChatId).trim(),
-          alreadyProcessed: uniqueMessageKey ? processedMessageIds.has(uniqueMessageKey) : false,
-          passesTimeCheck: lastMessageAt && lastMessageAt > mountTime.current,
-          changeType: change.type,
-          hasPendingWrites: change.doc.metadata.hasPendingWrites
-        });
-
-        const hasPendingWrites = change.doc.metadata.hasPendingWrites;
-
-        if ((change.type === "added" || change.type === "modified") && !hasPendingWrites) {
-          // Strict suppression: Current chat or sender is me
-          const isActiveChat = activeChatId && String(chatId).trim() === String(activeChatId).trim();
-          const isOwnMessage = senderId === userProfile.uid;
-          const passesTimeCheck = lastMessageAt && lastMessageAt > mountTime.current;
-
-          if (isActiveChat) console.log("BLOCK_ACTIVE_CHAT", chatId);
-          if (isOwnMessage) console.log("BLOCK_OWN_MESSAGE", senderId);
-          if (!passesTimeCheck) console.log("BLOCK_TIME_CHECK", { lastMessageAt, mountTime: mountTime.current });
-          if (!messageId) console.log("BLOCK_NO_MESSAGE_ID");
-
-          if (isActiveChat || isOwnMessage || !passesTimeCheck || !messageId) continue;
-
-          if (processedMessageIds.has(uniqueMessageKey)) {
-            console.log("BLOCK_ALREADY_PROCESSED", uniqueMessageKey);
-            continue;
-          }
-
-          // Fetch Sender Profile for Toast
-          let senderName = data.lastMessageSenderName;
-          let senderPhoto = data.lastMessageSenderPhoto;
-
-          if (!senderName || senderName === 'Yeni Mesaj') {
-            if (profileCache.has(senderId)) {
-              senderName = profileCache.get(senderId)?.name;
-              senderPhoto = profileCache.get(senderId)?.photo;
-            } else {
-              try {
-                const userSnap = await getDoc(doc(db, "users", senderId));
-                if (userSnap.exists()) {
-                  const uData = userSnap.data();
-                  const profile = normalizeUserProfile(uData, userSnap.id) as any;
-                  senderName = profile.social?.nickname || profile.displayName || profile.username || profile.nickname || profile.name || 
-                               profile.email?.split('@')[0] || 'Kullanıcı';
-                  senderPhoto = (profile.social?.photos?.[0]) || profile.photoURL || profile.profilePhoto || profile.avatar || profile.photo || '';
-                  profileCache.set(senderId, { name: senderName, photo: senderPhoto });
+          const uniqueMessageKey = `${chatId}_${messageId}`;
+          console.log("UNIQUE_MESSAGE_KEY", uniqueMessageKey);
+  
+          console.log("MESSAGE_DEBUG", {
+            chatId,
+            messageId,
+            uniqueMessageKey,
+            senderId,
+            rawLastMessageId: data.lastMessageId,
+            currentUserId: userProfile.uid,
+            activeChatId: activeChatIdRef.current,
+            createdAt: lastMessageAt,
+            isOwnMessage: senderId === userProfile.uid,
+            isActiveChat: activeChatIdRef.current && String(chatId).trim() === String(activeChatIdRef.current).trim(),
+            alreadyProcessed: uniqueMessageKey ? isNotificationProcessed(uniqueMessageKey) : false,
+            passesTimeCheck: lastMessageAt && lastMessageAt > mountTime.current,
+            changeType: change.type,
+            hasPendingWrites: change.doc.metadata.hasPendingWrites
+          });
+  
+          const hasPendingWrites = change.doc.metadata.hasPendingWrites;
+  
+          if ((change.type === "added" || change.type === "modified") && !hasPendingWrites) {
+            // Strict suppression: Current chat or sender is me
+            const isActiveChat = activeChatIdRef.current && String(chatId).trim() === String(activeChatIdRef.current).trim();
+            const isOwnMessage = senderId === userProfile.uid;
+            const passesTimeCheck = lastMessageAt && lastMessageAt > mountTime.current;
+  
+            if (isActiveChat) console.log("BLOCK_ACTIVE_CHAT", chatId);
+            if (isOwnMessage) console.log("BLOCK_OWN_MESSAGE", senderId);
+            if (!passesTimeCheck) console.log("BLOCK_TIME_CHECK", { lastMessageAt, mountTime: mountTime.current });
+            if (!messageId) console.log("BLOCK_NO_MESSAGE_ID");
+  
+            if (isActiveChat || isOwnMessage || !passesTimeCheck || !messageId) continue;
+  
+            if (isNotificationProcessed(uniqueMessageKey)) {
+              console.log("BLOCK_ALREADY_PROCESSED", uniqueMessageKey);
+              continue;
+            }
+  
+            // Fetch Sender Profile for Toast
+            let senderName = data.lastMessageSenderName;
+            let senderPhoto = data.lastMessageSenderPhoto;
+  
+            if (!senderName || senderName === 'Yeni Mesaj') {
+              if (profileCache.has(senderId)) {
+                senderName = profileCache.get(senderId)?.name;
+                senderPhoto = profileCache.get(senderId)?.photo;
+              } else {
+                try {
+                  const userSnap = await getDoc(doc(db, "users", senderId));
+                  if (userSnap.exists()) {
+                    const uData = userSnap.data();
+                    const profile = normalizeUserProfile(uData, userSnap.id) as any;
+                    senderName = profile.social?.nickname || profile.displayName || profile.username || profile.nickname || profile.name || 
+                                 profile.email?.split('@')[0] || 'Kullanıcı';
+                    senderPhoto = (profile.social?.photos?.[0]) || profile.photoURL || profile.profilePhoto || profile.avatar || profile.photo || '';
+                    profileCache.set(senderId, { name: senderName, photo: senderPhoto });
+                  }
+                } catch (e) {
+                  console.error("Error fetching sender profile for toast:", e);
                 }
-              } catch (e) {
-                console.error("Error fetching sender profile for toast:", e);
               }
             }
-          }
-
-          console.log("SHOW_TOAST", { chatId, messageId, senderId });
-          processedMessageIds.add(uniqueMessageKey);
+  
+            console.log("SHOW_TOAST", { chatId, messageId, senderId });
+            markNotificationProcessed(uniqueMessageKey);
 
           // Using consistent ID per chat prevents spamming multiple toasts for same conversation
           toast(<CustomToast 
@@ -188,7 +197,7 @@ export const NotificationToastListener: React.FC<{
             message={lastMessage || 'Yeni bir mesajın var.'}
             avatar={senderPhoto || ''}
             onNavigate={() => {
-              onNavigate('messages');
+              onNavigateRef.current('messages');
               // Trigger direct chat opening with scrolling
               setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('openChatFromToast', { detail: { chatId, messageId: data.lastMessageId || messageId } }));
@@ -210,7 +219,7 @@ export const NotificationToastListener: React.FC<{
       // Only clear if needed, keeping processed ids might prevent repeats on toggle
       // processedMessageIds.clear(); 
     };
-  }, [userProfile?.uid, activeChatId, onNavigate]);
+  }, [userProfile?.uid]); // Reduced dependencies to avoid re-mounting on profile detail changes (status, etc)
 
   return null;
 };

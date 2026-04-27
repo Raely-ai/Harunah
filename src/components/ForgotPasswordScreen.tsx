@@ -7,8 +7,7 @@ import {
   Loader2,
   AlertCircle,
   ChevronLeft,
-  CheckCircle2,
-  ArrowRight
+  CheckCircle2
 } from "lucide-react";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../lib/firebase";

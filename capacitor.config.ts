@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.lasya.app',
   appName: 'Lasya',
   webDir: 'dist',
-  bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
   },

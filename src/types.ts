@@ -121,6 +121,7 @@ export interface CompatibilityHistory {
   aiComment?: string;
   createdAt: string;
   cacheKey: string;
+  revealed?: boolean;
   person1?: {
     name: string;
     birthDate: string;
