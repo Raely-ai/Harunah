@@ -51,12 +51,18 @@ export function getOpenAI(): OpenAI {
  * NOTIFICATION HELPERS
  */
 
-export async function sendPushToUser(userId: string, payload: { title: string, body: string, data?: Record<string, string>, category?: string, senderId?: string }) {
+export async function sendPushToUser(userId: string, payload: { title: string, body: string, data?: Record<string, string>, category?: string, senderId?: string, imageUrl?: string }) {
   try {
     const userSnap = await db.collection("users").doc(userId).get();
     if (!userSnap.exists) return;
     const userData = userSnap.data() as any;
     const fcmToken = userData.fcmToken;
+    const fcmTokens = userData.fcmTokens || [];
+    
+    // Combine tokens and remove duplicates/empty
+    const allTokens: string[] = Array.from(new Set([fcmToken, ...fcmTokens])).filter(t => typeof t === 'string' && t.length > 10);
+
+    if (allTokens.length === 0) return;
 
     // Check if sender is muted
     const mutedUserIds = userData.social?.mutedUserIds || [];
@@ -77,9 +83,6 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
       system: true
     };
 
-    if (!fcmToken) return;
-
-    // Check preference based on category
     if (payload.category && settings[payload.category] === false) {
       console.log(`User ${userId} has disabled ${payload.category} notifications.`);
       return;
@@ -102,12 +105,16 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
     if (payload.senderId) {
       safeData['senderId'] = String(payload.senderId);
     }
+    if (payload.imageUrl) {
+      safeData['imageUrl'] = String(payload.imageUrl);
+    }
 
-    const message = {
-      token: fcmToken,
+    const messages = allTokens.map(token => ({
+      token,
       notification: {
         title: payload.title,
         body: payload.body,
+        image: payload.imageUrl,
       },
       data: safeData,
       android: {
@@ -116,6 +123,7 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
           sound: 'default',
           channelId: 'lasya_messages',
           clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          image: payload.imageUrl,
         }
       },
       apns: {
@@ -123,18 +131,37 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
           aps: {
             sound: 'default',
             badge: 1,
+            'mutable-content': payload.imageUrl ? 1 : 0
           }
+        },
+        fcm_options: {
+          image: payload.imageUrl
         }
       }
-    };
+    }));
 
-    await messaging.send(message);
+    if (messages.length === 1) {
+      await messaging.send(messages[0]);
+    } else {
+      const response = await messaging.sendEach(messages);
+      const tokensToRemove: string[] = [];
+      response.responses.forEach((res, idx) => {
+        if (!res.success && res.error) {
+          const code = res.error.code;
+          if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+            tokensToRemove.push(allTokens[idx]);
+          }
+        }
+      });
+
+      if (tokensToRemove.length > 0) {
+        await db.collection("users").doc(userId).update({
+          fcmTokens: FieldValue.arrayRemove(...tokensToRemove)
+        });
+      }
+    }
     console.log(`Push sent to user ${userId}`);
   } catch (error: any) {
     console.error(`Error sending push to user ${userId}:`, error);
-    if (error.code === 'messaging/registration-token-not-registered' || error.code === 'messaging/invalid-registration-token') {
-      console.log(`Cleaning up invalid token for user ${userId}`);
-      await db.collection("users").doc(userId).update({ fcmToken: FieldValue.delete() });
-    }
   }
 }

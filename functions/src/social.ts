@@ -370,7 +370,7 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
     const fromUserRef = db.collection("users").doc(fromUserId);
     const toUserRef = db.collection("users").doc(targetUserId);
 
-    return await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
       if (!fromSnap.exists || !toSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
 
@@ -409,8 +409,22 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
         });
       }
 
-      return { success: true, status: 'SUCCESS' };
+      return { success: true, status: 'SUCCESS', targetUserId, type, fromUserNickname: fromData.social?.nickname || fromData.displayName, fromUserPhoto: fromData.photoURL || fromData.social?.photos?.[0] };
     });
+
+    if (result.success && result.status === 'SUCCESS' && (type === 'like' || type === 'super_like')) {
+      sendPushToUser(result.targetUserId, { 
+        title: type === 'super_like' 
+          ? `${result.fromUserNickname || "Biri"} sana Süper Like attı ✨` 
+          : `${result.fromUserNickname || "Biri"} seni beğendi 💜`,
+        body: type === 'super_like' ? "Bu enerji karşılıksız kalmasın." : "Profiline bakmak ister misin?",
+        category: type === 'super_like' ? 'superLikes' : 'likes',
+        senderId: fromUserId,
+        imageUrl: result.fromUserPhoto,
+        data: { type, fromUserId }
+      }).catch(e => console.error("Push failed:", e));
+    }
+    return result;
   } catch (error: any) {
     console.error("sendLike error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -457,7 +471,7 @@ export const sendMessageRequest = functions.region('us-central1').https.onCall(a
         data: { fromUserId }, read: false, createdAt: now 
       });
 
-      return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName };
+      return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName, senderPhoto: fromData.photoURL || fromData.social?.photos?.[0] };
     });
 
     if (result.success && result.status === 'SUCCESS') {
@@ -465,7 +479,8 @@ export const sendMessageRequest = functions.region('us-central1').https.onCall(a
         title: "Yeni Mesaj İsteği 💌", 
         body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`, 
         category: 'social', 
-        senderId: fromUserId 
+        senderId: fromUserId,
+        imageUrl: result.senderPhoto 
       }).catch(e => console.error("Push failed:", e));
     }
     return result;
@@ -510,7 +525,7 @@ export const acceptRequest = functions.region('us-central1').https.onCall(async 
       const notifRef = db.collection("notifications").doc();
       transaction.set(notifRef, { userId: fromUserId, type: "request_accepted", title: "İstek Kabul Edildi!", message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, data: { chatId }, read: false, createdAt: now });
 
-      return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName };
+      return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName, toUserPhoto: toSnap.data()?.photoURL || toSnap.data()?.social?.photos?.[0] };
     });
 
     // Performance: Async push
@@ -520,7 +535,8 @@ export const acceptRequest = functions.region('us-central1').https.onCall(async 
         body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`, 
         data: { screen: 'chat', chatId: result.chatId }, 
         category: 'social', 
-        senderId: result.toUserId 
+        senderId: result.toUserId,
+        imageUrl: result.toUserPhoto 
       }).catch(e => console.error("Push failed:", e));
     }
     return result;
@@ -580,9 +596,6 @@ export const sendMessage = functions.region('us-central1').https.onCall(async (d
       return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName, lastMsgText };
     });
 
-    if (result.status === 'SUCCESS') {
-      sendPushToUser(result.receiverId, { title: result.senderNickname, body: result.lastMsgText, data: { screen: 'chat', chatId: result.chatId }, category: 'messages', senderId }).catch(e => console.error("Push failed:", e));
-    }
     return result;
   } catch (error: any) {
     console.error("sendMessage error:", error);
@@ -920,7 +933,12 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
     batch.set(docRef, analysisData);
     batch.set(db.collection("notifications").doc(), { userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: FieldValue.serverTimestamp() });
     await batch.commit();
-    await sendPushToUser(userId, { title: 'Uyum Analiziniz Hazır!', body: 'Hemen incele!', category: 'compatibility' });
+    await sendPushToUser(userId, { 
+      title: "Uyum Analizin Tamamlandı 🔮", 
+      body: "Frekansınız ortaya çıktı, sonucu görmek ister misin?", 
+      category: 'compatibility',
+      data: { type: 'compatibility', analysisId: docRef.id }
+    });
     return analysisData;
   } catch (e) {
     console.error("AI Generation Error", e);
@@ -1066,6 +1084,7 @@ export const onMessageCreated = functions.region('us-central1').firestore.docume
     if (!senderSnap.exists) return;
     
     const senderNickname = senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName || "Birisi";
+    const senderPhoto = senderSnap.data()?.photoURL || senderSnap.data()?.social?.photos?.[0];
     
     let previewText = message.text || "Yeni bir mesaj";
     if (message.type === 'image' || message.mediaType === 'image') previewText = "📷 Fotoğraf";
@@ -1076,11 +1095,14 @@ export const onMessageCreated = functions.region('us-central1').firestore.docume
       title: senderNickname,
       body: previewText,
       data: {
+        type: "message",
         screen: "chat",
-        chatId: message.chatId
+        chatId: message.chatId,
+        senderId: message.senderId
       },
       category: "messages",
-      senderId: message.senderId
+      senderId: message.senderId,
+      imageUrl: senderPhoto
     });
   } catch (error) {
     console.error("onMessageCreated trigger error:", error);

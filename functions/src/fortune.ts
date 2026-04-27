@@ -314,9 +314,24 @@ export const updateReadingStatuses = functions.region('us-central1').pubsub.sche
   }
   const checkCompletes = await db.collection("readings").where("status", "==", "interpreting").where("expectedCompletedAt", "<=", now).limit(50).get();
   for (const doc of checkCompletes.docs) {
-    if (doc.data().isAIGenerated && doc.data().hiddenResult) {
-      await doc.ref.update({ status: 'completed', content: doc.data().hiddenResult, resultText: doc.data().hiddenResult, updatedAt: now });
-      await sendPushToUser(doc.data().userId, { title: 'Falınız Hazır!', body: 'Hemen inceleyin!', category: 'fortunes' });
+    const data = doc.data();
+    if (data.isAIGenerated && data.hiddenResult) {
+      await doc.ref.update({ status: 'completed', content: data.hiddenResult, resultText: data.hiddenResult, updatedAt: now });
+
+      let pushTitle = "Ücretsiz Falın Hazır ✨";
+      const type = data.type;
+      if (type === 'coffee') pushTitle = "Kahve Falın Yorumlandı ✨";
+      else if (type === 'tarot') pushTitle = "Tarot Açılımın Hazır ✨";
+      else if (type === 'yildizname') pushTitle = "Yıldıznamen Hazır ✨";
+      else if (type === 'water') pushTitle = "Su Falın Yorumlandı ✨";
+      else if (type === 'ebced') pushTitle = "Ebced Aşk Falın Hazır ✨";
+
+      await sendPushToUser(data.userId, { 
+        title: pushTitle, 
+        body: 'Yorumun hazır, şimdi bakmak ister misin?', 
+        category: 'fortunes',
+        data: { type: 'reading', readingId: doc.id, readingType: type }
+      });
     }
   }
 });

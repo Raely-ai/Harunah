@@ -91,37 +91,53 @@ function AppContent() {
     return () => clearTimeout(timer);
   }, [quotaExceeded]);
   
-  // Notification Service Setup
+  // Notification Service Setup (Global)
   useEffect(() => {
-    if (!user?.uid) return;
-
     const handleNotificationAction = (data: any) => {
-      // In this app routing is state-based via handleNavigate
-      if (data?.screen === 'chat' || data?.screen === 'messages') {
+      if (data?.screen === 'chat' || data?.screen === 'messages' || (data?.type === 'message')) {
         handleNavigate('messages');
-        if (data?.chatId) {
-          // Dispatch custom event for SocialMessagesScreen to pick up
-          window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId: data.chatId } }));
+        const chatId = data?.chatId;
+        if (chatId) {
+          window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId } }));
         }
-      } else if (data?.screen === 'history' || data?.screen === 'fortunes') {
+      } else if (data?.screen === 'history' || data?.screen === 'fortunes' || data?.type === 'reading') {
         handleNavigate('history');
+      } else if (data?.type === 'like' || data?.type === 'super_like') {
+        handleNavigate('social');
       }
     };
 
-    const initPush = async () => {
+    const initPushOnStart = async () => {
       try {
-        // First setup listeners
-        notificationService.setupListeners(user.uid, handleNotificationAction);
-        
-        // Then request permission
-        await notificationService.requestPermission(user.uid);
-      } catch (error) {
-        console.error("Error initializing push notifications:", error);
+        notificationService.setupListeners(undefined, handleNotificationAction);
+        await notificationService.requestPermission();
+      } catch (err) {
+        console.error("Non-blocking push init failed:", err);
       }
     };
+    initPushOnStart();
+  }, []);
 
-    // Run non-blocking
-    initPush();
+  // Sync token when user logs in
+  useEffect(() => {
+    if (user?.uid) {
+      notificationService.syncPendingToken(user.uid);
+      // Re-setup listeners with active UID
+      const handleNotificationAction = (data: any) => {
+        if (data?.screen === 'chat' || data?.screen === 'messages' || (data?.type === 'message')) {
+          handleNavigate('messages');
+          const chatId = data?.chatId;
+          if (chatId) {
+            window.dispatchEvent(new CustomEvent('open-chat', { detail: { chatId } }));
+          }
+        } else if (data?.screen === 'history' || data?.screen === 'fortunes' || data?.type === 'reading') {
+          handleNavigate('history');
+        } else if (data?.type === 'like' || data?.type === 'super_like') {
+          handleNavigate('social');
+        }
+      };
+      notificationService.setupListeners(user.uid, handleNotificationAction);
+    }
   }, [user?.uid]);
 
   const isAdmin = user?.email === 'hpferdicakir@gmail.com' || userProfile?.role === 'admin';
@@ -453,6 +469,13 @@ function AppContent() {
     };
   }, []);
 
+  const handleLogout = async () => {
+    if (user?.uid) {
+      await notificationService.removeToken(user.uid);
+    }
+    signOut(auth);
+  };
+
   const handleNavigate = (tab: AppTab) => {
     playSound('click');
     setActiveTab(tab);
@@ -744,7 +767,7 @@ function AppContent() {
           Bir hata olduğunu düşünüyorsanız destek ekibiyle iletişime geçebilirsiniz.
         </p>
         <button 
-          onClick={() => signOut(auth)}
+          onClick={handleLogout}
           className="px-8 py-4 rounded-2xl bg-white border border-black/5 text-body font-bold hover:bg-black/5 transition-all shadow-sm"
         >
           Oturumu Kapat
@@ -920,7 +943,7 @@ function AppContent() {
             user={activeProfile}
             isAdmin={isAdmin}
             onSettings={() => setIsSettingsOpen(true)}
-            onLogout={() => signOut(auth)}
+            onLogout={handleLogout}
             onDeleteAccount={() => setIsDeleteAccountOpen(true)}
             onAdminPanel={() => setIsAdminPanelOpen(true)}
             onNavigate={handleNavigate}

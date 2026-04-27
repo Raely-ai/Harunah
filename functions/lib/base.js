@@ -80,6 +80,10 @@ async function sendPushToUser(userId, payload) {
             return;
         const userData = userSnap.data();
         const fcmToken = userData.fcmToken;
+        const fcmTokens = userData.fcmTokens || [];
+        const allTokens = Array.from(new Set([fcmToken, ...fcmTokens])).filter(t => typeof t === 'string' && t.length > 10);
+        if (allTokens.length === 0)
+            return;
         const mutedUserIds = userData.social?.mutedUserIds || [];
         if (payload.senderId && mutedUserIds.includes(payload.senderId)) {
             console.log(`User ${userId} has muted sender ${payload.senderId}. Skipping push.`);
@@ -96,24 +100,42 @@ async function sendPushToUser(userId, payload) {
             reminders: true,
             system: true
         };
-        if (!fcmToken)
-            return;
         if (payload.category && settings[payload.category] === false) {
             console.log(`User ${userId} has disabled ${payload.category} notifications.`);
             return;
         }
-        const message = {
-            token: fcmToken,
+        const safeData = {};
+        if (payload.data) {
+            for (const [key, value] of Object.entries(payload.data)) {
+                if (value !== undefined && value !== null && value !== '') {
+                    safeData[key] = String(value);
+                }
+            }
+        }
+        if (payload.category) {
+            safeData['category'] = String(payload.category);
+        }
+        if (payload.senderId) {
+            safeData['senderId'] = String(payload.senderId);
+        }
+        if (payload.imageUrl) {
+            safeData['imageUrl'] = String(payload.imageUrl);
+        }
+        const messages = allTokens.map(token => ({
+            token,
             notification: {
                 title: payload.title,
                 body: payload.body,
+                image: payload.imageUrl,
             },
-            data: payload.data || {},
+            data: safeData,
             android: {
                 priority: 'high',
                 notification: {
                     sound: 'default',
+                    channelId: 'lasya_messages',
                     clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+                    image: payload.imageUrl,
                 }
             },
             apns: {
@@ -121,19 +143,38 @@ async function sendPushToUser(userId, payload) {
                     aps: {
                         sound: 'default',
                         badge: 1,
+                        'mutable-content': payload.imageUrl ? 1 : 0
                     }
+                },
+                fcm_options: {
+                    image: payload.imageUrl
                 }
             }
-        };
-        await exports.messaging.send(message);
+        }));
+        if (messages.length === 1) {
+            await exports.messaging.send(messages[0]);
+        }
+        else {
+            const response = await exports.messaging.sendEach(messages);
+            const tokensToRemove = [];
+            response.responses.forEach((res, idx) => {
+                if (!res.success && res.error) {
+                    const code = res.error.code;
+                    if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+                        tokensToRemove.push(allTokens[idx]);
+                    }
+                }
+            });
+            if (tokensToRemove.length > 0) {
+                await exports.db.collection("users").doc(userId).update({
+                    fcmTokens: exports.FieldValue.arrayRemove(...tokensToRemove)
+                });
+            }
+        }
         console.log(`Push sent to user ${userId}`);
     }
     catch (error) {
         console.error(`Error sending push to user ${userId}:`, error);
-        if (error.code === 'messaging/registration-token-not-registered' || error.code === 'messaging/invalid-registration-token') {
-            console.log(`Cleaning up invalid token for user ${userId}`);
-            await exports.db.collection("users").doc(userId).update({ fcmToken: exports.FieldValue.delete() });
-        }
     }
 }
 //# sourceMappingURL=base.js.map

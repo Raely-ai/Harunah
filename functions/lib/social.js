@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateThumbnails = exports.onMessageCreated = exports.runManualCompatibilityAnalysis = exports.speedUpCompatibilityAnalysis = exports.processCompatibilityRequests = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscoverFeed = exports.refreshDiscover = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = void 0;
+exports.generateThumbnails = exports.onMessageCreated = exports.speedUpCompatibilityAnalysis = exports.runManualCompatibilityAnalysis = exports.runDiscoverCompatibilityAnalysis = exports.createChat = exports.createReport = exports.unmuteUser = exports.muteUser = exports.unblockUser = exports.blockUser = exports.setTypingStatus = exports.editMessage = exports.deleteMessage = exports.deleteChat = exports.markAsDelivered = exports.markAsSeen = exports.sendMessage = exports.rejectRequest = exports.acceptRequest = exports.sendMessageRequest = exports.sendLike = exports.refreshDiscoverFeed = exports.refreshDiscover = exports.updateSocialSettings = exports.updateSocialProfile = exports.completeSocialOnboarding = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const base_1 = require("./base");
@@ -366,7 +366,7 @@ exports.sendLike = functions.region('us-central1').https.onCall(async (data, con
     try {
         const fromUserRef = base_1.db.collection("users").doc(fromUserId);
         const toUserRef = base_1.db.collection("users").doc(targetUserId);
-        return await base_1.db.runTransaction(async (transaction) => {
+        const result = await base_1.db.runTransaction(async (transaction) => {
             const [fromSnap, toSnap] = await Promise.all([transaction.get(fromUserRef), transaction.get(toUserRef)]);
             if (!fromSnap.exists || !toSnap.exists)
                 throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
@@ -397,8 +397,21 @@ exports.sendLike = functions.region('us-central1').https.onCall(async (data, con
                     data: { fromUserId }, read: false, createdAt: serverNow
                 });
             }
-            return { success: true, status: 'SUCCESS' };
+            return { success: true, status: 'SUCCESS', targetUserId, type, fromUserNickname: fromData.social?.nickname || fromData.displayName, fromUserPhoto: fromData.photoURL || fromData.social?.photos?.[0] };
         });
+        if (result.success && result.status === 'SUCCESS' && (type === 'like' || type === 'super_like')) {
+            (0, base_1.sendPushToUser)(result.targetUserId, {
+                title: type === 'super_like'
+                    ? `${result.fromUserNickname || "Biri"} sana Süper Like attı ✨`
+                    : `${result.fromUserNickname || "Biri"} seni beğendi 💜`,
+                body: type === 'super_like' ? "Bu enerji karşılıksız kalmasın." : "Profiline bakmak ister misin?",
+                category: type === 'super_like' ? 'superLikes' : 'likes',
+                senderId: fromUserId,
+                imageUrl: result.fromUserPhoto,
+                data: { type, fromUserId }
+            }).catch(e => console.error("Push failed:", e));
+        }
+        return result;
     }
     catch (error) {
         console.error("sendLike error:", error);
@@ -442,14 +455,15 @@ exports.sendMessageRequest = functions.region('us-central1').https.onCall(async 
                 message: `${fromData.social?.nickname || fromData.displayName || "Biri"} sana bir mesaj isteği gönderdi.`,
                 data: { fromUserId }, read: false, createdAt: now
             });
-            return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName };
+            return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName, senderPhoto: fromData.photoURL || fromData.social?.photos?.[0] };
         });
         if (result.success && result.status === 'SUCCESS') {
             (0, base_1.sendPushToUser)(result.toUserId, {
                 title: "Yeni Mesaj İsteği 💌",
                 body: `${result.senderNickname} sana bir mesaj isteği gönderdi.`,
                 category: 'social',
-                senderId: fromUserId
+                senderId: fromUserId,
+                imageUrl: result.senderPhoto
             }).catch(e => console.error("Push failed:", e));
         }
         return result;
@@ -492,7 +506,7 @@ exports.acceptRequest = functions.region('us-central1').https.onCall(async (data
             transaction.set(msgRef, { id: msgRef.id, chatId, participants: [fromUserId, userId], senderId: "system", text: "Sohbet başlayabilir.", createdAt: now, status: 'sent', type: 'system' });
             const notifRef = base_1.db.collection("notifications").doc();
             transaction.set(notifRef, { userId: fromUserId, type: "request_accepted", title: "İstek Kabul Edildi!", message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, data: { chatId }, read: false, createdAt: now });
-            return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName };
+            return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName, toUserPhoto: toSnap.data()?.photoURL || toSnap.data()?.social?.photos?.[0] };
         });
         if (result.status === 'SUCCESS') {
             (0, base_1.sendPushToUser)(result.fromUserId, {
@@ -500,7 +514,8 @@ exports.acceptRequest = functions.region('us-central1').https.onCall(async (data
                 body: `${result.toUserNickname} mesaj isteğini kabul etti! 🎉`,
                 data: { screen: 'chat', chatId: result.chatId },
                 category: 'social',
-                senderId: result.toUserId
+                senderId: result.toUserId,
+                imageUrl: result.toUserPhoto
             }).catch(e => console.error("Push failed:", e));
         }
         return result;
@@ -559,9 +574,6 @@ exports.sendMessage = functions.region('us-central1').https.onCall(async (data, 
             transaction.update(base_1.db.collection("users").doc(receiverId), { unreadMessagesCount: base_1.FieldValue.increment(1) });
             return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName, lastMsgText };
         });
-        if (result.status === 'SUCCESS') {
-            (0, base_1.sendPushToUser)(result.receiverId, { title: result.senderNickname, body: result.lastMsgText, data: { screen: 'chat', chatId: result.chatId }, category: 'messages', senderId }).catch(e => console.error("Push failed:", e));
-        }
         return result;
     }
     catch (error) {
@@ -796,6 +808,14 @@ exports.createReport = functions.region('us-central1').https.onCall(async (data,
         if (!data || !data.reportedUserId)
             throw new functions.https.HttpsError('invalid-argument', 'Raporlanan kullanıcı ID gerekli.');
         const { reportedUserId, source, reason, description, metadata } = data;
+        const existingReports = await base_1.db.collection("reports")
+            .where("reporterId", "==", context.auth.uid)
+            .where("reportedUserId", "==", reportedUserId)
+            .where("status", "==", "pending")
+            .get();
+        if (!existingReports.empty) {
+            throw new functions.https.HttpsError('already-exists', 'Bu kullanıcı için zaten incelemede olan bir raporunuz bulunmaktadır.');
+        }
         const ref = base_1.db.collection("reports").doc();
         await ref.set({ id: ref.id, reporterId: context.auth.uid, reportedUserId, source, reason, description: description || "", metadata: metadata || {}, createdAt: base_1.FieldValue.serverTimestamp(), status: 'pending' });
         return { success: true, status: 'SUCCESS' };
@@ -827,7 +847,89 @@ exports.createChat = functions.region('us-central1').https.onCall(async (data, c
         throw new functions.https.HttpsError('internal', error.message || 'Sohbet oluşturulurken hata oluştu.');
     }
 });
-exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
+async function generateCompatibilityAiDirect(person1, person2, relationshipType, userId, targetUserId, cacheKey) {
+    const now = new Date().toISOString();
+    const openai = (0, base_1.getOpenAI)();
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            response_format: { type: "json_object" },
+            messages: [{
+                    role: "system",
+                    content: "Sen evrenin frekanslarını okuyan, sadece TÜRKÇE konuşan, mistik ve iddialı bir ASTROLOGSUN. Senden %100 Türkçe ve JSON formatında astrolog analizi isteniyor. Başka hiçbir dil KULLANILAMAZ."
+                }, {
+                    role: "user",
+                    content: `Kişi 1: ${person1?.name || 'Bilinmiyor'} (Doğum: ${person1?.birthDate || 'Bilinmiyor'})
+Kişi 2: ${person2?.name || 'Bilinmiyor'} (Doğum: ${person2?.birthDate || 'Bilinmiyor'})
+İlişki Türü: ${relationshipType || 'Bilinmiyor'}
+
+Lütfen analizini KESİNLİKLE AŞAĞIDAKİ JSON YAPISINA sahip olarak ve %100 TÜRKÇE döndür. İngilizce kelime kullanmak yasaktır. Skorlar 40 ile 100 arasında tam sayılar olmalıdır.
+
+{
+  "loveScore": 40-100 arası sayı,
+  "friendshipScore": 40-100 arası sayı,
+  "energyScore": 40-100 arası sayı,
+  "summaryShort": "Tek cümlelik, vurucu ve etkileyici Türkçe astrolog özeti.",
+  "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, KESİNLİKLE TÜRKÇE olan, iddialı ve detaylı astrolojik analiz."
+}
+
+Sadece JSON dön. Asla fazladan bir şey yazma.`
+                }],
+            max_tokens: 1000
+        });
+        const aiContent = response.choices[0].message.content || "{}";
+        let parsed = {};
+        try {
+            parsed = JSON.parse(aiContent);
+        }
+        catch (e) {
+            console.error("GPT JSON parse error:", e, "Content was:", aiContent);
+        }
+        const summaryContent = parsed.summaryLong || parsed.interpretation || parsed.summary || "";
+        const parseScore = (val) => {
+            const num = parseInt(val);
+            return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40);
+        };
+        const docRef = base_1.db.collection("compatibilityHistory").doc();
+        const unlockAtTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        const analysisData = {
+            id: docRef.id,
+            requestId: docRef.id,
+            userId,
+            person1,
+            person2,
+            relationshipType: relationshipType || 'ask',
+            status: 'locked',
+            unlockAt: unlockAtTime,
+            loveScore: parseScore(parsed.loveScore),
+            friendshipScore: parseScore(parsed.friendshipScore),
+            energyScore: parseScore(parsed.energyScore),
+            summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
+            summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
+            createdAt: now
+        };
+        if (targetUserId)
+            analysisData.targetUserId = targetUserId;
+        if (cacheKey)
+            analysisData.cacheKey = cacheKey;
+        const batch = base_1.db.batch();
+        batch.set(docRef, analysisData);
+        batch.set(base_1.db.collection("notifications").doc(), { userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: base_1.FieldValue.serverTimestamp() });
+        await batch.commit();
+        await (0, base_1.sendPushToUser)(userId, {
+            title: "Uyum Analizin Tamamlandı 🔮",
+            body: "Frekansınız ortaya çıktı, sonucu görmek ister misin?",
+            category: 'compatibility',
+            data: { type: 'compatibility', analysisId: docRef.id }
+        });
+        return analysisData;
+    }
+    catch (e) {
+        console.error("AI Generation Error", e);
+        throw new functions.https.HttpsError('internal', 'AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
+    }
+}
+exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
     const userId = context.auth.uid;
@@ -835,45 +937,33 @@ exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').https
         if (!data || !data.targetUserId)
             throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
         const { targetUserId, relationshipType } = data;
-        const cacheKey = `${userId}_${targetUserId}_${relationshipType}`;
-        const history = await base_1.db.collection("compatibilityHistory").where("cacheKey", "==", cacheKey).limit(1).get();
-        if (!history.empty)
-            return { success: true, analysis: history.docs[0].data(), cached: true };
         const userRef = base_1.db.collection("users").doc(userId);
-        const targetRef = base_1.db.collection("users").doc(targetUserId);
-        return await base_1.db.runTransaction(async (transaction) => {
-            const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
-            if (!uSnap.exists || !tSnap.exists)
+        const requestRef = base_1.db.collection("compatibilityRequests").doc();
+        const requestId = await base_1.db.runTransaction(async (transaction) => {
+            const uSnap = await transaction.get(userRef);
+            if (!uSnap.exists)
                 throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
-            const uData = uSnap.data();
-            const tData = tSnap.data();
-            if ((uData.compatibilityCount || 0) <= 0)
+            const user = uSnap.data();
+            if ((user.compatibilityCount || 0) <= 0)
                 throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
             transaction.update(userRef, { compatibilityCount: base_1.FieldValue.increment(-1) });
-            const requestRef = base_1.db.collection("compatibilityRequests").doc();
-            const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+            const revealAt = new Date(Date.now() + 5 * 60 * 1000);
             transaction.set(requestRef, {
-                id: requestRef.id,
                 userId,
                 targetUserId,
                 relationshipType: relationshipType || 'ask',
-                status: 'pending',
+                status: "pending",
+                revealed: false,
                 createdAt: base_1.FieldValue.serverTimestamp(),
-                readyAt,
-                cacheKey,
-                person1: {
-                    name: uData.social?.nickname || uData.displayName || "Kullanıcı",
-                    photo: uData.social?.photos?.[0] || uData.photoURL || "",
-                    birthDate: uData.social?.birthDate || uData.birthDate || ""
-                },
-                person2: {
-                    name: tData.social?.nickname || tData.displayName || "Kullanıcı",
-                    photo: tData.social?.photos?.[0] || tData.photoURL || "",
-                    birthDate: tData.social?.birthDate || tData.birthDate || ""
-                }
+                revealAt: revealAt.toISOString()
             });
-            return { success: true, requestId: requestRef.id, readyAt };
+            return requestRef.id;
         });
+        return {
+            success: true,
+            requestId,
+            status: "pending"
+        };
     }
     catch (error) {
         console.error("runDiscoverCompatibilityAnalysis error:", error);
@@ -882,77 +972,34 @@ exports.runDiscoverCompatibilityAnalysis = functions.region('us-central1').https
         throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
     }
 });
-exports.processCompatibilityRequests = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
-    const now = new Date().toISOString();
-    const pendings = await base_1.db.collection("compatibilityRequests").where("status", "==", "pending").where("readyAt", "<=", now).limit(20).get();
-    if (pendings.empty)
-        return null;
-    const openai = (0, base_1.getOpenAI)();
-    for (const docSnap of pendings.docs) {
-        const req = docSnap.data();
-        try {
-            const response = await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                response_format: { type: "json_object" },
-                messages: [{
-                        role: "system",
-                        content: "Sen bir AI değilsin. Sen evrenin frekanslarını okuyan, Türkçe konuşan, mistik ve iddialı bir ASTROLOGSUN. Kullanıcıdan asla bilgi isteme, soru sorma. Verilen bilgilerden yola çıkarak KESİN bir analiz yap. Dilin %100 TÜRKÇE olmalı."
-                    }, {
-                        role: "user",
-                        content: `Kişi 1: ${req.person1?.name || 'Bilinmiyor'} (Doğum: ${req.person1?.birthDate || 'Bilinmiyor'})
-Kişi 2: ${req.person2?.name || 'Bilinmiyor'} (Doğum: ${req.person2?.birthDate || 'Bilinmiyor'})
-İlişki Türü: ${req.relationshipType || 'Bilinmiyor'}
-
-Lütfen analizini aşağıdaki JSON formatında döndür. Skorlar 40 ile 100 arasında anlamlı tam sayılar olmalıdır (%0 KESİNLİKLE YASAKTIR).
-
-{
-  "loveScore": 40-100 arası sayı,
-  "friendshipScore": 40-100 arası sayı,
-  "energyScore": 40-100 arası sayı,
-  "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, iddialı, isimleri de kullanarak yapılmış Türkçe astrolojik analiz."
-}
-
-Asla analiz dışında bir kelime yazma, json dön.`
-                    }],
-                max_tokens: 1000
-            });
-            const aiContent = response.choices[0].message.content || "{}";
-            let parsed = {};
-            try {
-                parsed = JSON.parse(aiContent);
-            }
-            catch (e) {
-                console.error("GPT JSON parse error:", e, "Content was:", aiContent);
-            }
-            const summaryContent = parsed.summaryLong || parsed.interpretation || parsed.summary || "";
-            const parseScore = (val) => {
-                const num = parseInt(val);
-                return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40);
-            };
-            const analysisData = {
-                ...req,
-                requestId: docSnap.id,
-                status: 'completed',
-                loveScore: parseScore(parsed.loveScore),
-                friendshipScore: parseScore(parsed.friendshipScore),
-                energyScore: parseScore(parsed.energyScore),
-                summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
-                summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
-                createdAt: now
-            };
-            const batch = base_1.db.batch();
-            batch.update(docSnap.ref, { status: 'completed', updatedAt: now });
-            const histRef = base_1.db.collection("compatibilityHistory").doc();
-            batch.set(histRef, analysisData);
-            batch.set(base_1.db.collection("notifications").doc(), { userId: req.userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: base_1.FieldValue.serverTimestamp() });
-            await batch.commit();
-            await (0, base_1.sendPushToUser)(req.userId, { title: 'Uyum Analiziniz Hazır!', body: 'Hemen incele!', category: 'compatibility' });
-        }
-        catch (e) {
-            await docSnap.ref.update({ status: 'error', error: String(e) });
-        }
+exports.runManualCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    const userId = context.auth.uid;
+    try {
+        if (!data || !data.person1 || !data.person2)
+            throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
+        const { person1, person2, relationshipType } = data;
+        const cleanPerson1 = JSON.parse(JSON.stringify(person1));
+        const cleanPerson2 = JSON.parse(JSON.stringify(person2));
+        const userRef = base_1.db.collection("users").doc(userId);
+        await base_1.db.runTransaction(async (transaction) => {
+            const snap = await transaction.get(userRef);
+            if (!snap.exists)
+                throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+            if ((snap.data()?.compatibilityCount || 0) <= 0)
+                throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
+            transaction.update(userRef, { compatibilityCount: base_1.FieldValue.increment(-1) });
+        });
+        const analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
+        return { success: true, analysis: analysisData, cached: true };
     }
-    return null;
+    catch (error) {
+        console.error("runManualCompatibilityAnalysis error:", error);
+        if (error instanceof functions.https.HttpsError)
+            throw error;
+        throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
+    }
 });
 exports.speedUpCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
     if (!context.auth)
@@ -974,23 +1021,23 @@ exports.speedUpCompatibilityAnalysis = functions.region('us-central1').https.onC
                 speedUpPrice = configData?.socialEconomy?.compatibilitySpeedUpPrice ?? 10;
             }
             const userData = userSnap.data() || {};
-            if ((userData.mainCoins || 0) < speedUpPrice) {
+            if ((userData.mainCoins || 0) < speedUpPrice)
                 throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
-            }
-            const reqRef = base_1.db.collection("compatibilityRequests").doc(requestId);
+            const reqRef = base_1.db.collection("compatibilityHistory").doc(requestId);
             const reqSnap = await transaction.get(reqRef);
             if (!reqSnap.exists)
                 throw new functions.https.HttpsError('not-found', 'Analiz isteği bulunamadı.');
             const reqData = reqSnap.data() || {};
             if (reqData.userId !== userId)
                 throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
-            if (reqData.status !== 'pending')
-                throw new functions.https.HttpsError('failed-precondition', 'Bu analiz zaten tamamlanmış veya hata almış.');
+            if (reqData.status !== 'locked')
+                throw new functions.https.HttpsError('failed-precondition', 'Bu analizin zaten kilidi açık veya geçersiz durumda.');
             transaction.update(userRef, {
                 mainCoins: base_1.FieldValue.increment(-speedUpPrice)
             });
             transaction.update(reqRef, {
-                readyAt: new Date().toISOString()
+                status: 'completed',
+                unlockAt: new Date().toISOString()
             });
             return { success: true, message: `Hızlandırma başarılı.` };
         });
@@ -1002,37 +1049,6 @@ exports.speedUpCompatibilityAnalysis = functions.region('us-central1').https.onC
         throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
     }
 });
-exports.runManualCompatibilityAnalysis = functions.region('us-central1').https.onCall(async (data, context) => {
-    if (!context.auth)
-        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
-    const userId = context.auth.uid;
-    try {
-        if (!data || !data.person1 || !data.person2)
-            throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
-        const { person1, person2, relationshipType } = data;
-        const cleanPerson1 = JSON.parse(JSON.stringify(person1));
-        const cleanPerson2 = JSON.parse(JSON.stringify(person2));
-        const userRef = base_1.db.collection("users").doc(userId);
-        return await base_1.db.runTransaction(async (transaction) => {
-            const snap = await transaction.get(userRef);
-            if (!snap.exists)
-                throw new Error("User not found");
-            if ((snap.data()?.compatibilityCount || 0) <= 0)
-                throw new Error("INSUFFICIENT_FUNDS");
-            transaction.update(userRef, { compatibilityCount: base_1.FieldValue.increment(-1) });
-            const ref = base_1.db.collection("compatibilityRequests").doc();
-            const readyAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-            transaction.set(ref, { id: ref.id, userId, person1: cleanPerson1, person2: cleanPerson2, relationshipType, status: 'pending', createdAt: new Date().toISOString(), readyAt });
-            return { success: true, requestId: ref.id, readyAt };
-        });
-    }
-    catch (error) {
-        console.error("runManualCompatibilityAnalysis error:", error);
-        if (error instanceof functions.https.HttpsError)
-            throw error;
-        throw new functions.https.HttpsError('internal', error.message || 'Analiz başlatılırken hata oluştu.');
-    }
-});
 exports.onMessageCreated = functions.region('us-central1').firestore.document('messages/{messageId}').onCreate(async (snap, context) => {
     const message = snap.data();
     if (!message || !message.chatId || !message.senderId || !message.receiverId)
@@ -1042,6 +1058,7 @@ exports.onMessageCreated = functions.region('us-central1').firestore.document('m
         if (!senderSnap.exists)
             return;
         const senderNickname = senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName || "Birisi";
+        const senderPhoto = senderSnap.data()?.photoURL || senderSnap.data()?.social?.photos?.[0];
         let previewText = message.text || "Yeni bir mesaj";
         if (message.type === 'image' || message.mediaType === 'image')
             previewText = "📷 Fotoğraf";
@@ -1053,11 +1070,14 @@ exports.onMessageCreated = functions.region('us-central1').firestore.document('m
             title: senderNickname,
             body: previewText,
             data: {
+                type: "message",
                 screen: "chat",
-                chatId: message.chatId
+                chatId: message.chatId,
+                senderId: message.senderId
             },
             category: "messages",
-            senderId: message.senderId
+            senderId: message.senderId,
+            imageUrl: senderPhoto
         });
     }
     catch (error) {

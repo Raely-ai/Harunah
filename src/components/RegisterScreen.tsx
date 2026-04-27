@@ -86,7 +86,7 @@ export default function RegisterScreen({ onNavigate }: RegisterScreenProps) {
           <div className="relative w-20 h-20 flex items-center justify-center mb-6 drop-shadow-sm mx-auto">
             <div className="absolute -inset-6 bg-gradient-to-tr from-purple-500/15 to-amber-500/15 blur-[20px] rounded-full" />
             <img 
-              src="assets/logo.png" 
+              src="/assets/logo.png" 
               alt="LASYA Logo" 
               className="w-full h-full object-contain relative z-10"
             />

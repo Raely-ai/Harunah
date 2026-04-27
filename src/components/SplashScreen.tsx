@@ -9,7 +9,7 @@ export default function SplashScreen() {
         {/* LASYA Logo - Şeffaf PNG logonu buraya koymalısın */}
         <div className="w-40 h-40 flex items-center justify-center drop-shadow-sm">
           <img 
-            src="assets/logo.png" 
+            src="/assets/logo.png" 
             alt="LASYA Logo" 
             className="w-full h-full object-contain"
           />

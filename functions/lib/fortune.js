@@ -104,22 +104,26 @@ exports.createFortuneReading = functions.region('us-central1').https.onCall(asyn
             if (sub && sub.status === 'active' && sub.expiresAt && new Date(sub.expiresAt) > new Date()) {
                 const dailyUsed = sub.dailyLimitUsed || 0;
                 const lastReset = sub.lastResetAt || "";
-                if (lastReset === today && dailyUsed >= subLimits.totalDaily) {
-                    throw new functions.https.HttpsError('resource-exhausted', 'Günlük fal limitinize ulaştınız.');
+                if (lastReset !== today || dailyUsed < subLimits.totalDaily) {
+                    balanceType = 'subscription';
                 }
-                balanceType = 'subscription';
             }
             if (balanceType === 'main' && (userData.energy || 0) >= totalCost) {
                 balanceType = 'energy';
             }
-            if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
-                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji veya jeton (Mağaza\'dan enerji toplayabilirsin).');
+            if (balanceType === 'energy' && (userData.energy || 0) < totalCost) {
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz enerji.');
+            }
+            else if (balanceType === 'main' && (userData.mainCoins || 0) < totalCost) {
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
             }
             const userUpdates = {};
-            if (balanceType === 'main')
+            if (balanceType === 'main') {
                 userUpdates.mainCoins = base_1.FieldValue.increment(-totalCost);
-            else if (balanceType === 'energy')
+            }
+            else if (balanceType === 'energy') {
                 userUpdates.energy = base_1.FieldValue.increment(-totalCost);
+            }
             else if (balanceType === 'subscription') {
                 userUpdates["subscription.dailyLimitUsed"] = (userData.subscription?.lastResetAt !== today) ? 1 : base_1.FieldValue.increment(1);
                 userUpdates["subscription.lastResetAt"] = today;
@@ -312,9 +316,27 @@ exports.updateReadingStatuses = functions.region('us-central1').pubsub.schedule(
     }
     const checkCompletes = await base_1.db.collection("readings").where("status", "==", "interpreting").where("expectedCompletedAt", "<=", now).limit(50).get();
     for (const doc of checkCompletes.docs) {
-        if (doc.data().isAIGenerated && doc.data().hiddenResult) {
-            await doc.ref.update({ status: 'completed', content: doc.data().hiddenResult, resultText: doc.data().hiddenResult, updatedAt: now });
-            await (0, base_1.sendPushToUser)(doc.data().userId, { title: 'Falınız Hazır!', body: 'Hemen inceleyin!', category: 'fortunes' });
+        const data = doc.data();
+        if (data.isAIGenerated && data.hiddenResult) {
+            await doc.ref.update({ status: 'completed', content: data.hiddenResult, resultText: data.hiddenResult, updatedAt: now });
+            let pushTitle = "Ücretsiz Falın Hazır ✨";
+            const type = data.type;
+            if (type === 'coffee')
+                pushTitle = "Kahve Falın Yorumlandı ✨";
+            else if (type === 'tarot')
+                pushTitle = "Tarot Açılımın Hazır ✨";
+            else if (type === 'yildizname')
+                pushTitle = "Yıldıznamen Hazır ✨";
+            else if (type === 'water')
+                pushTitle = "Su Falın Yorumlandı ✨";
+            else if (type === 'ebced')
+                pushTitle = "Ebced Aşk Falın Hazır ✨";
+            await (0, base_1.sendPushToUser)(data.userId, {
+                title: pushTitle,
+                body: 'Yorumun hazır, şimdi bakmak ister misin?',
+                category: 'fortunes',
+                data: { type: 'reading', readingId: doc.id, readingType: type }
+            });
         }
     }
 });

@@ -53,22 +53,69 @@ exports.adminBroadcastNotification = functions.region('us-central1').https.onCal
             throw new functions.https.HttpsError('invalid-argument', 'Başlık ve mesaj zorunludur.');
         const usersSnap = await base_1.db.collection("users").where("fcmToken", "!=", null).get();
         console.log(`Broadcasting to ${usersSnap.size} users...`);
+        const tokens = [];
+        const tokenToUid = {};
+        usersSnap.docs.forEach(doc => {
+            const data = doc.data();
+            const token = data.fcmToken;
+            if (typeof token === 'string' && token.trim().length > 0) {
+                tokens.push(token);
+                tokenToUid[token] = doc.id;
+            }
+        });
         const results = {
             successCount: 0,
             failureCount: 0
         };
-        for (const userDoc of usersSnap.docs) {
+        const invalidTokens = [];
+        for (let i = 0; i < tokens.length; i += 500) {
+            const chunk = tokens.slice(i, i + 500);
             try {
-                await (0, base_1.sendPushToUser)(userDoc.id, {
-                    title,
-                    body,
-                    data: { ...extraData, screen: screen || 'home' },
-                    category: 'system'
+                const response = await base_1.messaging.sendEachForMulticast({
+                    tokens: chunk,
+                    notification: { title, body },
+                    data: {
+                        ...Object.fromEntries(Object.entries(extraData || {}).map(([k, v]) => [k, String(v)])),
+                        screen: String(screen || 'home'),
+                        category: 'system'
+                    }
                 });
-                results.successCount++;
+                results.successCount += response.successCount;
+                results.failureCount += response.failureCount;
+                response.responses.forEach((resp, idx) => {
+                    if (!resp.success) {
+                        const errCode = resp.error?.code;
+                        if (errCode === 'messaging/invalid-registration-token' ||
+                            errCode === 'messaging/registration-token-not-registered') {
+                            invalidTokens.push(chunk[idx]);
+                        }
+                    }
+                });
             }
             catch (err) {
-                results.failureCount++;
+                console.error("Multicast error for chunk", err);
+                results.failureCount += chunk.length;
+            }
+        }
+        if (invalidTokens.length > 0) {
+            console.log(`Cleaning up ${invalidTokens.length} invalid tokens...`);
+            let batch = base_1.db.batch();
+            let opCount = 0;
+            for (const t of invalidTokens) {
+                const uid = tokenToUid[t];
+                if (uid) {
+                    const userRef = base_1.db.collection("users").doc(uid);
+                    batch.update(userRef, { fcmToken: base_1.FieldValue.delete() });
+                    opCount++;
+                    if (opCount === 500) {
+                        await batch.commit();
+                        batch = base_1.db.batch();
+                        opCount = 0;
+                    }
+                }
+            }
+            if (opCount > 0) {
+                await batch.commit();
             }
         }
         return { success: true, results };
@@ -182,10 +229,14 @@ exports.getAdminChatMessages = functions.region('us-central1').https.onCall(asyn
         });
         const messagesSnap = await base_1.db.collection("messages")
             .where("chatId", "==", chatId)
-            .orderBy("createdAt", "desc")
-            .limit(500)
             .get();
-        const messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        let messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        messages.sort((a, b) => {
+            const t1 = a.createdAt?.seconds || 0;
+            const t2 = b.createdAt?.seconds || 0;
+            return t2 - t1;
+        });
+        messages = messages.slice(0, 500);
         messages.sort((a, b) => {
             const t1 = a.createdAt?.seconds || 0;
             const t2 = b.createdAt?.seconds || 0;

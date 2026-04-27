@@ -24,7 +24,7 @@ export default function WelcomeScreen({ onNavigate }: WelcomeScreenProps) {
           <div className="relative w-28 h-28 flex items-center justify-center drop-shadow-sm mx-auto">
             <div className="absolute -inset-6 bg-gradient-to-tr from-purple-500/15 to-amber-500/15 blur-[24px] rounded-full" />
             <img 
-              src="assets/logo.png" 
+              src="/assets/logo.png" 
               alt="LASYA Logo" 
               className="w-full h-full object-contain relative z-10"
             />
