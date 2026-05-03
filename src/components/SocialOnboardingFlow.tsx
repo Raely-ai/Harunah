@@ -25,14 +25,22 @@ interface SocialOnboardingFlowProps {
   onComplete: () => void;
   onBack: () => void;
   initialData?: any;
+  isFastTrack?: boolean;
 }
 
 const INTERESTS = [
-  "Müzik", "Sinema", "Dans", "Resim", "Fotoğrafçılık", "Edebiyat", "Şiir", "Tiyatro", "Heykel", "Mimari",
-  "Moda", "Gastronomi", "Kahve", "Şarap", "Seyahat", "Doğa", "Kamp", "Yürüyüş", "Yoga", "Meditasyon",
-  "Astroloji", "Tarot", "Psikoloji", "Felsefe", "Tarih", "Arkeoloji", "Bilim", "Teknoloji", "Yazılım", "Oyun",
-  "E-spor", "Futbol", "Basketbol", "Tenis", "Yüzme", "Fitness", "Bisiklet", "Kaykay", "Sörf", "Hayvanlar",
-  "Bahçecilik", "El Sanatları", "Kendin Yap (DIY)", "Gönüllülük", "Siyaset", "Ekonomi", "Yatırım", "Kripto", "NFT", "Metaverse"
+  // Sosyal
+  "Kahve", "Gece gezmesi", "Sohbet", "Eğlence", "Yemek", "Seyahat", "Müzik",
+  // Hobi
+  "Spor", "Fitness", "Koşu", "Bisiklet", "Yüzme", "Yoga", "Meditasyon", "Doğa", "Kamp", "Yürüyüş",
+  // Zeka
+  "Psikoloji", "Felsefe", "Kitap", "Araştırma", "Tarih", "Bilim", "Teknoloji", "Yazılım", "Astronomi", "Arkeoloji",
+  // Eğlence
+  "Dizi", "Film", "Netflix", "Oyun", "Sinema", "Fotoğrafçılık", "Dans", "Moda", "Tasarım",
+  // Mistik
+  "Tarot", "Kahve falı", "Astroloji", "Enerji", "Burçlar", "Rüyalar",
+  // Diğer
+  "Sanat", "Evcil Hayvanlar", "Araba", "Motosiklet", "Tiyatro", "Resim", "Şiir", "Gönüllülük", "Borsa", "Kripto"
 ];
 
 const DEFAULT_AVATARS = {
@@ -40,14 +48,14 @@ const DEFAULT_AVATARS = {
   kadın: "https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka&backgroundColor=ffdfbf"
 };
 
-export default function SocialOnboardingFlow({ onComplete, onBack, initialData }: SocialOnboardingFlowProps) {
+export default function SocialOnboardingFlow({ onComplete, onBack, initialData, isFastTrack = false }: SocialOnboardingFlowProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     lookingFor: initialData?.social?.lookingFor || initialData?.lookingFor || "",
-    nickname: initialData?.social?.nickname || initialData?.nickname || "",
+    nickname: initialData?.social?.nickname || initialData?.nickname || initialData?.displayName || "",
     birthDate: initialData?.birthDate || "",
     gender: initialData?.social?.gender || initialData?.gender || "",
     interests: initialData?.social?.interests || initialData?.interests || [] as string[],
@@ -55,7 +63,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
     bio: initialData?.social?.bio || initialData?.bio || ""
   });
 
-  const totalSteps = 8;
+  const totalSteps = isFastTrack ? 4 : 8;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -141,7 +149,14 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
   };
 
   const isStepValid = () => {
-    switch (step) {
+    const currentStep = isFastTrack ? (
+      step === 1 ? 2 :
+      step === 2 ? 3 :
+      step === 3 ? 4 :
+      step === 4 ? 8 : step
+    ) : step;
+
+    switch (currentStep) {
       case 1: return !!formData.lookingFor;
       case 2: return formData.nickname.trim().length >= 2;
       case 3: {
@@ -163,7 +178,20 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
   };
 
   const renderStep = () => {
-    switch (step) {
+    // Fast Track Mapping
+    // 1: Nickname (Original Step 2)
+    // 2: BirthDate (Original Step 3)
+    // 3: Gender (Original Step 4)
+    // 4: Completion (Original Step 8)
+    
+    const currentStep = isFastTrack ? (
+      step === 1 ? 2 :
+      step === 2 ? 3 :
+      step === 3 ? 4 :
+      step === 4 ? 8 : step
+    ) : step;
+
+    switch (currentStep) {
       case 1:
         return (
           <div className="space-y-6">
@@ -269,7 +297,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData }
           <div className="space-y-4 flex flex-col h-full max-h-[60vh]">
             <div className="text-center space-y-1">
               <h2 className="text-2xl font-serif font-bold text-heading">İlgi alanların?</h2>
-              <p className="text-body text-xs">En az 5 tane seçmelisin. ({formData.interests.length}/5)</p>
+              <p className="text-body text-xs">En az 5 tane seçmelisin. ({formData.interests.length} seçildi)</p>
             </div>
             <div className="flex-1 overflow-y-auto no-scrollbar p-2">
               <div className="flex flex-wrap justify-center gap-2">

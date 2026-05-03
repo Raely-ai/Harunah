@@ -91,7 +91,7 @@ export default function HomeScreen({
   }, [userProfile.social?.lastDiscoverRefreshAt]);
 
   // 4. Safe Render Check
-  if (!userProfile || !userProfile.social) {
+  if (!userProfile) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 space-y-4">
         <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
@@ -100,7 +100,19 @@ export default function HomeScreen({
     );
   }
 
+  // Determine readiness using the improved helper
   const isSocialEnabled = isSocialProfileReady(userProfile);
+  const hasSocialObject = !!userProfile.social;
+
+  // Final safety check to prevent flickering while social object is being initialized
+  if (!hasSocialObject && !isSocialEnabled) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-6 space-y-4">
+        <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
+        <p className="text-muted text-sm font-medium">Sosyal yapılandırma...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full bg-[#F6F4F8] overflow-hidden">

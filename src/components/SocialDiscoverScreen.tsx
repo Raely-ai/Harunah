@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
-import { getTargetGender, isSocialProfileReady } from "../lib/socialUtils";
+import { getTargetGender, isSocialProfileReady, checkMutualGenderPreference } from "../lib/socialUtils";
 import { toast } from "sonner";
 import { 
   Sparkles, 
@@ -24,6 +24,7 @@ import {
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
 import DiscoverProfilePopup from "./DiscoverProfilePopup";
+import { BlueTick } from "./BlueTick";
 
 interface SocialDiscoverScreenProps {
   currentUser: UserProfile;
@@ -96,22 +97,27 @@ export default function SocialDiscoverScreen({
       const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
       setCompatibilityHistory(history);
 
-      const targetGender = getTargetGender(currentUser);
-      
       const q = query(
         collection(db, "users"),
         where("social.enabled", "==", true),
         where("social.profileCompleted", "==", true),
         where("social.visible", "==", true),
-        where("social.gender", "==", targetGender),
-        limit(DISCOVER_LIMIT + exclusionSet.size) // Buffer for exclusions
+        limit(300) // Fetch more to filter post-query since we cannot complex query "includes"
       );
 
       const snap = await getDocs(q);
-      const fetchedUsers = snap.docs
+      let fetchedUsers = snap.docs
         .map(doc => normalizeUserProfile(doc.data(), doc.id))
-        .filter(u => !exclusionSet.has(u.uid))
-        .slice(0, DISCOVER_LIMIT);
+        .filter(u => !exclusionSet.has(u.uid) && checkMutualGenderPreference(currentUser, u));
+
+      // Soft boost verified users (verified users go closer to the top)
+      fetchedUsers.sort((a, b) => {
+        const aVerified = a.social?.verified ? 1 : 0;
+        const bVerified = b.social?.verified ? 1 : 0;
+        return bVerified - aVerified;
+      });
+
+      fetchedUsers = fetchedUsers.slice(0, DISCOVER_LIMIT);
 
       setAllUsers(fetchedUsers);
       
@@ -291,12 +297,19 @@ export default function SocialDiscoverScreen({
               className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer"
               onClick={() => openProfile(u)}
             >
-              <div className="relative p-1 rounded-full bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600">
-                <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden">
-                  <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <div className={`relative p-1 rounded-full ${u.social?.verified ? 'bg-gradient-to-tr from-sky-400 via-sky-300 to-sky-600 shadow-[0_0_15px_rgba(14,165,233,0.5)]' : 'bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600'}`}>
+                <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden bg-slate-50">
+                  <img 
+                    src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                    className="w-full h-full object-cover" 
+                    referrerPolicy="no-referrer" 
+                  />
                 </div>
               </div>
-              <span className="text-[9px] font-bold truncate w-16 text-center">{u.social?.nickname?.split(' ')[0]}</span>
+              <div className="flex items-center gap-1 justify-center w-16">
+                <span className="text-[9px] font-bold truncate">{u.social?.nickname?.split(' ')[0]}</span>
+                {u.social?.verified && <BlueTick size={8} />}
+              </div>
             </div>
           ))}
         </div>
@@ -315,11 +328,18 @@ export default function SocialDiscoverScreen({
                 key={u.uid}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => openProfile(u)}
-                className="flex-shrink-0 w-44 aspect-[3/4.2] bg-white rounded-3xl overflow-hidden shadow-sm relative border border-slate-100"
+                className={`flex-shrink-0 w-44 aspect-[3/4.2] bg-white rounded-3xl overflow-hidden shadow-sm relative border ${u.social?.verified ? 'border-sky-400/50 shadow-[0_0_15px_rgba(14,165,233,0.3)]' : 'border-slate-100'}`}
               >
-                <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img 
+                  src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                  className="w-full h-full object-cover" 
+                  referrerPolicy="no-referrer" 
+                />
                 <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                  <h4 className="text-sm font-black text-white truncate">{u.social?.nickname}, {u.social?.age || 25}</h4>
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="text-sm font-black text-white truncate">{u.social?.nickname}, {u.social?.age || 25}</h4>
+                    {u.social?.verified && <BlueTick size={10} />}
+                  </div>
                   <div className="flex items-center gap-1 mt-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10B981]" />
                     <span className="text-[8px] font-black text-amber-400 uppercase tracking-widest">Uyumlu Enerji</span>
@@ -348,7 +368,11 @@ export default function SocialDiscoverScreen({
               onClick={() => openProfile(u)}
               className="aspect-square bg-slate-200 relative overflow-hidden"
             >
-              <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <img 
+                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                className="w-full h-full object-cover" 
+                referrerPolicy="no-referrer" 
+              />
               <div className="absolute inset-0 bg-indigo-500/5 backdrop-blur-[1px]" />
             </motion.div>
           ))}
@@ -368,8 +392,13 @@ export default function SocialDiscoverScreen({
               className="flex-shrink-0 relative group cursor-pointer"
               onClick={() => openProfile(u)}
             >
-              <div className="w-14 h-14 rounded-full border-2 border-emerald-500/30 p-0.5 transition-all group-hover:border-emerald-500">
-                <img src={u.social?.photos?.[0]} title={u.social?.nickname} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+              <div className={`w-14 h-14 rounded-full border-2 p-0.5 transition-all bg-slate-50 ${u.social?.verified ? 'border-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.4)]' : 'border-emerald-500/30 group-hover:border-emerald-500'}`}>
+                <img 
+                  src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                  title={u.social?.nickname} 
+                  className="w-full h-full rounded-full object-cover" 
+                  referrerPolicy="no-referrer" 
+                />
               </div>
               <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-md" />
             </div>
@@ -388,11 +417,18 @@ export default function SocialDiscoverScreen({
             <div 
               key={u.uid} 
               onClick={() => openProfile(u)}
-              className="flex-shrink-0 w-32 aspect-[4/5] bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 flex flex-col cursor-pointer"
+              className={`flex-shrink-0 w-32 aspect-[4/5] bg-white rounded-2xl overflow-hidden shadow-sm border flex flex-col cursor-pointer ${u.social?.verified ? 'border-sky-300 shadow-[0_0_10px_rgba(14,165,233,0.2)]' : 'border-slate-100'}`}
             >
-              <img src={u.social?.photos?.[0]} className="w-full h-1/2 object-cover" referrerPolicy="no-referrer" />
+              <img 
+                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                className="w-full h-1/2 object-cover" 
+                referrerPolicy="no-referrer" 
+              />
               <div className="p-2 flex-1 flex flex-col justify-center gap-1">
-                <span className="text-[9px] font-black truncate">{u.social?.nickname}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-black truncate">{u.social?.nickname}</span>
+                  {u.social?.verified && <BlueTick size={8} />}
+                </div>
                 <div className="px-2 py-0.5 bg-indigo-50 rounded-full inline-block self-start">
                   <span className="text-[7px] font-bold text-indigo-500 uppercase tracking-tighter">Yüksek Uyum</span>
                 </div>
@@ -416,7 +452,16 @@ export default function SocialDiscoverScreen({
               onClick={() => openProfile(u)}
               className="aspect-square bg-white relative overflow-hidden"
             >
-              <img src={u.social?.photos?.[0]} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <img 
+                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
+                className="w-full h-full object-cover" 
+                referrerPolicy="no-referrer" 
+              />
+              {u.social?.verified && (
+                <div className="absolute top-1 right-1">
+                  <BlueTick size={10} />
+                </div>
+              )}
               {/* Subtle Overlay */}
               <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent" />
             </motion.div>

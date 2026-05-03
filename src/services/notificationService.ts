@@ -1,6 +1,6 @@
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'sonner';
 import { isNotificationProcessed, markNotificationProcessed } from '../lib/notificationStore';
@@ -11,17 +11,29 @@ export const notificationService = {
   async createChannel() {
     if (!Capacitor.isNativePlatform()) return;
     try {
+      // Create our custom channel
       await PushNotifications.createChannel({
         id: 'lasya_default_channel',
-        name: 'Lasya Bildirimleri',
-        description: 'Mesaj ve fal bildirimleri',
-        importance: 5, // High
+        name: 'Mesajlar ve Bildirimler',
+        description: 'Sohbet ve fal bildirimleri',
+        importance: 5,
         visibility: 1,
         vibration: true,
+        sound: 'default'
       });
-      console.log("Notification channel created.");
+      
+      // Also ensure a 'default' channel exists as many systems fallback to it
+      await PushNotifications.createChannel({
+        id: 'default',
+        name: 'Varsayılan',
+        importance: 3,
+        visibility: 1,
+        sound: 'default'
+      });
+      
+      console.log("Notification channels created.");
     } catch (error) {
-      console.error("Error creating notification channel:", error);
+      console.error("Error creating notification channels:", error);
     }
   },
 
@@ -75,6 +87,35 @@ export const notificationService = {
     if (!userId || !token) return;
     try {
       localStorage.setItem('lasya_fcm_token', token);
+      
+      // 1. Cleanup: Remove this token from ANY other user that might have it
+      const q = query(collection(db, "users"), where("fcmTokens", "array-contains", token));
+      const querySnapshot = await getDocs(q);
+      
+      const batch = writeBatch(db);
+      querySnapshot.forEach((userDoc) => {
+        if (userDoc.id !== userId) {
+          batch.update(userDoc.ref, {
+            fcmTokens: arrayRemove(token),
+            fcmToken: userDoc.data().fcmToken === token ? null : userDoc.data().fcmToken
+          });
+        }
+      });
+      
+      // Also check fcmToken single field
+      const qSingle = query(collection(db, "users"), where("fcmToken", "==", token));
+      const querySnapshotSingle = await getDocs(qSingle);
+      querySnapshotSingle.forEach((userDoc) => {
+        if (userDoc.id !== userId) {
+          batch.update(userDoc.ref, {
+            fcmToken: null
+          });
+        }
+      });
+      
+      await batch.commit();
+
+      // 2. Add to actual user
       const userRef = doc(db, "users", userId);
       await updateDoc(userRef, {
         fcmToken: token,
@@ -83,7 +124,8 @@ export const notificationService = {
         lastTokenUpdateAt: new Date().toISOString(),
         notificationPermission: 'granted'
       });
-      console.log("FCM Token saved to Firestore for user:", userId);
+      
+      console.log("FCM Token cleaned up and saved for user:", userId);
     } catch (error) {
       console.error("Error saving FCM token:", error);
     }
@@ -97,13 +139,17 @@ export const notificationService = {
   },
 
   async removeToken(userId: string) {
+    if (!userId) return;
     try {
       const currentToken = localStorage.getItem('lasya_fcm_token');
+      if (!currentToken) return;
+
       const userRef = doc(db, "users", userId);
-      const updates: any = { fcmToken: null };
-      // Also try to remove from the array if we have the current token
-      // But arrayRemove needs the exact value
-      await updateDoc(userRef, updates);
+      await updateDoc(userRef, {
+        fcmToken: null,
+        fcmTokens: arrayRemove(currentToken)
+      });
+      console.log("FCM Token removed for user:", userId);
     } catch (error) {
       console.error("Error removing FCM token:", error);
     }
@@ -119,6 +165,9 @@ export const notificationService = {
 
     pushInitialized = true;
     PushNotifications.removeAllListeners();
+
+    // Ensure channel exists on Android every time listeners are set up
+    this.createChannel();
 
     // Disable native banners while app is in foreground to prevent double notifications
     // We handle foreground notifications via our own CustomToast

@@ -24,12 +24,18 @@ import {
   ShieldCheck,
   ZapOff,
   ChevronRight,
-  Ticket
+  Ticket,
+  CheckCircle2,
+  Lock,
+  Timer,
+  CheckCircle
 } from "lucide-react";
+import confetti from "canvas-confetti";
 import { UserProfile, WalletTransaction, EconomyConfig } from "../types";
 import { formatSafeDate } from "../lib/dateUtils";
 import { DEFAULT_ECONOMY_CONFIG } from "../constants";
 import { walletService } from "../lib/walletService";
+import { socialService } from "../lib/socialService";
 import { toast } from "sonner";
 
 interface SocialWalletScreenProps {
@@ -53,6 +59,10 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
     price: string;
     onConfirm: () => Promise<void>;
   } | null>(null);
+
+  // MISSION LOGIC
+  const [localUser, setLocalUser] = useState(currentUser);
+  useEffect(() => { setLocalUser(currentUser); }, [currentUser]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -79,6 +89,11 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
       const result = await walletService.watchAd(currentUser.uid);
       if (result.success) {
         toast.success(`Tebrikler! ${config?.rewards?.adRewardEnergy || 10} enerji kazandınız.`);
+        setLocalUser(prev => ({ 
+          ...prev, 
+          energy: (prev.energy || 0) + (config?.rewards?.adRewardEnergy || 10),
+          dailyAdWatchCount: (prev.dailyAdWatchCount || 0) + 1 
+        }));
         refreshData();
       } else {
         toast.error(result.message);
@@ -225,6 +240,364 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
 
   const isFortunePremium = currentUser.subscription?.status === 'active';
   const isBoostActive = currentUser.boostExpiresAt && new Date(currentUser.boostExpiresAt) > new Date();
+  const isVerified = localUser.social?.verified || localUser.isVerified;
+  const verificationStatus = localUser.social?.verificationStatus || 'none';
+
+  const completionScore = (() => {
+    let score = 0;
+    const s = localUser.social;
+    if (!s) return 0;
+    const photoCount = s.photos?.length || 0;
+    let photoScore = 0;
+    if (photoCount === 1) photoScore = 20;
+    else if (photoCount >= 2 && photoCount <= 3) photoScore = 25;
+    else if (photoCount >= 4) photoScore = 30;
+
+    if (s.nickname || localUser.displayName) score += 15;
+    if (s.gender || localUser.gender) score += 15;
+    if (localUser.birthDate) score += 15;
+    if (s.bio) score += 15;
+    if (s.interests && s.interests.length > 0) score += 10;
+    score += photoScore;
+    return score;
+  })();
+
+  const handleClaimDailyReward = async () => {
+    setProcessing(true);
+    try {
+      const result = await walletService.claimDailyLoginReward();
+      if (result.success) {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#FACC15', '#EAB308', '#FFFFFF']
+        });
+        toast.success(`${result.rewardAmount} Enerji kazandınız!`);
+        setLocalUser(prev => ({ ...prev, energy: (prev.energy || 0) + result.rewardAmount, lastDailyRewardAt: new Date().toISOString() }));
+        refreshData();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleClaimProfileReward = async () => {
+    setProcessing(true);
+    try {
+      const result = await socialService.claimProfileCompletionReward();
+      if (result.success) {
+        confetti({
+          particleCount: 200,
+          spread: 100,
+          origin: { y: 0.6 },
+          colors: ['#6366F1', '#4F46E5', '#FFFFFF']
+        });
+        toast.success("Profil tamamlama ödülü alındı!");
+        setLocalUser(prev => ({
+          ...prev,
+          social: { ...prev.social!, completionRewardClaimed: true },
+          energy: (prev.energy || 0) + (result.rewardAmount || 50)
+        }));
+        refreshData();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleClaimVerificationReward = async () => {
+    setProcessing(true);
+    try {
+      const result = await walletService.claimVerificationReward();
+      if (result.success) {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#3B82F6', '#2563EB', '#FFFFFF']
+        });
+        toast.success(`${result.rewardAmount} Enerji kazandınız!`);
+        setLocalUser(prev => ({ ...prev, energy: (prev.energy || 0) + result.rewardAmount, verificationRewardClaimed: true }));
+        refreshData();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleClaimFreeCompatibility = async () => {
+    setProcessing(true);
+    try {
+      const result = await walletService.claimFreeCompatibilityReward();
+      if (result.success) {
+        toast.success("Ücretsiz Uyum Analizi hakkı kazandınız!");
+        setLocalUser(prev => ({ ...prev, compatibilityCount: (prev.compatibilityCount || 0) + 1, lastFreeCompatibilityAt: new Date().toISOString() }));
+        refreshData();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const renderMissionCenter = () => {
+    const rewards = config?.rewards;
+    
+    // Countdown helpers
+    const getRemainingTimeStr = (lastAt: string | undefined, hours: number) => {
+      if (!lastAt) return null;
+      const last = new Date(lastAt).getTime();
+      const now = new Date().getTime();
+      const diff = (hours * 60 * 60 * 1000) - (now - last);
+      if (diff <= 0) return null;
+      
+      const h = Math.floor(diff / (1000 * 60 * 60));
+      const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const s = Math.floor((diff % (1000 * 60)) / 1000);
+      return `${h}s ${m}dk ${s}sn`;
+    };
+
+    const dailyRemaining = getRemainingTimeStr(localUser.lastDailyRewardAt, 24);
+    const freeCompatRemaining = getRemainingTimeStr(localUser.lastFreeCompatibilityAt, rewards?.freeCompatibilityCooldownHours || 48);
+
+    const rewardsReady = [
+      !dailyRemaining,
+      (localUser.dailyAdWatchCount || 0) < (rewards?.maxDailyAds || 5),
+      !localUser.social?.completionRewardClaimed && completionScore >= 100,
+      !localUser.verificationRewardClaimed && !!localUser.isVerified,
+      !freeCompatRemaining
+    ].filter(Boolean).length;
+
+    const MissionRow = ({ 
+      title, 
+      reward, 
+      status, 
+      label, 
+      icon: Icon, 
+      color, 
+      onClick, 
+      disabled, 
+      countdown,
+      description,
+      progress,
+      premium,
+      isDaily
+    }: any) => (
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`relative ${isDaily ? 'p-5' : 'p-4'} rounded-[1.8rem] border transition-all overflow-hidden ${
+          premium 
+            ? 'bg-slate-900 border-indigo-500/30 text-white shadow-xl shadow-indigo-950/10' 
+            : 'bg-white border-black/5 shadow-sm'
+        } ${disabled && status !== 'completed' ? 'opacity-60 grayscale-[0.2]' : ''}`}
+      >
+        {/* Glow & Pulse for Claimable tasks */}
+        {!disabled && !countdown && status !== 'completed' && (
+          <motion.div 
+            animate={{ opacity: [0.3, 0.6, 0.3] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className={`absolute -inset-px bg-gradient-to-r ${premium ? 'from-indigo-400/20' : 'from-indigo-400/10'} to-transparent pointer-events-none`} 
+          />
+        )}
+
+        <div className="flex items-center gap-4 relative z-10">
+          <div className={`${isDaily ? 'w-12 h-12' : 'w-10 h-10'} rounded-2xl flex items-center justify-center flex-shrink-0 transition-transform ${
+            premium ? 'bg-indigo-500/20 text-indigo-300' : `bg-${color}-50 text-${color}-600`
+          }`}>
+            <Icon size={isDaily ? 22 : 18} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <h4 className={`${isDaily ? 'text-[13px]' : 'text-[12px]'} font-black uppercase tracking-tight truncate ${premium ? 'text-white' : 'text-slate-800'}`}>
+                {title}
+              </h4>
+              {status === 'completed' && <CheckCircle size={10} className="text-emerald-500" />}
+            </div>
+            <p className={`text-[9px] font-bold truncate ${premium ? 'text-indigo-300/70' : 'text-slate-400'}`}>
+              {description}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end shrink-0">
+            {status === 'completed' ? (
+              <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full flex items-center gap-1 border border-emerald-100">
+                <Check size={8} className="stroke-[4px]" />
+                <span className="text-[7px] font-black uppercase tracking-widest">Alındı</span>
+              </div>
+            ) : countdown ? (
+              <div className="px-3 py-1 bg-slate-50 text-slate-400 rounded-lg flex items-center gap-1 border border-slate-100">
+                <Timer size={10} />
+                <span className="text-[8px] font-black tabular-nums">{countdown}</span>
+              </div>
+            ) : (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={onClick}
+                disabled={disabled || processing}
+                className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all ${
+                  premium 
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/40' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
+                } disabled:opacity-50 disabled:shadow-none min-w-[90px]`}
+              >
+                {label}
+              </motion.button>
+            )}
+          </div>
+        </div>
+
+        {/* Progress Bar for specific tasks */}
+        {progress !== undefined && status !== 'completed' && !countdown && (
+          <div className="mt-4 space-y-1.5 relative z-10">
+            <div className="flex justify-between items-center text-[7px] font-black uppercase tracking-widest">
+              <span className={premium ? 'text-indigo-300' : 'text-slate-400'}>İlerleme</span>
+              <span className={premium ? 'text-white' : 'text-slate-900'}>{Math.round(progress)}%</span>
+            </div>
+            <div className={`h-1.5 rounded-full overflow-hidden p-0.5 ${premium ? 'bg-white/5' : 'bg-slate-100'}`}>
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                className={`h-full rounded-full ${premium ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'bg-indigo-600'}`}
+              />
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="px-2 flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            <h2 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Günlük Görev Merkezi</h2>
+          </div>
+          <p className="text-[12px] font-bold text-slate-500">
+            {rewardsReady > 0 ? `${rewardsReady} Ödül seni bekliyor!` : 'Hepsi tamamlandı! ✨'}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {/* 1. Daily Login - HIGHLIGHTED */}
+          <MissionRow 
+            isDaily
+            title="Günlük Giriş"
+            reward={rewards?.dailyLoginRewardEnergy || 20}
+            icon={Calendar}
+            color="emerald"
+            countdown={dailyRemaining}
+            status={dailyRemaining ? 'waiting' : 'ready'}
+            onClick={handleClaimDailyReward}
+            disabled={!!dailyRemaining}
+            description="Her gün düzenli enerjini topla"
+            label={`⚡ +${rewards?.dailyLoginRewardEnergy || 20} Enerji Al`}
+          />
+
+          {/* 2. Watch Ad */}
+          <MissionRow 
+            title="Reklam İzle"
+            reward={rewards?.adRewardEnergy || 10}
+            icon={Play}
+            color="amber"
+            progress={((localUser.dailyAdWatchCount || 0) / (rewards?.maxDailyAds || 5)) * 100}
+            onClick={handleWatchAd}
+            disabled={(localUser.dailyAdWatchCount || 0) >= (rewards?.maxDailyAds || 5)}
+            status={(localUser.dailyAdWatchCount || 0) >= (rewards?.maxDailyAds || 5) ? 'completed' : 'ready'}
+            description={`İzlenen: ${localUser.dailyAdWatchCount || 0} / ${rewards?.maxDailyAds || 5}`}
+            label={`🎥 +${rewards?.adRewardEnergy || 10} Enerji`}
+          />
+
+          {/* 3. Profile Completion */}
+          <MissionRow 
+            title="Profil Tamamlama"
+            reward={rewards?.profileCompletionEnergy || 50}
+            icon={UserProfileIcon}
+            color="indigo"
+            status={localUser.social?.completionRewardClaimed ? 'completed' : 'ready'}
+            onClick={handleClaimProfileReward}
+            disabled={localUser.social?.completionRewardClaimed || completionScore < 100}
+            description={completionScore < 100 ? "Profilini %100 yap ödülü al" : "Profilin %100, ödülün hazır!"}
+            progress={completionScore}
+            label={`🚀 +${rewards?.profileCompletionEnergy || 50} Al`}
+          />
+
+          {/* 4. Verified Profile */}
+          <MissionRow 
+            title="Onaylı Profil"
+            reward={rewards?.verifiedRewardEnergy || 100}
+            icon={ShieldCheck}
+            color="blue"
+            status={localUser.verificationRewardClaimed || localUser.social?.verificationRewardClaimed ? 'completed' : 'ready'}
+            onClick={() => {
+              if (isVerified) {
+                handleClaimVerificationReward();
+              } else {
+                onNavigate('profile');
+              }
+            }}
+            disabled={localUser.verificationRewardClaimed || localUser.social?.verificationRewardClaimed || verificationStatus === 'pending'}
+            description={
+              verificationStatus === 'pending' 
+                ? "Başvurunuz inceleniyor" 
+                : !isVerified 
+                  ? "Mavi Tik alarak 100 Enerji kazan" 
+                  : "Doğrulama ödülü hazır"
+            }
+            premium
+            label={
+              verificationStatus === 'pending'
+                ? "İncelemede"
+                : isVerified
+                  ? `💎 +${rewards?.verifiedRewardEnergy || 100} Al`
+                  : "Doğrula & Al"
+            }
+          />
+
+          {/* 5. Free Compatibility */}
+          <MissionRow 
+            title="Ücretsiz Analiz"
+            reward={1}
+            icon={Heart}
+            color="rose"
+            countdown={freeCompatRemaining}
+            status={freeCompatRemaining ? 'waiting' : 'ready'}
+            onClick={handleClaimFreeCompatibility}
+            disabled={!!freeCompatRemaining}
+            description="Her 48 saatte bir ücretsiz hediye"
+            label="❤️ Ücretsiz Aç"
+          />
+
+          {/* Promo Code Shortcut Shortcut */}
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const el = document.getElementById('promo-section');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="group relative flex items-center gap-4 p-4 rounded-[1.8rem] bg-indigo-600 text-white shadow-xl shadow-indigo-100 overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-indigo-800 opacity-60" />
+            <div className="w-10 h-10 rounded-xl bg-white/20 text-white flex items-center justify-center relative z-10 group-hover:scale-110 transition-transform">
+              <Ticket size={18} />
+            </div>
+            <div className="flex-1 relative z-10 text-left">
+              <h4 className="text-[12px] font-black uppercase tracking-tight">Gizemli Kod</h4>
+              <p className="text-[8px] font-bold text-white/60">Kupon kodunu gir, hediyeni al</p>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center relative z-10 shrink-0">
+              <ChevronRight size={16} />
+            </div>
+          </motion.button>
+        </div>
+      </div>
+    );
+  };
+
+  // Add UserProfileIcon wrapper since I don't have it imported
+  const UserProfileIcon = (props: any) => <CheckCircle2 {...props} />;
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-white to-slate-50 text-slate-900 relative overflow-hidden font-sans">
@@ -280,7 +653,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       <Ticket className="w-8 h-8 fill-amber-500/20" />
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{currentUser.mainCoins || 0}</p>
+                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{localUser.mainCoins || 0}</p>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Jeton (J)</p>
                     </div>
                   </div>
@@ -293,7 +666,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       <Zap className="w-8 h-8 fill-indigo-600/20" />
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{currentUser.energy || 0}</p>
+                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{localUser.energy || 0}</p>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enerji (E)</p>
                     </div>
                   </div>
@@ -321,6 +694,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
 
           {activeTab === 'market' ? (
             <>
+              {/* 1. GÖREV MERKEZİ V2 */}
+              {renderMissionCenter()}
+
               {/* 2. PREMIUM PACKAGES (Subscription Hero Carousel) */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
@@ -518,79 +894,10 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                 </div>
               </div>
 
-              {/* 5. GÖREV MERKEZİ (Dopamine Zone) */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between px-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <h2 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Görev Merkezi</h2>
-                  </div>
-                </div>
-
-                <div className="bg-white p-8 rounded-[3rem] border border-black/5 shadow-2xl shadow-indigo-900/5 relative overflow-hidden group">
-                  <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-400 opacity-5 blur-[40px] rounded-full" />
-                  
-                  <div className="relative z-10 flex flex-col gap-8">
-                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col gap-1">
-                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Bugünkü Enerjini Topla</h3>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ritüellerini Tamamla</p>
-                      </div>
-                      <div className="w-12 h-12 rounded-[1.2rem] bg-indigo-50 flex items-center justify-center text-indigo-600">
-                        <Zap className="w-6 h-6 fill-indigo-600/20" />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <motion.button
-                        whileTap={{ scale: 0.98 }}
-                        onClick={handleWatchAd}
-                        disabled={processing || (currentUser.dailyAdWatchCount || 0) >= (config?.rewards?.maxDailyAds || 5)}
-                        className="bg-slate-50 p-5 rounded-3xl border border-black/5 flex flex-col items-center gap-3 group relative overflow-hidden"
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-br from-amber-400/5 to-rose-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 group-hover:scale-110 transition-transform">
-                          <Play className="w-5 h-5 fill-amber-600/20 ml-0.5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[12px] font-black text-slate-900">Reklam İzle</p>
-                          <p className="text-[9px] font-bold text-amber-600">+{config?.rewards?.adRewardEnergy || 0} Enerji</p>
-                        </div>
-                      </motion.button>
-
-                      <div className="bg-slate-50 p-5 rounded-3xl border border-black/5 flex flex-col items-center gap-3 group">
-                        <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600">
-                          <Calendar className="w-5 h-5" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[12px] font-black text-slate-900">Günlük Hediye</p>
-                          <p className="text-[9px] font-bold text-emerald-600">Topla</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Progress Bar Redesign */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center px-1">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Günlük İzleme Limiti</p>
-                        <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">
-                          {currentUser.dailyAdWatchCount || 0} / {config?.rewards?.maxDailyAds || 5}
-                        </p>
-                      </div>
-                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${((currentUser.dailyAdWatchCount || 0) / (config?.rewards?.maxDailyAds || 5)) * 100}%` }}
-                          className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 shadow-[0_0_8px_rgba(79,70,229,0.3)]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* 5. GÖREV MERKEZİ (Dopamine Zone) - REMOVED, Replaced by MissionCenter v2 at top */}
 
               {/* 6. PROMO CODE (Mysterious Section) */}
-              <div className="pt-6">
+              <div className="pt-6" id="promo-section">
                 <div className="bg-slate-900 rounded-[3rem] p-8 space-y-6 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 blur-[60px] rounded-full" />
                   

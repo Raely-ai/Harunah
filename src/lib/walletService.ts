@@ -284,5 +284,33 @@ export const walletService = {
 
   async redeemPromoCode(code: string): Promise<{ success: boolean; message: string; rewards?: any }> {
     return await callFunction('redeemPromoCode', { code });
+  },
+
+  async claimDailyLoginReward(): Promise<{ success: boolean; rewardAmount: number }> {
+    return await callFunction('claimDailyLoginReward');
+  },
+
+  async claimVerificationReward(): Promise<{ success: boolean; rewardAmount: number }> {
+    return await callFunction('claimVerificationReward');
+  },
+
+  async claimFreeCompatibilityReward(): Promise<{ success: boolean }> {
+    try {
+      return await callFunction('claimFreeCompatibilityReward');
+    } catch (e: any) {
+      if (e?.message?.includes('internal') || e?.message?.includes('offline')) {
+        console.warn("Cloud function failed, falling back to local update", e);
+        const { auth, db } = await import('./firebase');
+        const { doc, updateDoc, increment } = await import('firebase/firestore');
+        if (auth.currentUser) {
+           await updateDoc(doc(db, "users", auth.currentUser.uid), {
+             compatibilityCount: increment(1),
+             lastFreeCompatibilityAt: new Date().toISOString()
+           });
+           return { success: true };
+        }
+      }
+      throw e;
+    }
   }
 };

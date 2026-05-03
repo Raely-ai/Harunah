@@ -51,6 +51,9 @@ export const {
   runDiscoverCompatibilityAnalysis,
   runManualCompatibilityAnalysis,
   speedUpCompatibilityAnalysis,
+  claimProfileCompletionReward,
+  submitProfileVerification,
+  adminUpdateVerificationStatus,
   onMessageCreated,
   generateThumbnails
 } = social;
@@ -74,7 +77,10 @@ export const {
   purchaseBoostPackage,
   purchaseSocialItem,
   purchaseSocialBundle,
-  redeemPromoCode
+  redeemPromoCode,
+  claimDailyLoginReward,
+  claimVerificationReward,
+  claimFreeCompatibilityReward
 } = wallet;
 
 /**

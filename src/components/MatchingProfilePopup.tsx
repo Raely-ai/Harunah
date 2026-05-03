@@ -29,7 +29,9 @@ export default function MatchingProfilePopup({
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
 
   const photos = useMemo(() => {
-    return user.social?.photos?.length ? user.social.photos : [user.photoURL || ''];
+    if (user.social?.photos?.length) return user.social.photos;
+    if (user.photoURL) return [user.photoURL];
+    return [`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`];
   }, [user]);
 
   const compatibility = useMemo(() => {

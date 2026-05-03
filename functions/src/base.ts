@@ -20,7 +20,7 @@ export const corsHandler = cors({ origin: true });
 /**
  * Robust FieldValue export to prevent 'undefined' issues in some environments.
  */
-export const FieldValue = admin.firestore.FieldValue;
+export const FieldValue = NativeFieldValue;
 
 // Define OpenAI Secret - Declaration only
 export const openAiKey = defineSecret("OPENAI_API_KEY");
@@ -54,7 +54,10 @@ export function getOpenAI(): OpenAI {
 export async function sendPushToUser(userId: string, payload: { title: string, body: string, data?: Record<string, string>, category?: string, senderId?: string, imageUrl?: string }) {
   try {
     const userSnap = await db.collection("users").doc(userId).get();
-    if (!userSnap.exists) return;
+    if (!userSnap.exists) {
+      console.log(`PUSH_LOG: User ${userId} not found in Firestore.`);
+      return;
+    }
     const userData = userSnap.data() as any;
     const fcmToken = userData.fcmToken;
     const fcmTokens = userData.fcmTokens || [];
@@ -62,16 +65,21 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
     // Combine tokens and remove duplicates/empty
     const allTokens: string[] = Array.from(new Set([fcmToken, ...fcmTokens])).filter(t => typeof t === 'string' && t.length > 10);
 
-    if (allTokens.length === 0) return;
+    console.log(`PUSH_LOG: Found ${allTokens.length} tokens for user ${userId}. Tokens:`, allTokens);
+
+    if (allTokens.length === 0) {
+      console.log(`PUSH_LOG: No valid tokens for user ${userId}. userData keys:`, Object.keys(userData));
+      return;
+    }
 
     // Check if sender is muted
     const mutedUserIds = userData.social?.mutedUserIds || [];
     if (payload.senderId && mutedUserIds.includes(payload.senderId)) {
-      console.log(`User ${userId} has muted sender ${payload.senderId}. Skipping push.`);
+      console.log(`PUSH_LOG: User ${userId} has muted sender ${payload.senderId}. Skipping push.`);
       return;
     }
 
-    const settings = userData.notificationSettings || {
+    const settings = userData.notificationSettings || userData.social?.settings?.notifications || {
       messages: true,
       likes: true,
       superLikes: true,
@@ -83,13 +91,19 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
       system: true
     };
 
+    console.log(`PUSH_LOG: Notification settings for ${userId}:`, JSON.stringify(settings));
+
     if (payload.category && settings[payload.category] === false) {
-      console.log(`User ${userId} has disabled ${payload.category} notifications.`);
+      console.log(`PUSH_LOG: User ${userId} has disabled ${payload.category} notifications.`);
       return;
     }
 
     // FCM HTTP v1 requires all data values to be strictly strings
-    const safeData: Record<string, string> = {};
+    const safeData: Record<string, string> = {
+      title: String(payload.title),
+      body: String(payload.body)
+    };
+
     if (payload.data) {
       for (const [key, value] of Object.entries(payload.data)) {
         if (value !== undefined && value !== null && value !== '') {
@@ -105,49 +119,56 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
     if (payload.senderId) {
       safeData['senderId'] = String(payload.senderId);
     }
-    if (payload.imageUrl) {
-      safeData['imageUrl'] = String(payload.imageUrl);
-    }
 
-    const messages = allTokens.map(token => ({
-      token,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-        image: payload.imageUrl,
-      },
-      data: safeData,
-      android: {
-        priority: 'high' as const,
+    const messages = allTokens.map(token => {
+      const msg: any = {
+        token,
         notification: {
-          sound: 'default',
-          channelId: 'lasya_default_channel',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-          image: payload.imageUrl,
-        }
-      },
-      apns: {
-        payload: {
-          aps: {
+          title: payload.title,
+          body: payload.body,
+        },
+        data: safeData,
+        android: {
+          priority: 'high' as const,
+          notification: {
+            channelId: 'lasya_default_channel',
+            icon: 'ic_stat_lasya',
+            color: '#8B5CF6',
             sound: 'default',
-            badge: 1,
-            'mutable-content': payload.imageUrl ? 1 : 0
+            priority: 'max' as const,
+            visibility: 'public' as const,
           }
         },
-        fcm_options: {
-          image: payload.imageUrl
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              badge: 1,
+            }
+          }
         }
+      };
+
+      if (safeData.chatId) {
+        msg.android.notification.tag = safeData.chatId;
       }
-    }));
+
+      return msg;
+    });
+
+    console.log("PUSH_LOG: Final Payload (first token):", JSON.stringify(messages[0]));
 
     if (messages.length === 1) {
-      await messaging.send(messages[0]);
+      const response = await messaging.send(messages[0]);
+      console.log(`PUSH_LOG: Successfully sent single push to ${userId}. MessageId:`, response);
     } else {
       const response = await messaging.sendEach(messages);
+      console.log(`PUSH_LOG: Multicast push response for ${userId}: Success: ${response.successCount}, Failure: ${response.failureCount}`);
       const tokensToRemove: string[] = [];
       response.responses.forEach((res, idx) => {
         if (!res.success && res.error) {
           const code = res.error.code;
+          console.error(`PUSH_LOG: Detailed failure for token ${allTokens[idx]}:`, res.error);
           if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
             tokensToRemove.push(allTokens[idx]);
           }
@@ -155,13 +176,17 @@ export async function sendPushToUser(userId: string, payload: { title: string, b
       });
 
       if (tokensToRemove.length > 0) {
-        await db.collection("users").doc(userId).update({
-          fcmTokens: FieldValue.arrayRemove(...tokensToRemove)
-        });
+        console.log(`PUSH_LOG: Removing ${tokensToRemove.length} invalid tokens for user ${userId}`);
+        const updates: any = {
+          fcmTokens: admin.firestore.FieldValue.arrayRemove(...tokensToRemove)
+        };
+        if (userData.fcmToken && tokensToRemove.includes(userData.fcmToken)) {
+          updates.fcmToken = admin.firestore.FieldValue.delete();
+        }
+        await db.collection("users").doc(userId).update(updates);
       }
     }
-    console.log(`Push sent to user ${userId}`);
   } catch (error: any) {
-    console.error(`Error sending push to user ${userId}:`, error);
+    console.error(`PUSH_LOG: FATAL Error sending push to user ${userId}:`, error);
   }
 }

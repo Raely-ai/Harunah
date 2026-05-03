@@ -192,12 +192,41 @@ export const socialService = {
       
       if (!isOnline) {
         payload["social.lastSeen"] = serverTimestamp();
+      } else {
+        payload["social.lastActiveAt"] = serverTimestamp();
       }
       
       await updateDoc(userRef, payload);
     } catch (error) {
       console.error("socialService: Error updating user status:", error);
       lastPresenceStatus = null;
+    }
+  },
+
+  async updateLastActiveAt(uid: string) {
+    if (!uid || auth.currentUser?.uid !== uid) return;
+    try {
+      const userRef = doc(db, "users", uid);
+      await updateDoc(userRef, {
+        "social.lastActiveAt": serverTimestamp(),
+        "social.isOnline": true
+      });
+      lastPresenceStatus = true;
+      (this as any)._lastStatusUpdateAt = Date.now();
+    } catch (error) {
+      console.error("socialService: updateLastActiveAt", error);
+    }
+  },
+
+  async updateLastSeenLikersAt(uid: string) {
+    if (!uid || auth.currentUser?.uid !== uid) return;
+    try {
+      const userRef = doc(db, "users", uid);
+      await updateDoc(userRef, {
+        "social.lastSeenLikersAt": serverTimestamp()
+      });
+    } catch (error) {
+      console.error("socialService: updateLastSeenLikersAt", error);
     }
   },
 
@@ -209,6 +238,43 @@ export const socialService = {
     } catch (error: any) {
       console.error("socialService: Error updating social field:", error);
       toast.error(error.message || "Güncelleme başarısız.");
+    }
+  },
+
+  async updateBasicInfo(uid: string, data: { nickname?: string, birthDate?: string, gender?: string, lookingFor?: string }) {
+    if (!uid) return;
+    try {
+      const userRef = doc(db, "users", uid);
+      const updates: any = {};
+      
+      if (data.nickname) {
+        updates['social.nickname'] = data.nickname;
+        updates['displayName'] = data.nickname;
+      }
+      
+      if (data.birthDate) {
+        updates['birthDate'] = data.birthDate;
+      }
+      
+      if (data.gender) {
+        updates['gender'] = data.gender;
+        updates['social.gender'] = data.gender;
+        
+        // If gender changes and lookingFor is empty/not set, suggest opposite
+        if (!data.lookingFor) {
+          updates['social.lookingFor'] = data.gender === 'erkek' ? 'kadın' : 'erkek';
+          updates['lookingFor'] = updates['social.lookingFor'];
+        }
+      }
+      
+      updates["social.updatedAt"] = serverTimestamp();
+      await updateDoc(userRef, updates);
+      toast.success("Bilgiler güncellendi.");
+      return true;
+    } catch (error: any) {
+      console.error("socialService: Error updating basic info:", error);
+      toast.error(error.message || "Güncelleme başarısız.");
+      return false;
     }
   },
 
@@ -426,6 +492,36 @@ export const socialService = {
     } catch (error: any) {
       console.error("socialService: Error in editMessage:", error);
       throw error;
+    }
+  },
+
+  async claimProfileCompletionReward() {
+    try {
+      const result = await callFunction('claimProfileCompletionReward', {});
+      if (result.success) {
+        toast.success(`${result.rewardAmount} Enerji kazandın!`);
+        return result;
+      }
+      throw new Error(result.message || "Ödül alınamadı.");
+    } catch (error: any) {
+      console.error("socialService: Error in claimProfileCompletionReward:", error);
+      toast.error(error.message || "Ödül alınamadı.");
+      return { success: false };
+    }
+  },
+
+  async submitProfileVerification(photoUrl: string) {
+    try {
+      const result = await callFunction('submitProfileVerification', { photoUrl });
+      if (result.success) {
+        toast.success("Doğrulama başvurusu gönderildi.");
+        return result;
+      }
+      throw new Error(result.message || "Başvuru başarısız.");
+    } catch (error: any) {
+      console.error("socialService: Error in submitProfileVerification:", error);
+      toast.error(error.message || "Başvuru başarısız.");
+      return { success: false };
     }
   },
 

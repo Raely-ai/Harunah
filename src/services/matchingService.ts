@@ -12,7 +12,7 @@ import { db } from "../lib/firebase";
 import { UserProfile, normalizeUserProfile } from "../types";
 import { socialService } from "../lib/socialService";
 import { cacheManager } from "../lib/cacheManager";
-import { getTargetGender } from "../lib/socialUtils";
+import { getTargetGender, checkMutualGenderPreference } from "../lib/socialUtils";
 import { callFunction } from "../lib/walletService";
 
 // In-memory set for immediate update after swipe
@@ -23,7 +23,7 @@ export const matchingService = {
    * Fetches potential matches with recursive pagination logic to ensure we find candidates
    * if the first batch returns zero unscanned users.
    */
-  async fetchPotentialMatches(currentUser: UserProfile, targetLevel: number = 20): Promise<UserProfile[]> {
+  async fetchPotentialMatches(currentUser: UserProfile, targetLevel: number = 50): Promise<UserProfile[]> {
     const uid = currentUser.uid;
     const results: UserProfile[] = [];
     
@@ -36,7 +36,6 @@ export const matchingService = {
     }
     
     const blockedIds = currentUser.social?.blockedUserIds || [];
-    
     const exclusionSet = new Set<string>([
       uid, 
       ...swipedIds, 
@@ -44,69 +43,65 @@ export const matchingService = {
       ...Array.from(swipedInSession)
     ]);
 
+    const calculateScore = (u: UserProfile): number => {
+      let score = 0;
+      score += (u.social?.active ? 20 : 0);
+      score += (u.social?.profileCompleted ? 15 : 0);
+      score += (u.social?.verified ? 15 : 0);
+      score += Math.min((u.level || 0) * 0.5, 10);
+      score += Math.min((u.social?.interests?.filter(i => currentUser.social?.interests?.includes(i))?.length || 0) * 3, 15);
+      // Simplified astrology/element check
+      if (u.zodiacSign && currentUser.zodiacSign && u.zodiacSign === currentUser.zodiacSign) score += 15;
+      if (u.isNew) score += 10;
+      return score;
+    };
+
     try {
-      // 2. Primary: API Call (Direct Cloud Function to avoid recursion)
+      // 2. Fetch candidates (API Call)
       const discoverResult = await callFunction('refreshDiscover', {});
       if (discoverResult.success && Array.isArray(discoverResult.users)) {
-        const users = discoverResult.users
+        const potentialCandidates = discoverResult.users
           .map(u => normalizeUserProfile(u, u.uid))
-          .filter(u => !exclusionSet.has(u.uid));
+          .filter(u => !exclusionSet.has(u.uid))
+          // Hard Filter: Double-sided gender preference
+          .filter(u => {
+            const currentGender = currentUser.gender || 'other';
+            const targetGender = u.gender || 'other';
+            const currentLookingFor = currentUser.lookingFor || ['male', 'female', 'other'];
+            const targetLookingFor = u.lookingFor || ['male', 'female', 'other'];
+            
+            const match1 = currentLookingFor.includes(targetGender);
+            const match2 = targetLookingFor.includes(currentGender);
+            return match1 && match2;
+          });
           
-        results.push(...users);
+        // Score and sort (DIVERSITY: 70% top-scored, 30% random)
+        const scored = potentialCandidates.map(u => ({ ...u, _score: calculateScore(u) }));
+        scored.sort((a: any, b: any) => b._score - a._score);
+        
+        const topScored = scored.slice(0, Math.floor(targetLevel * 0.7));
+        const rest = scored.slice(Math.floor(targetLevel * 0.7));
+        
+        // Shuffle the rest
+        const shuffledRest = [...rest].sort(() => Math.random() - 0.5);
+        
+        const mixed = [...topScored, ...shuffledRest.slice(0, Math.ceil(targetLevel * 0.3))];
+        // Now shuffle the final pool slightly to avoid static top-high-score only
+        const mixedShuffled = mixed.sort(() => Math.random() - 0.3);
+        results.push(...mixedShuffled.slice(0, targetLevel));
       }
-
-      // 3. Fallback / Recursive Fetch: Directly from Firestore if needed
-      // If we don't have enough results, we start a recursive query
-      if (results.length < targetLevel) {
-        const targetGender = getTargetGender(currentUser);
-        let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
-        let attempts = 0;
-        const maxAttempts = 5; // Prevent Infinite Loops
-
-        while (results.length < targetLevel && attempts < maxAttempts) {
-          attempts++;
-          
-          let q = query(
-            collection(db, "users"),
-            where("social.enabled", "==", true),
-            where("social.profileCompleted", "==", true),
-            where("social.visible", "==", true),
-            where("social.gender", "==", targetGender),
-            limit(50) // Increased from 10 to 50 for wider scan
-          );
-
-          if (lastDoc) {
-            q = query(q, startAfter(lastDoc));
-          }
-
-          const snapshot = await getDocs(q);
-          if (snapshot.empty) break;
-
-          lastDoc = snapshot.docs[snapshot.docs.length - 1];
-
-          for (const doc of snapshot.docs) {
-            if (!exclusionSet.has(doc.id)) {
-              const user = normalizeUserProfile(doc.data(), doc.id);
-              if (!results.some(r => r.uid === user.uid)) {
-                results.push(user);
-              }
-              if (results.length >= targetLevel) break;
-            }
-          }
-        }
-      }
-
-      // 4. Update Cache (Flexible timing)
+      
+      // Update Cache
       cacheManager.set("match_feed", {
         potentialMatches: results,
         swipedUserIds: Array.from(exclusionSet),
         _timestamp: Date.now()
-      }, 300, true); // Reduced to 5 mins instead of 10 for better sync
+      }, 300, true);
 
       return results;
     } catch (error) {
       console.error("matchingService: Error fetching matches:", error);
-      return results;
+      return [];
     }
   },
 

@@ -3,4 +3,6 @@
     <string name="app_name">Lasya</string>
     <string name="title_activity_main">Lasya</string>
     <string name="server_client_id">654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com</string>
+    <string name="default_web_client_id">654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com</string>
+    <string name="google_web_client_id">654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com</string>
 </resources>

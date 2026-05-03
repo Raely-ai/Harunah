@@ -114,9 +114,10 @@ function AppContent() {
     const initPush = async () => {
       try {
         notificationService.setupListeners(user?.uid, handleNotificationAction);
-        if (!user) {
-          await notificationService.requestPermission();
-        } else {
+        // Always request permission (or check status) to ensure channel and registration
+        await notificationService.requestPermission(user?.uid);
+        
+        if (user) {
           notificationService.syncPendingToken(user.uid);
         }
       } catch (err) {
@@ -157,7 +158,8 @@ function AppContent() {
             setPreviewUser(normalizeUserProfile(snapshot.data(), snapshot.id));
           }
         } catch (err: any) {
-          if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+          const msg = err.message?.toLowerCase() || "";
+          if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
         }
       };
       fetchPreview();
@@ -177,7 +179,8 @@ function AppContent() {
         cacheManager.set("appConfig", freshConfig, 3600, true);
       }
     }, (err: any) => {
-      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+      const msg = err.message?.toLowerCase() || "";
+      if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
       console.error("Config sync error:", err);
     });
 
@@ -192,7 +195,8 @@ function AppContent() {
           cacheManager.set("economyConfig", freshEconomy, 1800, true);
         }
       }, (err: any) => {
-        if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+        const msg = err.message?.toLowerCase() || "";
+        if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
         console.error("Economy sync error:", err);
       });
     }
@@ -309,12 +313,13 @@ function AppContent() {
             };
             await setDoc(userRef, initialProfile, { merge: true });
           } catch (setErr: any) {
-            if (setErr.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+            const msg = setErr.message?.toLowerCase() || "";
+            if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
           }
         }
       }, (err: any) => {
-        const isQuota = err.message?.toLowerCase().includes("quota");
-        if (isQuota) {
+        const msg = err.message?.toLowerCase() || "";
+        if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) {
           setQuotaExceeded(true);
           // If quota hit, we still have the cached profile in state
         } else {
@@ -325,6 +330,45 @@ function AppContent() {
 
       return () => unsubscribe();
     }, [user?.uid, quotaExceeded]);
+
+  // Automatic Fast-Track Onboarding Completion
+  useEffect(() => {
+    if (activeProfile?.uid && 
+        activeProfile.uid !== 'guest' &&
+        activeProfile.gender && 
+        activeProfile.birthDate && 
+        (!activeProfile.social?.profileCompleted || !activeProfile.social?.enabled)) {
+      
+      // OPTIMISTIC UPDATE: Set state immediately to remove UI latency
+      setUserProfile(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          social: {
+            ...prev.social,
+            enabled: true,
+            profileCompleted: true,
+            visible: true
+          }
+        };
+      });
+
+      const syncProfile = async () => {
+        try {
+          await updateDoc(doc(db, "users", activeProfile.uid), {
+            "social.enabled": true,
+            "social.profileCompleted": true,
+            "social.visible": true
+          });
+          console.log("[FastTrack] Profile auto-completed and synced to backend");
+        } catch (err) {
+          console.error("[FastTrack] Auto-sync failed:", err);
+        }
+      };
+      
+      syncProfile();
+    }
+  }, [activeProfile.gender, activeProfile.birthDate, activeProfile.social?.profileCompleted]);
 
   // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
@@ -370,7 +414,8 @@ function AppContent() {
       // Cache for 1 hour persistently
       cacheManager.set(`userHistory_${user.uid}`, fetchedHistory.slice(0, 20), 3600, true);
     } catch (err: any) {
-      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+      const msg = err.message?.toLowerCase() || "";
+      if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
       handleFirestoreError(err, OperationType.LIST, "readings");
     } finally {
       setIsHistoryLoading(false);
@@ -421,7 +466,8 @@ function AppContent() {
       }
       setHasMoreHistory(nextBatch.length === 20 && currentIndex + 21 < moreHistory.length);
     } catch (err: any) {
-      if (err.message?.toLowerCase().includes("quota")) setQuotaExceeded(true);
+      const msg = err.message?.toLowerCase() || "";
+      if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
       console.error("Load more history error:", err);
     }
   };
@@ -683,15 +729,49 @@ function AppContent() {
     setPrompts(prev => prev.map(p => p.type === type ? { ...p, content } : p));
   };
 
-  const handleDeleteHistory = (id: string) => {
-    setHistory(prev => prev.filter(item => item.id !== id));
-    toast.success("Kehanet silindi");
+  const handleDeleteHistory = async (id: string) => {
+    if (!user) return;
+    try {
+      // 1. Firestore'dan kalıcı olarak sil
+      await deleteDoc(doc(db, "readings", id));
+      
+      // 2. Local state ve Cache güncelle
+      setHistory(prev => {
+        const updated = prev.filter(item => item.id !== id);
+        // Cache'i de güncelle ki geri gelmesin
+        cacheManager.set(`userHistory_${user.uid}`, updated, 3600, true);
+        return updated;
+      });
+      
+      toast.success("Kehanet silindi");
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.DELETE, `readings/${id}`);
+      toast.error("Silme işlemi başarısız");
+    }
   };
 
-  const handleToggleFavorite = (id: string) => {
+  const handleMarkAsSeen = (id: string) => {
     setHistory(prev => prev.map(item => 
-      item.id === id ? { ...item, isFavorite: !item.isFavorite } : item
+      item.id === id ? { ...item, isSeenByUser: true } : item
     ));
+    if (activeReading?.id === id) {
+      setActiveReading(prev => prev ? { ...prev, isSeenByUser: true } : null);
+    }
+  };
+
+  const handleToggleFavorite = async (id: string) => {
+    const reading = history.find(h => h.id === id);
+    if (!reading) return;
+    
+    try {
+      const newFavorite = !reading.isFavorite;
+      setHistory(prev => prev.map(item => 
+        item.id === id ? { ...item, isFavorite: newFavorite } : item
+      ));
+      await updateDoc(doc(db, "readings", id), { isFavorite: newFavorite });
+    } catch (error) {
+      console.error("Toggle favorite error:", error);
+    }
   };
 
   const getStatusColor = (status: ReadingStatus) => {
@@ -892,6 +972,7 @@ function AppContent() {
             history={history}
             onDeleteHistory={handleDeleteHistory}
             onToggleFavorite={handleToggleFavorite}
+            onMarkAsSeen={handleMarkAsSeen}
             onRefreshHistory={() => fetchHistory(true)}
           />
         </div>
@@ -987,6 +1068,7 @@ function AppContent() {
                 initialData={activeProfile}
                 onBack={() => handleNavigate('social-intro')}
                 onComplete={() => handleNavigate('home')}
+                isFastTrack={!activeProfile.gender || !activeProfile.birthDate}
               />
             </motion.div>
           )}
@@ -1030,6 +1112,7 @@ function AppContent() {
           <ReadingResult 
             reading={activeReading} 
             onClose={() => setActiveReading(null)} 
+            onMarkAsSeen={handleMarkAsSeen}
           />
         )}
         {isSubscriptionOpen && (

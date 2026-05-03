@@ -21,7 +21,8 @@ import {
   RefreshCw,
   Loader2,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  X
 } from "lucide-react";
 import ReadingResult from "./ReadingResult";
 import { FortuneType, AppConfig, UserProfile, FortuneReading, EconomyConfig } from "../types";
@@ -37,6 +38,7 @@ interface FortunesScreenProps {
   history: FortuneReading[];
   onDeleteHistory: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onMarkAsSeen?: (id: string) => void;
   onRefreshHistory?: () => Promise<void>;
 }
 
@@ -69,12 +71,14 @@ export default function FortunesScreen({
   history,
   onDeleteHistory,
   onToggleFavorite,
+  onMarkAsSeen,
   onRefreshHistory
 }: FortunesScreenProps) {
   const [activeSubTab, setActiveSubTab] = useState<'fortunes' | 'history'>('fortunes');
   const [filter, setFilter] = useState<FortuneType | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedReading, setSelectedReading] = useState<FortuneReading | null>(null);
+  const [selectedCategoryForPayment, setSelectedCategoryForPayment] = useState<typeof CATEGORIES[0] | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -213,6 +217,55 @@ export default function FortunesScreen({
   const subLimit = economyConfig?.subscriptionLimits?.totalDaily ?? config?.subscriptionLimits?.totalDaily ?? DEFAULT_ECONOMY_CONFIG.subscriptionLimits.totalDaily;
   const subUsed = userProfile?.subscription?.dailyLimitUsed ?? 0;
 
+  const getPaymentDisplay = (price: number) => {
+    const hasSubscriptionRight = isSubscribed && subUsed < subLimit;
+    const userEnergy = userProfile?.energy ?? 0;
+    const userCoins = userProfile?.mainCoins ?? 0;
+
+    if (hasSubscriptionRight) {
+      return {
+        type: 'subscription',
+        label: 'Abonelik',
+        info: 'Günlük haktan düşer',
+        buttonText: 'Baktır',
+        Icon: Sparkles,
+        badgeColor: 'bg-violet-600 text-white',
+      };
+    }
+
+    if (userEnergy >= price) {
+      return {
+        type: 'energy',
+        label: 'Enerji',
+        info: `${price} Enerji`,
+        buttonText: 'Baktır',
+        Icon: Zap,
+        badgeColor: 'bg-indigo-500 text-white',
+      };
+    }
+
+    if (userCoins >= price) {
+      return {
+        type: 'coins',
+        label: 'Ana Jeton',
+        info: `${price} Jeton`,
+        buttonText: 'Baktır',
+        Icon: Coins,
+        badgeColor: 'bg-amber-500 text-white',
+      };
+    }
+
+    return {
+      type: 'insufficient',
+      label: 'Bakiye Yetersiz',
+      info: `${price} Jeton`,
+      hint: 'Enerji / Jeton Kazan',
+      buttonText: 'Baktır',
+      Icon: Coins,
+      badgeColor: 'bg-slate-200 text-slate-600',
+    };
+  };
+
   const GROUPS = ["Kadim Sanatlar", "Doğa Falları", "Gizli İlimler"];
 
   return (
@@ -334,54 +387,79 @@ export default function FortunesScreen({
                   </div>
                   
                   <div className="flex overflow-x-auto gap-4 px-7 pb-6 no-scrollbar snap-x">
-                    {CATEGORIES.filter(c => c.group === groupTitle).map((cat, cIdx) => (
-                      <motion.div
-                        key={cat.id}
-                        whileTap={{ scale: 0.96 }}
-                        className={`flex-shrink-0 w-[240px] snap-center aspect-[4/5] sm:aspect-square bg-white rounded-[2.5rem] p-6 flex flex-col justify-between transition-all duration-300 relative overflow-hidden border border-gray-100 ${cat.aura}`}
-                      >
-                        {/* Internal Aura Glow */}
-                        <div className={`absolute top-0 right-0 w-32 h-32 blur-[40px] opacity-20 -mr-10 -mt-10 rounded-full ${cat.iconColor.replace('text', 'bg')}`} />
-                        
-                        <div className="relative z-10">
-                          <div className={`w-14 h-14 rounded-2xl ${cat.color} flex items-center justify-center mb-4 border border-white/50 shadow-sm`}>
-                            {renderIcon(cat)}
-                          </div>
-                          
-                          <h4 className="text-xl font-bold text-slate-800 leading-tight mb-1">{cat.title}</h4>
-                          <p className="text-[11px] text-slate-500 font-medium leading-normal line-clamp-2 italic">
-                            {cat.description}
-                          </p>
-                        </div>
+                    {CATEGORIES.filter(c => c.group === groupTitle).map((cat, cIdx) => {
+                      const display = getPaymentDisplay(cat.price);
+                      const PaymentIcon = display.Icon;
 
-                        <div className="relative z-10 flex flex-col gap-3">
-                          <button
-                            onClick={() => onSelectFortune(cat.id)}
-                            className="w-full bg-slate-900 text-white rounded-2xl py-3 px-4 flex items-center justify-between group overflow-hidden relative shadow-lg active:scale-95 transition-transform"
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                            
-                            <div className="flex items-center gap-2">
-                              {cat.energyEligible ? (
-                                <div className="flex items-center gap-1">
-                                  <Coins className="w-3.5 h-3.5 text-amber-500" />
-                                  <span className="text-[11px] font-black">{cat.price}</span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <Coins className="w-3.5 h-3.5 text-amber-500" />
-                                  <span className="text-[11px] font-black">{cat.price}</span>
-                                </div>
-                              )}
-                              <div className="w-[1px] h-3 bg-white/20 mx-1" />
-                              <span className="text-[9px] font-black tracking-widest uppercase opacity-70">BAKTIR</span>
+                      return (
+                        <motion.div
+                          key={cat.id}
+                          whileTap={{ scale: 0.96 }}
+                          className={`flex-shrink-0 w-[240px] snap-center aspect-[4/5] sm:aspect-square bg-white rounded-[2.5rem] p-6 flex flex-col justify-between transition-all duration-300 relative overflow-hidden border border-gray-100 ${cat.aura}`}
+                        >
+                          {/* Badge */}
+                          <div className={`absolute top-4 right-4 z-20 text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm ${display.badgeColor}`}>
+                            {display.label}
+                          </div>
+
+                          {/* Internal Aura Glow */}
+                          <div className={`absolute top-0 right-0 w-32 h-32 blur-[40px] opacity-20 -mr-10 -mt-10 rounded-full ${cat.iconColor.replace('text', 'bg')}`} />
+                          
+                          <div className="relative z-10">
+                            <div className={`w-14 h-14 rounded-2xl ${cat.color} flex items-center justify-center mb-4 border border-white/50 shadow-sm`}>
+                              {renderIcon(cat)}
                             </div>
                             
-                            <ArrowRight className="w-4 h-4 text-amber-500 group-hover:translate-x-1 transition-transform" />
-                          </button>
-                        </div>
-                      </motion.div>
-                    ))}
+                            <h4 className="text-xl font-bold text-slate-800 leading-tight mb-1">{cat.title}</h4>
+                            <p className="text-[11px] text-slate-500 font-medium leading-normal line-clamp-2 italic">
+                              {cat.description}
+                            </p>
+                          </div>
+
+                          <div className="relative z-10 flex flex-col gap-3">
+                            <div className="flex flex-col px-1">
+                              {display.type === 'subscription' ? (
+                                <span className="text-sm font-bold text-violet-600 leading-tight flex items-center gap-1">
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  Günlük haktan düşer
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-3 text-sm font-bold text-slate-600 leading-tight">
+                                  <div className="flex items-center gap-1">
+                                    <Zap className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span>{cat.price} Enerji</span>
+                                  </div>
+                                  <span className="text-slate-200">|</span>
+                                  <div className="flex items-center gap-1">
+                                    <Coins className="w-3.5 h-3.5 text-amber-500" />
+                                    <span>{cat.price} Jeton</span>
+                                  </div>
+                                </div>
+                              )}
+                              {display.type === 'insufficient' && (
+                                <span className="text-[10px] text-slate-400 font-medium leading-tight mt-0.5">{display.hint}</span>
+                              )}
+                            </div>
+                            
+                            <button
+                              onClick={() => setSelectedCategoryForPayment(cat)}
+                              className="w-full bg-slate-900 text-white rounded-2xl py-3.5 px-4 flex items-center justify-between group overflow-hidden relative shadow-lg active:scale-95 transition-transform"
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                              
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                  <PaymentIcon className={`w-4 h-4 ${display.type.includes('energy') ? 'text-indigo-400' : 'text-amber-500'}`} />
+                                  <span className="text-[11px] font-black uppercase tracking-widest">{display.buttonText}</span>
+                                </div>
+                              </div>
+                              
+                              <ArrowRight className="w-5 h-5 text-amber-500 group-hover:translate-x-1 transition-transform" />
+                            </button>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
                     {/* Empty Padding for Peeking Effect */}
                     <div className="flex-shrink-0 w-4 h-full" />
                   </div>
@@ -569,7 +647,195 @@ export default function FortunesScreen({
           <ReadingResult 
             reading={selectedReading} 
             onClose={() => setSelectedReading(null)} 
+            onMarkAsSeen={onMarkAsSeen}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Payment Summary Sheet */}
+      <AnimatePresence>
+        {selectedCategoryForPayment && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: "linear" }}
+              onClick={() => setSelectedCategoryForPayment(null)}
+              className="absolute inset-0 bg-black/50"
+            />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: "linear" }}
+              className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-xl overflow-hidden"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">Harcama Özeti</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    {selectedCategoryForPayment.title} İşlemi
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setSelectedCategoryForPayment(null)}
+                  className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {(() => {
+                const price = selectedCategoryForPayment.price;
+                const userEnergy = userProfile?.energy ?? 0;
+                const userCoins = userProfile?.mainCoins ?? 0;
+                const hasSub = isSubscribed && subUsed < subLimit;
+                const isDual = !hasSub && userEnergy < price && userCoins >= price;
+
+                const display = getPaymentDisplay(price);
+                const MethodIcon = display.Icon;
+                const isInsufficient = display.type === 'insufficient';
+
+                return (
+                  <div className="space-y-6">
+                    {/* User Balance Section */}
+                    <div className="bg-slate-50 rounded-3xl p-4 flex items-center justify-around border border-slate-100 mb-2">
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Bakiyen</span>
+                        <div className="flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-indigo-500" />
+                          <span className={`text-sm font-black ${userEnergy < price && !hasSub ? 'text-rose-500' : 'text-slate-700'}`}>
+                            {userEnergy < price && !hasSub ? `${userEnergy} / ${price}` : userEnergy}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-[1px] h-8 bg-slate-200" />
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Jetonun</span>
+                        <div className="flex items-center gap-1.5">
+                          <Coins className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="text-sm font-black text-slate-700">{userCoins}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isDual ? (
+                      <div className="space-y-6">
+                        <div className="text-center px-4">
+                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">Bakiyen Fal İçin Yetersiz</p>
+                          <h4 className="text-xl font-black text-slate-800 tracking-tight">Nasıl Devam Edelim?</h4>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="p-4 rounded-3xl bg-amber-50 border border-amber-100 flex items-center justify-between group">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
+                                <Coins className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">Ana Jeton İle Bak</p>
+                                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-tighter">{price} Jeton Harcanacak</p>
+                              </div>
+                            </div>
+                            <CheckCircle2 className="w-5 h-5 text-amber-500" />
+                          </div>
+
+                          <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 flex items-center justify-between opacity-70">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-2xl bg-indigo-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+                                <Zap className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">Enerji Kazan</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Reklam İzleyerek Bakabilirsin</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 pt-2">
+                          <button
+                            onClick={() => {
+                              onSelectFortune(selectedCategoryForPayment.id);
+                              setSelectedCategoryForPayment(null);
+                            }}
+                            className="w-full py-4.5 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-lg transition-all active:scale-95 hover:bg-black"
+                          >
+                            Jeton ile Devam Et
+                          </button>
+                          <button
+                            onClick={() => {
+                              // Energy gain logic usually handled by parent
+                              setSelectedCategoryForPayment(null);
+                              toast.info("Enerji kazanmak için ana sayfadaki görevlere göz atın!");
+                            }}
+                            className="w-full py-4.5 rounded-2xl bg-white border-2 border-indigo-100 text-indigo-600 font-black uppercase tracking-widest text-xs transition-all active:scale-95"
+                          >
+                            Enerji Kazan
+                          </button>
+                          <button
+                            onClick={() => setSelectedCategoryForPayment(null)}
+                            className="w-full py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            Vazgeç
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-8">
+                        <div className="flex items-center gap-5 p-6 rounded-[2rem] bg-slate-50 border border-slate-100">
+                          <div className={`w-16 h-16 rounded-22 flex items-center justify-center shadow-inner rounded-2xl ${display.badgeColor}`}>
+                            <MethodIcon className="w-8 h-8" />
+                          </div>
+                          <div>
+                            <div className="text-xl font-black text-slate-800 leading-tight">
+                              {display.type === 'subscription' ? 'Abonelik Hakkın' : display.info}
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-400 mt-0.5 uppercase tracking-tighter">
+                              {display.type === 'subscription' ? 'Günlük fal hakkından düşer' : `${display.label} bakiyenden düşer`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isInsufficient && (
+                          <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-100 italic">
+                            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-rose-600 font-bold leading-relaxed tracking-tight">
+                              Bakiyen yetersiz. {display.hint.toLowerCase()}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-3">
+                          <button
+                            disabled={isInsufficient}
+                            onClick={() => {
+                              onSelectFortune(selectedCategoryForPayment.id);
+                              setSelectedCategoryForPayment(null);
+                            }}
+                            className={`w-full py-4.5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg transition-all active:scale-95 ${
+                              isInsufficient 
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                                : 'bg-slate-900 text-white hover:bg-black'
+                            }`}
+                          >
+                            {isInsufficient ? 'Bakiye Yetersiz' : 'Onayla ve Devam Et'}
+                          </button>
+                          <button
+                            onClick={() => setSelectedCategoryForPayment(null)}
+                            className="w-full py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            Vazgeç
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

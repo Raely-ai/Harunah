@@ -4,11 +4,18 @@ import { X } from 'lucide-react';
 import { socialService } from '../lib/socialService';
 
 const AVAILABLE_INTERESTS = [
-  "Seyahat", "Müzik", "Kitap", "Spor", "Sanat", "Yemek", "Doğa", "Teknoloji", "Sinema", "Fotoğrafçılık",
-  "Oyun", "Dans", "Yoga", "Meditasyon", "Moda", "Tasarım", "Yazılım", "Girişimcilik", "Psikoloji", "Tarih",
-  "Bilim", "Astronomi", "Felsefe", "Yabancı Dil", "Yemek Yapma", "Kahve", "Çay", "Bahçecilik", "Evcil Hayvanlar", "Araba",
-  "Motosiklet", "Bisiklet", "Yüzme", "Koşu", "Fitness", "Dövüş Sanatları", "Tiyatro", "Resim", "Heykel", "Müzik Aleti",
-  "Şiir", "Yazarlık", "Dijital Pazarlama", "Borsa", "Kripto", "Gönüllülük", "Siyaset", "Ekoloji", "Mimari", "Dekorasyon"
+  // Sosyal
+  "Kahve", "Gece gezmesi", "Sohbet", "Eğlence", "Yemek", "Seyahat", "Müzik",
+  // Hobi
+  "Spor", "Fitness", "Koşu", "Bisiklet", "Yüzme", "Yoga", "Meditasyon", "Doğa", "Kamp", "Yürüyüş",
+  // Zeka
+  "Psikoloji", "Felsefe", "Kitap", "Araştırma", "Tarih", "Bilim", "Teknoloji", "Yazılım", "Astronomi", "Arkeoloji",
+  // Eğlence
+  "Dizi", "Film", "Netflix", "Oyun", "Sinema", "Fotoğrafçılık", "Dans", "Moda", "Tasarım",
+  // Mistik
+  "Tarot", "Kahve falı", "Astroloji", "Enerji", "Burçlar", "Rüyalar",
+  // Diğer
+  "Sanat", "Evcil Hayvanlar", "Araba", "Motosiklet", "Tiyatro", "Resim", "Şiir", "Gönüllülük", "Borsa", "Kripto"
 ];
 
 export default function InterestsEditor({ uid, currentInterests, onClose, onUpdate }: { uid: string, currentInterests: string[], onClose: () => void, onUpdate: (interests: string[]) => void }) {
@@ -17,7 +24,7 @@ export default function InterestsEditor({ uid, currentInterests, onClose, onUpda
   const toggleInterest = (interest: string) => {
     if (interests.includes(interest)) {
       setInterests(interests.filter(i => i !== interest));
-    } else if (interests.length < 5) {
+    } else {
       setInterests([...interests, interest]);
     }
   };
@@ -34,7 +41,7 @@ export default function InterestsEditor({ uid, currentInterests, onClose, onUpda
         <div className="flex justify-between items-center mb-8 shrink-0">
           <div>
             <h3 className="font-black text-xl text-slate-800 tracking-tight">İlgi Alanları</h3>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">En fazla 5 tane seçebilirsin ({interests.length}/5)</p>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Seni yansıtan ilgi alanlarını seç ({interests.length})</p>
           </div>
           <button onClick={onClose} className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors">
             <X size={20} />

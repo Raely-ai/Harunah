@@ -67,12 +67,16 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
     try {
       if (isCapacitor) {
         console.log("Capacitor detected, initializing GoogleAuth");
-        GoogleAuth.initialize();
+        await GoogleAuth.initialize({
+          clientId: "654177015558-g6l7388u1ojt3qgera25kj5d5eq126lv.apps.googleusercontent.com",
+          scopes: ["profile", "email"],
+          grantOfflineAccess: true
+        });
         console.log("GoogleAuth.initialize done");
 
         console.log("Calling GoogleAuth.signIn()");
         const googleUser = await GoogleAuth.signIn();
-        console.log("GoogleAuth.signIn response received:", googleUser ? "yes" : "no");
+        console.log("GoogleAuth result:", googleUser);
         
         if (googleUser && googleUser.authentication && googleUser.authentication.idToken) {
             console.log("idToken found, creating credential");
@@ -83,8 +87,8 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
             console.log("signInWithCredential success:", result.user.uid, result.user.email);
             console.log("native google login success");
         } else {
-            console.log("idToken NOT found in response");
-            throw new Error("No idToken found");
+            console.log("idToken NOT found in response. Response:", googleUser);
+            throw new Error("No idToken found in Google response.");
         }
       } else {
          setError("Web üzerinden Google girişi şu an desteklenmiyor.");

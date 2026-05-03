@@ -54,6 +54,23 @@ export const adminBroadcastNotification = functions.region('us-central1').https.
                 ...Object.fromEntries(Object.entries(extraData || {}).map(([k, v]) => [k, String(v)])),
                 screen: String(screen || 'home'),
                 category: 'system' 
+            },
+            android: {
+              priority: 'high',
+              notification: {
+                sound: 'default',
+                channelId: 'lasya_default_channel',
+                priority: 'high',
+                defaultSound: true
+              }
+            },
+            apns: {
+              payload: {
+                aps: {
+                  sound: 'default',
+                  badge: 1
+                }
+              }
             }
          });
          

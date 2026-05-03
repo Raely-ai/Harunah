@@ -222,7 +222,14 @@ export interface UserProfile {
     banned: boolean;
     isOnline?: boolean;
     lastSeen?: any;
+    lastActiveAt?: any;
+    lastSeenLikersAt?: any;
     updatedAt?: string;
+
+    // Daily Streak
+    streakCount?: number;
+    lastDailyClaimAt?: string;
+
     settings: {
       whoCanMessage: 'everyone' | 'friends' | 'nobody';
       whoCanAddFriend: 'everyone' | 'nobody';
@@ -239,10 +246,22 @@ export interface UserProfile {
     recentDiscoverIds?: string[];
     blockedUserIds?: string[];
     mutedUserIds?: string[];
+    completionRewardClaimed?: boolean;
+    verified?: boolean;
+    verificationStatus?: "none" | "pending" | "approved" | "rejected";
+    verificationPhotoUrl?: string;
+    verificationSubmittedAt?: string;
+    verificationApprovedAt?: string;
+    verificationRewardClaimed?: boolean;
   };
 
   // Notification & FCM
   fcmToken?: string;
+  fcmTokens?: string[];
+  isVerified?: boolean; // Keep for root access if needed, but will sync with social.verified
+  verificationRewardClaimed?: boolean;
+  lastDailyRewardAt?: string;
+  lastFreeCompatibilityAt?: string;
   notificationSettings?: {
     messages: boolean;
     likes: boolean;
@@ -346,19 +365,34 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
   const social = profile.social;
   if (!social.nickname) social.nickname = data.nickname || data.displayName || "Gezgin";
   if (!social.gender) social.gender = (data.gender as any) || 'erkek';
-  if (!social.lookingFor) social.lookingFor = data.lookingFor || 'arkadaş';
+  if (!social.lookingFor) {
+    if (data.lookingFor) social.lookingFor = data.lookingFor;
+    else if (social.gender === 'erkek') social.lookingFor = 'kadın';
+    else if (social.gender === 'kadın') social.lookingFor = 'erkek';
+    else social.lookingFor = 'arkadaş';
+  }
   if (!social.bio) social.bio = data.bio || '';
   if (!social.photos || social.photos.length === 0) social.photos = data.photos || [];
   if (!social.interests || social.interests.length === 0) social.interests = data.interests || [];
   if (social.enabled === undefined) social.enabled = data.socialEnabled || false;
   if (social.visible === undefined) social.visible = data.socialVisible !== undefined ? data.socialVisible : true;
+  if (social.completionRewardClaimed === undefined) social.completionRewardClaimed = data.social?.completionRewardClaimed || false;
+  if (social.verificationRewardClaimed === undefined) social.verificationRewardClaimed = data.social?.verificationRewardClaimed || data.verificationRewardClaimed || false;
 
-  // Auto-complete profile flag if basic requirements are met after merge
+  // Auto-complete profile flag if basic requirements (Fast Track) are met after merge
   if (!social.profileCompleted) {
-    const hasCore = !!(social.nickname && social.gender && social.photos && social.photos.length > 0);
-    if (hasCore) {
+    const hasFastTrack = !!(social.nickname && social.gender && (data.birthDate || profile.birthDate));
+    if (hasFastTrack) {
       social.profileCompleted = true;
+      social.enabled = true;
     }
+  }
+
+  if (!profile.fcmTokens) {
+    profile.fcmTokens = data.fcmTokens || [];
+  }
+  if (profile.fcmToken && !profile.fcmTokens.includes(profile.fcmToken)) {
+    profile.fcmTokens.push(profile.fcmToken);
   }
 
   if (!profile.notificationSettings) {
@@ -493,6 +527,9 @@ export interface EconomyConfig {
     adRewardExpiryDays: number;
     dailyLoginRewardEnergy: number;
     dailyLoginExpiryDays: number;
+    verifiedRewardEnergy?: number;
+    freeCompatibilityCooldownHours?: number;
+    profileCompletionEnergy?: number;
     customRewards: {
       id: string;
       name: string;
@@ -807,10 +844,12 @@ export interface InteractionRequest {
   senderSnapshot: {
     nickname: string;
     photoURL: string;
+    social?: any;
   };
   receiverSnapshot: {
     nickname: string;
     photoURL: string;
+    social?: any;
   };
 }
 
@@ -824,6 +863,7 @@ export interface Chat {
   lastMessage: string;
   lastMessageAt: any;
   lastMessageSenderId?: string;
+  lastMessageImageUrl?: string;
   lastMessageStatus?: 'sent' | 'delivered' | 'seen';
   createdAt: any;
   type?: 'direct' | 'group';

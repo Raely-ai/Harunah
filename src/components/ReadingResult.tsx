@@ -20,13 +20,15 @@ interface ReadingResultProps {
   reading: FortuneReading;
   onClose: () => void;
   onToggleFavorite?: (id: string) => void;
+  onMarkAsSeen?: (id: string) => void;
 }
 
-export default function ReadingResult({ reading, onClose, onToggleFavorite }: ReadingResultProps) {
+export default function ReadingResult({ reading, onClose, onToggleFavorite, onMarkAsSeen }: ReadingResultProps) {
   useEffect(() => {
     if (reading.id && !reading.isSeenByUser) {
       const markAsSeen = async () => {
         try {
+          onMarkAsSeen?.(reading.id);
           await updateDoc(doc(db, "readings", reading.id), {
             isSeenByUser: true
           });
@@ -36,7 +38,7 @@ export default function ReadingResult({ reading, onClose, onToggleFavorite }: Re
       };
       markAsSeen();
     }
-  }, [reading.id, reading.isSeenByUser]);
+  }, [reading.id, reading.isSeenByUser, onMarkAsSeen]);
 
   // Only show result if status is completed and content exists
   if (reading.status !== 'completed' || !reading.content) {

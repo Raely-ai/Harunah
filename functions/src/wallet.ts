@@ -45,7 +45,17 @@ export async function refundTransaction(userId: string, amount: number, balanceT
   });
 }
 
-// 1. Watch Ad Reward
+function toMillisSafe(value: any): number {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (value.toDate && typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) return date.getTime();
+  }
+  return 0;
+}
 export const watchAdReward = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
@@ -66,7 +76,14 @@ export const watchAdReward = functions.region('us-central1').https.onCall(async 
       
       const userData = userSnap.data() as any;
       const today = new Date().toISOString().split('T')[0];
-      const lastReset = userData.lastAdReset ? userData.lastAdReset.split('T')[0] : "";
+      let lastReset = "";
+      if (userData.lastAdReset) {
+        if (typeof userData.lastAdReset === "string") {
+          lastReset = userData.lastAdReset.split("T")[0];
+        } else if (userData.lastAdReset.toDate) {
+          lastReset = userData.lastAdReset.toDate().toISOString().split("T")[0];
+        }
+      }
       
       let dailyCount = userData.dailyAdWatchCount || 0;
       if (today !== lastReset) dailyCount = 0;
@@ -712,5 +729,158 @@ export const redeemPromoCode = functions.region('us-central1').https.onCall(asyn
     console.error("redeemPromoCode error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'Kod kullanılırken bir hata oluştu.');
+  }
+});
+
+// 13. Claim Daily Login Reward
+export const claimDailyLoginReward = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  
+  try {
+    const economy = await getEconomyConfig();
+    const rewardAmount = economy?.rewards?.dailyLoginRewardEnergy || 20;
+
+    const userRef = db.collection("users").doc(userId);
+
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
+
+      const lastClaimTime = toMillisSafe(userData.lastDailyRewardAt);
+      const today = new Date().toISOString().split('T')[0];
+      const lastClaimDate = lastClaimTime ? new Date(lastClaimTime).toISOString().split('T')[0] : "";
+      
+      if (lastClaimDate === today) {
+        throw new functions.https.HttpsError('already-exists', 'Bugünkü ödülünüzü zaten aldınız.');
+      }
+
+      transaction.update(userRef, {
+        energy: FieldValue.increment(rewardAmount),
+        lastDailyRewardAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'earn',
+        source: 'daily_login',
+        amount: rewardAmount,
+        balanceType: 'energy',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'active',
+        description: 'Günlük giriş ödülü'
+      });
+
+      return { success: true, rewardAmount };
+    });
+  } catch (error: any) {
+    console.error("claimDailyLoginReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Ödül işlenirken hata oluştu.');
+  }
+});
+
+// 14. Claim Verification Reward
+export const claimVerificationReward = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+
+  try {
+    const economy = await getEconomyConfig();
+    const rewardAmount = economy?.rewards?.verifiedRewardEnergy || 100;
+
+    const userRef = db.collection("users").doc(userId);
+
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
+
+      const isVerified = userData.social?.verified || userData.isVerified;
+      if (!isVerified) {
+        throw new functions.https.HttpsError('failed-precondition', 'Profiliniz henüz onaylanmamış.');
+      }
+
+      if (userData.verificationRewardClaimed || userData.social?.verificationRewardClaimed) {
+        throw new functions.https.HttpsError('already-exists', 'Bu ödülü zaten aldınız.');
+      }
+
+      transaction.update(userRef, {
+        energy: FieldValue.increment(rewardAmount),
+        verificationRewardClaimed: true,
+        "social.verificationRewardClaimed": true
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'earn',
+        source: 'profile_verification',
+        amount: rewardAmount,
+        balanceType: 'energy',
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        description: 'Onaylı profil ödülü'
+      });
+
+      return { success: true, rewardAmount };
+    });
+  } catch (error: any) {
+    console.error("claimVerificationReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Hata oluştu.');
+  }
+});
+
+// 15. Claim Free Compatibility Reward (Cooldown based)
+export const claimFreeCompatibilityReward = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+
+  try {
+    const economy = await getEconomyConfig();
+    const cooldownHours = economy?.rewards?.freeCompatibilityCooldownHours || 48;
+
+    const userRef = db.collection("users").doc(userId);
+
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+      const userData = userSnap.data() as any;
+
+      const lastClaimTime = toMillisSafe(userData.lastFreeCompatibilityAt);
+      if (lastClaimTime > 0 && (Date.now() - lastClaimTime) < (cooldownHours * 60 * 60 * 1000)) {
+        throw new functions.https.HttpsError('failed-precondition', 'Ücretsiz uyum analizi henüz hazır değil.');
+      }
+
+      transaction.update(userRef, {
+        compatibilityCount: FieldValue.increment(1),
+        lastFreeCompatibilityAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'earn',
+        source: 'free_compatibility',
+        amount: 1,
+        balanceType: 'energy',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'active',
+        description: 'Ücretsiz Uyum Analizi Hakkı',
+        expiresAt: null
+      });
+
+      return { success: true };
+    });
+  } catch (error: any) {
+    console.error("claimFreeCompatibilityReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Hata oluştu.');
   }
 });

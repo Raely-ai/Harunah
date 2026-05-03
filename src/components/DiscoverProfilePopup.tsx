@@ -21,6 +21,7 @@ import { socialService } from "../lib/socialService";
 import { toast } from "sonner";
 import { db } from "../lib/firebase";
 import { collection, query, where, getDocs, limit, onSnapshot, orderBy, serverTimestamp, addDoc } from "firebase/firestore";
+import { BlueTick } from "./BlueTick";
 
 interface DiscoverProfilePopupProps {
   users: UserProfile[];
@@ -326,17 +327,17 @@ export default function DiscoverProfilePopup({
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {/* PHOTO SECTION */}
           <div className="relative aspect-[4/5] bg-slate-100">
-            <AnimatePresence mode="wait">
-              <motion.img 
-                key={`${targetUid}-${photoIndex}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                src={photos[photoIndex]} 
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-            </AnimatePresence>
+              <AnimatePresence mode="wait">
+                <motion.img 
+                  key={`${targetUid}-${photoIndex}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  src={photos[photoIndex] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUid}`} 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </AnimatePresence>
 
             {/* PHOTO NAV DOTS */}
             <div className="absolute bottom-6 inset-x-6 flex gap-1.5 pointer-events-none">
@@ -358,9 +359,12 @@ export default function DiscoverProfilePopup({
           <div className="p-8 pb-32 space-y-8">
             {/* NAME & AGE */}
             <div>
-              <h2 className="text-4xl font-black tracking-tighter text-slate-900">
-                {activeUser.social?.nickname}, <span className="text-amber-500">{activeUser.social?.age || 25}</span>
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-4xl font-black tracking-tighter text-slate-900">
+                  {activeUser.social?.nickname}, <span className="text-amber-500">{activeUser.social?.age || 25}</span>
+                </h2>
+                {activeUser.social?.verified && <BlueTick size={18} />}
+              </div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2 flex items-center gap-2">
                 <Target className="w-3 h-3" /> {activeUser.social?.lookingFor || "Uzaklara Bakıyor"}
               </p>

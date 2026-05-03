@@ -36,6 +36,7 @@ import { reportService } from "../services/reportService";
 import { matchingService } from "../services/matchingService";
 import OptimizedImage from "./OptimizedImage";
 import MatchingProfilePopup from "./MatchingProfilePopup";
+import { BlueTick } from "./BlueTick";
 
 export default function SocialMatchScreen({ currentUser, onNavigate, isActive }: { currentUser: UserProfile, onNavigate: (tab: any) => void, isActive?: boolean }) {
   const uid = currentUser?.uid || "";
@@ -143,7 +144,28 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     const targetUser = activeUser;
     
     // OPTIMISTIC UI: Remove from view immediately
-    setSwipedUserIds(prev => new Set(prev).add(targetUser.uid));
+    const updatedSwipedIds = new Set(swipedUserIds).add(targetUser.uid);
+    setSwipedUserIds(updatedSwipedIds);
+    
+    // Background fetch if low on candidates
+    const remaining = displayMatches.length - 1;
+    if (remaining < 5) {
+      console.log("SocialMatch: Pool low, background fetching... Pool size:", displayMatches.length);
+      const startTime = performance.now();
+      matchingService.fetchPotentialMatches(liveUser).then(moreUsers => {
+        const renderTime = performance.now() - startTime;
+        console.log(`SocialMatch: Fetch triggered and finished. Render time estimate: ${renderTime.toFixed(2)}ms`);
+        if (moreUsers.length > 0) {
+          setPotentialMatches(prev => {
+            const all = [...prev, ...moreUsers];
+            // Deduplicate
+            const unique = Array.from(new Map(all.map(u => [u.uid, u])).values());
+            console.log(`SocialMatch: Pool updated. New size: ${unique.length}`);
+            return unique;
+          });
+        }
+      });
+    }
     
     // START ANIMATION
     setIsAnimating(true);
@@ -235,7 +257,11 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
               }}
               exit={{ opacity: 0, scale: 0.5 }}
               transition={{ type: "spring", damping: 25, stiffness: 120 }}
-              className="absolute inset-0 w-full h-full overflow-hidden shadow-2xl bg-white group cursor-pointer"
+              className={`absolute inset-0 w-full h-full overflow-hidden bg-white group cursor-pointer ${
+                activeUser.social?.verified 
+                  ? 'shadow-[0_0_50px_-12px_rgba(14,165,233,0.4)] border border-sky-500/20' 
+                  : 'shadow-2xl'
+              }`}
               onClick={() => setSelectedProfile(activeUser)}
             >
               {/* TOP LIMIT INDICATORS */}
@@ -257,10 +283,13 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
               )}
 
               {/* PHOTO BOX */}
-              <div className="absolute inset-0 z-0">
+              <div className="absolute inset-0 z-0 bg-slate-100">
+                {activeUser.social?.verified && (
+                   <div className="absolute inset-0 bg-gradient-to-br from-sky-500/20 via-transparent to-transparent z-[1] pointer-events-none mix-blend-overlay" />
+                )}
                 <OptimizedImage 
-                  src={activeUser.social?.photos?.[0] || activeUser.photoURL || ""} 
-                  alt={activeUser.nickname}
+                  src={activeUser.social?.photos?.[0] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`} 
+                  alt={activeUser.social?.nickname || activeUser.nickname}
                   className="w-full h-full object-cover"
                 />
                 
@@ -286,8 +315,14 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                   
                   {/* IDENTITY & ZODIAC */}
                   <div className="flex items-center gap-3">
-                    <h2 className="text-2xl md:text-3xl font-serif font-black text-white tracking-tight drop-shadow-lg">
+                    <h2 className="text-2xl md:text-3xl font-serif font-black text-white tracking-tight drop-shadow-lg flex items-center gap-2">
                       {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age || 25}
+                      {activeUser.social?.verified && <BlueTick size={12} />}
+                      {activeUser.level && (
+                        <div className="px-1.5 py-0.5 bg-indigo-500/80 backdrop-blur-sm rounded-md text-[8px] font-black text-white uppercase tracking-wider shadow-md">
+                          LVL {activeUser.level}
+                        </div>
+                      )}
                     </h2>
                     <div className="px-2 py-0.5 bg-amber-500/90 backdrop-blur-sm rounded-lg text-[9px] font-black text-white uppercase tracking-widest shadow-md">
                       {activeUser.zodiacSign || "Mistik"}
@@ -299,21 +334,21 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                     <div className="flex flex-col items-center flex-1 border-r border-white/10">
                       <div className="flex items-center gap-1">
                         <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />
-                        <span className="text-base font-black text-white">%{compatibility?.love || 0}</span>
+                        <span className="text-lg font-black text-white">%{compatibility?.love || 0}</span>
                       </div>
                       <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">TENSEL</span>
                     </div>
                     <div className="flex flex-col items-center flex-1 border-r border-white/10">
                       <div className="flex items-center gap-1">
                         <Handshake className="w-3 h-3 text-blue-400" />
-                        <span className="text-base font-black text-white">%{compatibility?.friendship || 0}</span>
+                        <span className="text-lg font-black text-white">%{compatibility?.friendship || 0}</span>
                       </div>
                       <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">RUHSAL</span>
                     </div>
                     <div className="flex flex-col items-center flex-1">
                       <div className="flex items-center gap-1">
                         <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-                        <span className="text-base font-black text-white">%{compatibility?.understanding || 0}</span>
+                        <span className="text-lg font-black text-white">%{compatibility?.understanding || 0}</span>
                       </div>
                       <span className="text-[8px] font-bold text-white/50 uppercase tracking-widest">YILDIZ</span>
                     </div>

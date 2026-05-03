@@ -32,24 +32,38 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
       finalAge
     });
 
-    if (!nickname || !gender || !lookingFor || !birthDate || finalInterests.length < 5 || finalPhotos.length === 0 || !bio) {
-      console.log("AUDIT: Validation failed hardening.");
-      throw new functions.https.HttpsError('invalid-argument', 'Lütfen tüm zorunlu alanları doldurun.');
+    if (!nickname || !gender || !birthDate) {
+      console.log("AUDIT: Fast Track Validation failed.");
+      throw new functions.https.HttpsError('invalid-argument', 'Lütfen temel bilgileri (İsim, Cinsiyet, Doğum Tarihi) doldurun.');
     }
+
+    const finalLookingFor = lookingFor || (gender === 'erkek' ? 'kadın' : 'erkek');
+    const finalPhotos = Array.isArray(photos) ? photos : [];
+    const finalInterests = Array.isArray(interests) ? interests : [];
+    const finalBio = String(bio || "");
+    const finalAge = (typeof age === 'number' && !isNaN(age)) ? age : Number(age) || 0;
+
+    console.log("AUDIT: Fast Track Hardened fields:", { 
+      nickname, gender, lookingFor: finalLookingFor, birthDate, 
+      interestsCount: finalInterests.length, 
+      photosCount: finalPhotos.length, 
+      bioLength: finalBio.length,
+      finalAge
+    });
 
     const userRef = db.collection("users").doc(userId);
 
     return await db.runTransaction(async (transaction) => {
-      console.log("AUDIT: Transaction started.");
+      console.log("AUDIT: Fast Track Transaction started.");
       const userSnap = await transaction.get(userRef);
       
       const socialData: any = {
         nickname: String(nickname),
         gender: String(gender),
-        lookingFor: String(lookingFor),
+        lookingFor: String(finalLookingFor),
         interests: finalInterests,
         photos: finalPhotos,
-        bio: String(bio),
+        bio: finalBio,
         enabled: true,
         profileCompleted: true,
         visible: true,
@@ -66,10 +80,10 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
       const baseData: any = {
         nickname: String(nickname),
         gender: String(gender),
-        lookingFor: String(lookingFor),
+        lookingFor: String(finalLookingFor),
         interests: finalInterests,
         photos: finalPhotos,
-        bio: String(bio),
+        bio: finalBio,
         birthDate: String(birthDate),
         zodiacSign: String(zodiacSign || ""),
         element: String(element || ""),
@@ -432,6 +446,79 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
   }
 });
 
+// 17. Claim Profile Completion Reward
+export const claimProfileCompletionReward = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+
+  try {
+    const userRef = db.collection("users").doc(userId);
+    const economySnap = await db.collection("adminSettings").doc("economy").get();
+    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const rewardAmount = economy.rewards?.profileCompletionEnergy || 50;
+
+    return await db.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      
+      const userData = userSnap.data() as any;
+      const s = userData.social || {};
+
+      // 1. Calculate Completion (Mirroring Frontend Logic)
+      let score = 0;
+      const photoCount = s.photos?.length || 0;
+      
+      let photoScore = 0;
+      if (photoCount === 1) photoScore = 20;
+      else if (photoCount >= 2 && photoCount <= 3) photoScore = 25;
+      else if (photoCount >= 4) photoScore = 30;
+
+      if (s.nickname || userData.displayName) score += 15;
+      if (s.gender || userData.gender) score += 15;
+      if (userData.birthDate) score += 15;
+      if (s.bio) score += 15;
+      if (s.interests && s.interests.length > 0) score += 10;
+      score += photoScore;
+
+      if (score < 100) {
+        throw new functions.https.HttpsError('failed-precondition', `Profil tamamlama puanı yetersiz (${score}/100).`);
+      }
+
+      // 2. Check if already claimed
+      if (s.completionRewardClaimed) {
+        throw new functions.https.HttpsError('already-exists', 'Bu ödülü zaten aldınız.');
+      }
+
+      // 3. Update User and Log Transaction
+      const now = new Date().toISOString();
+      transaction.update(userRef, {
+        energy: admin.firestore.FieldValue.increment(rewardAmount),
+        "social.completionRewardClaimed": true,
+        "social.updatedAt": admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      const txRef = db.collection("walletTransactions").doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId,
+        type: 'earn',
+        source: 'profile_completion',
+        amount: rewardAmount,
+        balanceType: 'energy',
+        createdAt: now,
+        status: 'active',
+        description: 'Profil tamamlama ödülü (100% Tamamlanma)'
+      });
+
+      return { success: true, rewardAmount };
+    });
+  } catch (error: any) {
+    console.error("claimProfileCompletionReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Ödül işlenirken bir hata oluştu.');
+  }
+});
+
 // 6. Send Message Request
 export const sendMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
@@ -571,7 +658,7 @@ export const sendMessage = functions.region('us-central1').https.onCall(async (d
   
   try {
     if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
-    const { chatId, text, mediaUrl, mediaType } = data;
+    const { chatId, text, mediaUrl, mediaType, fileName } = data;
     if (!chatId) throw new functions.https.HttpsError('invalid-argument', 'Chat ID gerekli.');
 
     const chatRef = db.collection("chats").doc(chatId);
@@ -583,17 +670,48 @@ export const sendMessage = functions.region('us-central1').https.onCall(async (d
       if (!chat.participants.includes(senderId)) throw new functions.https.HttpsError('permission-denied', 'Bu sohbete erişim yetkiniz yok.');
 
       const receiverId = chat.participants.find((id: string) => id !== senderId);
+      if (!receiverId) throw new functions.https.HttpsError('failed-precondition', 'Alıcı bulunamadı.');
+
       const [senderSnap, receiverSnap] = await Promise.all([transaction.get(db.collection("users").doc(senderId)), transaction.get(db.collection("users").doc(receiverId))]);
       
+      const senderData = senderSnap.data();
+      const receiverData = receiverSnap.data();
+
+      // Block Safety Check
+      if (receiverData?.social?.blockedUserIds?.includes(senderId) || senderData?.social?.blockedUserIds?.includes(receiverId)) {
+        throw new functions.https.HttpsError('permission-denied', 'Bu kullanıcıyla mesajlaşamazsınız.');
+      }
+
       const now = FieldValue.serverTimestamp();
       const msgRef = db.collection("messages").doc();
       const type = mediaType || 'text';
-      const lastMsgText = type === 'text' ? (text || "") : (type === 'image' ? "📷 Görsel" : "🎥 Video");
+      const lastMsgText = type === 'text' ? (text || "") : (type === 'image' ? "📷 Görsel" : type === 'video' ? "🎥 Video" : "📎 Dosya");
 
-      transaction.set(msgRef, { id: msgRef.id, chatId, participants: [senderId, receiverId], senderId, receiverId, text: text || "", mediaUrl: mediaUrl || null, mediaType: mediaType || null, createdAt: now, status: 'sent', seen: false, type });
-      transaction.update(chatRef, { lastMessage: lastMsgText, lastMessageAt: now, lastMessageSenderId: senderId, lastMessageStatus: 'sent', [`unreadCount.${receiverId}`]: FieldValue.increment(1) });
+      transaction.set(msgRef, { 
+        id: msgRef.id, 
+        chatId, 
+        participants: [senderId, receiverId], 
+        senderId, 
+        receiverId, 
+        text: text || "", 
+        mediaUrl: mediaUrl || null, 
+        mediaType: mediaType || null, 
+        fileName: fileName || null,
+        createdAt: now, 
+        status: 'sent', 
+        seen: false, 
+        type 
+      });
+      transaction.update(chatRef, { 
+        lastMessage: lastMsgText, 
+        lastMessageAt: now, 
+        lastMessageSenderId: senderId, 
+        lastMessageStatus: 'sent', 
+        lastMessageId: msgRef.id,
+        [`unreadCount.${receiverId}`]: FieldValue.increment(1) 
+      });
       transaction.update(db.collection("users").doc(receiverId), { unreadMessagesCount: FieldValue.increment(1) });
-      return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName, lastMsgText };
+      return { status: 'SUCCESS', messageId: msgRef.id, receiverId, chatId, senderNickname: senderData?.social?.nickname || senderData?.displayName, lastMsgText };
     });
 
     return result;
@@ -1075,13 +1193,20 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
 });
 
 export const onMessageCreated = functions.region('us-central1').firestore.document('messages/{messageId}').onCreate(async (snap, context) => {
-  // ... existing logic
   const message = snap.data();
-  if (!message || !message.chatId || !message.senderId || !message.receiverId) return;
+  console.log("TRIGGER: onMessageCreated fired for messageId:", snap.id, "Data:", JSON.stringify(message));
+  
+  if (!message || !message.chatId || !message.senderId || !message.receiverId || message.senderId === message.receiverId) {
+    console.log("TRIGGER: Skipping message - validation failed or self-message.");
+    return;
+  }
 
   try {
     const senderSnap = await db.collection("users").doc(message.senderId).get();
-    if (!senderSnap.exists) return;
+    if (!senderSnap.exists) {
+      console.log("TRIGGER: Sender profile not found:", message.senderId);
+      return;
+    }
     
     const senderNickname = senderSnap.data()?.social?.nickname || senderSnap.data()?.displayName || "Birisi";
     const senderPhoto = senderSnap.data()?.photoURL || senderSnap.data()?.social?.photos?.[0];
@@ -1091,6 +1216,8 @@ export const onMessageCreated = functions.region('us-central1').firestore.docume
     else if (message.type === 'video' || message.mediaType === 'video') previewText = "🎥 Video";
     else if (message.type === 'file' || message.mediaType === 'file') previewText = "📎 Dosya";
 
+    console.log("TRIGGER: Preparing to send push to:", message.receiverId, "from nickname:", senderNickname);
+
     await sendPushToUser(message.receiverId, {
       title: senderNickname,
       body: previewText,
@@ -1098,7 +1225,8 @@ export const onMessageCreated = functions.region('us-central1').firestore.docume
         type: "message",
         screen: "chat",
         chatId: message.chatId,
-        senderId: message.senderId
+        senderId: message.senderId,
+        messageId: snap.id
       },
       category: "messages",
       senderId: message.senderId,
@@ -1166,4 +1294,89 @@ export const generateThumbnails = functions.region('us-central1')
     } catch (error) {
       console.error("generateThumbnails error:", error);
     }
+});
+
+// PROFILE VERIFICATION (BLUE TICK) SYSTEM
+
+/**
+ * User submits their profile for verification.
+ */
+export const submitProfileVerification = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const { photoUrl } = data;
+
+  if (!photoUrl) throw new functions.https.HttpsError('invalid-argument', 'Doğrulama fotoğrafı gereklidir.');
+
+  try {
+    const userRef = db.collection("users").doc(userId);
+    await userRef.update({
+      "social.verificationPhotoUrl": photoUrl,
+      "social.verificationStatus": "pending",
+      "social.verificationSubmittedAt": FieldValue.serverTimestamp(),
+      "social.verified": false // Ensure it remains false until approved
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("submitProfileVerification error:", error);
+    throw new functions.https.HttpsError('internal', 'Başvuru sırasında bir hata oluştu.');
+  }
+});
+
+/**
+ * Admin updates verification status (approve/reject).
+ */
+export const adminUpdateVerificationStatus = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const { targetUid, status } = data; // status: 'approved' | 'rejected'
+  if (!targetUid || !['approved', 'rejected'].includes(status)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Geçersiz parametreler.');
+  }
+
+  try {
+    // Admin check
+    const adminRef = db.collection("users").doc(context.auth.uid);
+    const adminSnap = await adminRef.get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== 'admin') {
+      throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
+    }
+
+    const userRef = db.collection("users").doc(targetUid);
+    const updates: any = {
+      "social.verificationStatus": status,
+      "social.updatedAt": FieldValue.serverTimestamp()
+    };
+
+    if (status === 'approved') {
+      updates["social.verified"] = true;
+      updates["social.verificationApprovedAt"] = FieldValue.serverTimestamp();
+      updates["isVerified"] = true; // Sync with root for convenience
+    } else {
+      updates["social.verified"] = false;
+      updates["isVerified"] = false;
+    }
+
+    await userRef.update(updates);
+
+    // Notify user
+    const notifRef = db.collection("notifications").doc();
+    await notifRef.set({
+      userId: targetUid,
+      type: "system",
+      title: status === 'approved' ? "Profilin Onaylandı! ✅" : "Profil Onayı Reddedildi ❌",
+      message: status === 'approved' 
+        ? "Tebrikler! Mavi tik profilinde görünüyor. Ödülünü cüzdanından alabilirsin." 
+        : "Maalesef profil doğrulama başvurun reddedildi. Lütfen tekrar dene.",
+      read: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("adminUpdateVerificationStatus error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'İşlem başarısız oldu.');
+  }
 });
