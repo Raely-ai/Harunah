@@ -41,15 +41,15 @@ export const socialService = {
   },
 
   // 2. Send Like (Encounter Module)
-  async sendLike(fromUser: UserProfile, toUserId: string, type: 'like' | 'super_like' | 'pass'): Promise<SocialActionResult> {
+  async sendLike(fromUser: UserProfile, toUserId: string, type: 'like' | 'super_like' | 'pass', source: 'discover' | 'match' = 'match'): Promise<SocialActionResult> {
     if (!toUserId) return 'INVALID_TARGET';
     if (fromUser.uid === toUserId) return 'SELF_ACTION';
 
     // Optimistic Update: Add to swiped list in matchingService cache immediately
-    matchingService.trackSwipe(toUserId);
+    matchingService.trackSwipe(toUserId, type);
 
     try {
-      const result = await callFunction('sendLike', { targetUserId: toUserId, type });
+      const result = await callFunction('sendLike', { targetUserId: toUserId, type, source });
       if (result.status === 'INSUFFICIENT_FUNDS') {
         toast.error("Yetersiz hak. Lütfen cüzdanınızdan hak satın alın.");
       }
@@ -59,6 +59,9 @@ export const socialService = {
       if (error.message === 'daily_limit_reached' || (error.details && error.details.message === 'daily_limit_reached')) {
         return 'DAILY_LIMIT_REACHED';
       }
+      if (error.message?.includes('discover_like_limit_reached')) return 'DISCOVER_LIMIT_REACHED';
+      if (error.message?.includes('Yetersiz Süper Like')) return 'INSUFFICIENT_FUNDS';
+      
       return 'TECHNICAL_ERROR';
     }
   },
@@ -71,10 +74,13 @@ export const socialService = {
     try {
       const q = query(
         collection(db, "swipes"),
-        where("fromUserId", "==", userId)
+        where("fromUserId", "==", userId),
+        limit(500)
       );
       const snap = await getDocs(q);
-      const ids = snap.docs.map(d => d.data().toUserId);
+      const ids = snap.docs
+        .filter(d => d.data().type !== 'pass')
+        .map(d => d.data().toUserId);
       cacheManager.set("socialSwipedIds", ids, 86400, true);
       return ids;
     } catch (error) {
@@ -139,6 +145,20 @@ export const socialService = {
       return result.status || 'SUCCESS';
     } catch (error: any) {
       console.error("socialService: Error in sendMessageRequest:", error);
+      return 'TECHNICAL_ERROR';
+    }
+  },
+
+  // 3.1 Send Priority Message Request
+  async sendPriorityMessageRequest(toUserId: string): Promise<SocialActionResult> {
+    if (!toUserId) return 'INVALID_TARGET';
+    try {
+      const result = await callFunction('sendPriorityMessageRequest', { targetUserId: toUserId });
+      return result.success ? 'SUCCESS' : (result.status || 'TECHNICAL_ERROR');
+    } catch (error: any) {
+      console.error("socialService: Error in sendPriorityMessageRequest:", error);
+      if (error.message?.includes('Bir istek zaten var') || error.code === 'already-exists') return 'ALREADY_REQUESTED';
+      if (error.message?.includes('Yetersiz') || error.code === 'failed-precondition') return 'INSUFFICIENT_FUNDS';
       return 'TECHNICAL_ERROR';
     }
   },
@@ -227,6 +247,37 @@ export const socialService = {
       });
     } catch (error) {
       console.error("socialService: updateLastSeenLikersAt", error);
+    }
+  },
+
+  async consumeDiscoverLike(uid: string, currentRemaining: number): Promise<boolean> {
+    if (!uid || auth.currentUser?.uid !== uid) return false;
+    try {
+      const userRef = doc(db, "users", uid);
+      if (currentRemaining <= 0) return false;
+      
+      await updateDoc(userRef, {
+        "social.discoverLikesRemaining": increment(-1),
+        "social.updatedAt": serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error("socialService: consumeDiscoverLike error:", error);
+      return false;
+    }
+  },
+
+  async resetDiscoverLikes(uid: string, amount: number = 15) {
+    if (!uid || auth.currentUser?.uid !== uid) return;
+    try {
+      const userRef = doc(db, "users", uid);
+      await updateDoc(userRef, {
+        "social.discoverLikesRemaining": amount,
+        "social.discoverLikesLastReset": new Date().toISOString(),
+        "social.updatedAt": serverTimestamp()
+      });
+    } catch (error) {
+      console.error("socialService: resetDiscoverLikes error:", error);
     }
   },
 
@@ -319,6 +370,7 @@ export const socialService = {
           nickname: data.nickname || data.social?.nickname || "",
           gender: data.gender || data.social?.gender || "erkek",
           lookingFor: data.lookingFor || data.social?.lookingFor || "",
+          intent: data.intent || data.social?.intent || "",
           interests: data.interests || data.social?.interests || [],
           photos: data.photos || data.social?.photos || [],
           bio: data.bio || data.social?.bio || "",

@@ -10,16 +10,16 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
-import { getTargetGender, isSocialProfileReady, checkMutualGenderPreference } from "../lib/socialUtils";
+import { getTargetGender, isSocialProfileReady, checkGenderPreference } from "../lib/socialUtils";
 import { toast } from "sonner";
 import { 
   Sparkles, 
   RefreshCw, 
-  Plus, 
-  Activity, 
   Zap, 
-  Trophy, 
-  Flame
+  Flame,
+  Star,
+  Users,
+  Award
 } from "lucide-react";
 import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
@@ -35,9 +35,8 @@ interface SocialDiscoverScreenProps {
   isActive?: boolean;
 }
 
-// 50 Users Limit
 const DISCOVER_LIMIT = 50;
-const DISCOVER_CACHE_KEY = "discover_v3_cache";
+const DISCOVER_CACHE_KEY = "discover_v4_cache";
 
 export default function SocialDiscoverScreen({ 
   currentUser, 
@@ -50,12 +49,21 @@ export default function SocialDiscoverScreen({
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [compatibilityHistory, setCompatibilityHistory] = useState<CompatibilityHistory[]>([]);
   const [refreshTimer, setRefreshTimer] = useState<string>('Yenile');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   
   // POPUP STATE
   const [selectedUserIndex, setSelectedUserIndex] = useState<number | null>(null);
+
+  const preferredGender = useMemo(() => {
+    const lookingFor = (currentUser?.social?.lookingFor || currentUser?.lookingFor || 'arkadaş').toLowerCase();
+    if (lookingFor === 'kadın' || lookingFor === 'kadin' || lookingFor === 'female') return 'female';
+    if (lookingFor === 'erkek' || lookingFor === 'male') return 'male';
+    return 'all';
+  }, [currentUser]);
+
+  // NEW: Sticky Filter State
+  const [genderFilter, setGenderFilter] = useState<'all' | 'female' | 'male'>(preferredGender);
 
   const uid = currentUser?.uid || "";
   const social = currentUser?.social;
@@ -75,42 +83,30 @@ export default function SocialDiscoverScreen({
       const cached = cacheManager.get<any>(DISCOVER_CACHE_KEY);
       if (cached && cached.users && cached.users.length > 0) {
         setAllUsers(cached.users);
-        setCompatibilityHistory(cached.history || []);
         return;
       }
     }
 
     setLoading(true);
     try {
-      // KRİTİK FİLTRE: Sadece kendimizi ve EŞLEŞTİĞİMİZ kişileri gizle.
-      // Beğendiğimiz (swiped) kişiler Keşfet'te KALMALI (paralı özellikler için).
       const matches = await socialService.getMatches(uid);
       const matchIds = new Set(matches.map(m => m.uid));
       const exclusionSet = new Set([uid, ...Array.from(matchIds)]);
-
-      // Fetch compatibility history for layer 5
-      const histSnap = await getDocs(query(
-        collection(db, "compatibilityHistory"), 
-        where("userId", "==", uid),
-        limit(20)
-      ));
-      const history = histSnap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
-      setCompatibilityHistory(history);
 
       const q = query(
         collection(db, "users"),
         where("social.enabled", "==", true),
         where("social.profileCompleted", "==", true),
         where("social.visible", "==", true),
-        limit(300) // Fetch more to filter post-query since we cannot complex query "includes"
+        limit(300)
       );
 
       const snap = await getDocs(q);
       let fetchedUsers = snap.docs
         .map(doc => normalizeUserProfile(doc.data(), doc.id))
-        .filter(u => !exclusionSet.has(u.uid) && checkMutualGenderPreference(currentUser, u));
+        .filter(u => !exclusionSet.has(u.uid) && checkGenderPreference(currentUser, u));
 
-      // Soft boost verified users (verified users go closer to the top)
+      // Sort logic
       fetchedUsers.sort((a, b) => {
         const aVerified = a.social?.verified ? 1 : 0;
         const bVerified = b.social?.verified ? 1 : 0;
@@ -118,15 +114,12 @@ export default function SocialDiscoverScreen({
       });
 
       fetchedUsers = fetchedUsers.slice(0, DISCOVER_LIMIT);
-
       setAllUsers(fetchedUsers);
       
       cacheManager.set(DISCOVER_CACHE_KEY, {
         users: fetchedUsers,
-        history: history,
         timestamp: Date.now()
-      }, 3600); // 1 hour internal cache
-
+      }, 3600); // 1 hr
     } catch (err) {
       console.error("Discover fetch error:", err);
       toast.error("Ruhlar çekilirken bir hata oluştu.");
@@ -190,35 +183,54 @@ export default function SocialDiscoverScreen({
     }
   };
 
-  // 4. Layer Partitioning (Hybrid Data Management)
-  const layers = useMemo(() => {
-    const now = new Date().toISOString();
+  // 4. Client-side Layer Partitioning
+  const { layers, isEmptyFilter } = useMemo(() => {
+    const now = new Date().getTime();
     
-    // 1. VIP LOJASI (Boosted)
-    const boosted = allUsers.filter(u => u.boostExpiresAt && u.boostExpiresAt > now).slice(0, 10);
-    
-    // 2. ÖNERİLEN RUHLAR (Compat Score Based)
-    const compatibleIds = new Set(compatibilityHistory.map(h => h.targetUserId));
-    const suggested = allUsers.filter(u => compatibleIds.has(u.uid)).slice(0, 6);
-    
-    // 3. TAZE RUHLAR (Recently Updated)
-    const fresh = allUsers.filter(u => !boosted.some(b => b.uid === u.uid) && !suggested.some(s => s.uid === u.uid)).slice(0, 12);
-    
-    // 4. ŞU AN AKTİF
-    const active = allUsers.filter(u => u.social?.isOnline).slice(0, 15);
-    
-    // 5. FREKANS UYUMU (Zodiac matching - simple mock for UI)
-    const matchingSigns = allUsers.filter(u => u.social?.interests?.length && u.uid !== uid).slice(0, 10);
+    // Filtre
+    let filtered = allUsers.filter(u => {
+      if (genderFilter === 'all') return true;
+      const uGender = u.gender?.toLowerCase() || u.social?.gender?.toLowerCase() || '';
+      if (genderFilter === 'female') return uGender === 'female' || uGender === 'kadin' || uGender === 'kadın';
+      if (genderFilter === 'male') return uGender === 'male' || uGender === 'erkek';
+      return true;
+    });
 
-    // 6. ANA MEYDAN (Rest)
-    const processedIds = new Set([...boosted, ...suggested, ...fresh].map(u => u.uid));
-    const mainStreet = allUsers.filter(u => !processedIds.has(u.uid));
+    let isEmpty = false;
+    if (filtered.length === 0 && allUsers.length > 0) {
+      isEmpty = true;
+    }
 
-    // FLAT LIST FOR POPUP NAVIGATION
-    const flatUsers = [...new Set([...boosted, ...suggested, ...fresh, ...active, ...matchingSigns, ...mainStreet])];
+    // 1. Günün Parlayanları (Sadece Boost aktif olanlar)
+    const parlayanlar = filtered.filter(u => {
+      const boostTime = u.boostExpiresAt ? new Date(u.boostExpiresAt).getTime() : 0;
+      return boostTime > now;
+    }).slice(0, 10);
 
-    return { boosted, suggested, fresh, active, matchingSigns, mainStreet, flatUsers };
-  }, [allUsers, compatibilityHistory, uid]);
+    // 2. Yeni Katılanlar (sort by createdAt)
+    const yeniKatilanlar = [...filtered].sort((a,b) => {
+      const aTime = new Date(a.createdAt).getTime() || 0;
+      const bTime = new Date(b.createdAt).getTime() || 0;
+      return bTime - aTime;
+    }).slice(0, 10);
+
+    // 3. Şu An Aktif
+    const aktifOlanlar = filtered.filter(u => u.social?.isOnline).slice(0, 10);
+
+    // 4. Onaylı Profiller
+    const onayliProfiller = filtered.filter(u => u.social?.verified).slice(0, 10);
+
+    // 5. Ana Akış
+    const anaAkis = filtered;
+
+    // Flat list for popups
+    const flatUsers = [...new Set([...parlayanlar, ...yeniKatilanlar, ...aktifOlanlar, ...onayliProfiller, ...anaAkis])];
+
+    return { 
+      layers: { parlayanlar, yeniKatilanlar, aktifOlanlar, onayliProfiller, anaAkis, flatUsers },
+      isEmptyFilter: isEmpty
+    };
+  }, [allUsers, genderFilter]);
 
   const openProfile = (user: UserProfile) => {
     const idx = layers.flatUsers.findIndex(u => u.uid === user.uid);
@@ -235,279 +247,347 @@ export default function SocialDiscoverScreen({
           transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
           className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full shadow-lg"
         />
-        <p className="font-serif italic text-amber-600/60 animate-pulse">Ruhlara giden yollar taranıyor...</p>
+        <p className="font-serif italic text-amber-600/60 animate-pulse">Yeni bir boyut açılıyor...</p>
       </div>
     );
   }
 
+  // Extracted Component for Horizontal Scroll Card
+  const CatalogCard = ({ user, isGrid = false, isFeatured = false }: { user: UserProfile, isGrid?: boolean, isFeatured?: boolean }) => {
+    // Robust Data Extraction
+    const gender = (user.gender || user.social?.gender || "unknown").toLowerCase();
+    const isFemale = gender === 'female' || gender === 'kadin' || gender === 'kadın';
+    const isMale = gender === 'male' || gender === 'erkek';
+    
+    const nickname = user.social?.nickname || user.displayName || "İsimsiz";
+    
+    // Age calculation fallback
+    const calculateAge = (bDay: string | null | undefined): number | null => {
+      if (!bDay) return null;
+      try {
+        const birthDate = new Date(bDay);
+        const ageDifMs = Date.now() - birthDate.getTime();
+        const ageDate = new Date(ageDifMs);
+        return Math.abs(ageDate.getUTCFullYear() - 1970);
+      } catch (e) { return null; }
+    };
+    const u = user as any;
+    const age = u.social?.age || u.age || calculateAge(u.birthDate);
+    
+    const zodiac = u.social?.zodiacSign || u.zodiacSign || null;
+    const level = u.social?.level || u.level || null;
+    const isVerified = u.social?.verified || u.isVerified || u.social?.verificationStatus === "approved";
+    const bio = u.social?.bio || u.bio || null;
+    const interests = u.social?.interests || u.interests || [];
+    
+    const boostTime = u.boostExpiresAt ? new Date(u.boostExpiresAt).getTime() : 0;
+    const isBoosted = boostTime > Date.now();
+
+    // Theme colors based on gender
+    const glowClass = isBoosted ? 'shadow-[0_0_25px_rgba(245,158,11,0.6)] border-2 border-amber-400' : 
+      isFemale 
+      ? 'shadow-[0_0_15px_rgba(244,63,94,0.15)] border-rose-100/50' 
+      : isMale 
+        ? 'shadow-[0_0_15px_rgba(79,70,229,0.15)] border-indigo-100/50' 
+        : 'shadow-[0_0_15px_rgba(168,85,247,0.15)] border-purple-100/50';
+
+    const cardWidth = isGrid ? 'w-full' : isFeatured ? 'w-40' : 'w-32'; 
+    const cardAspect = 'aspect-[3/4.5]';
+
+    return (
+      <motion.div 
+        whileTap={{ scale: 0.98 }}
+        onClick={() => openProfile(user)}
+        className={`${cardWidth} ${cardAspect} bg-white rounded-[24px] overflow-hidden relative ${glowClass} ${!isBoosted ? 'border' : ''} cursor-pointer group flex-shrink-0`}
+      >
+        <img 
+          src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+          referrerPolicy="no-referrer" 
+        />
+        
+        {/* Premium Grade Gradients */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+        
+        {/* Top Indicators */}
+        <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start z-10">
+          {isBoosted && (
+            <div className="bg-gradient-to-r from-amber-500 to-amber-600 px-1.5 py-0.5 rounded-md border border-amber-300/30 flex items-center gap-1 shadow-md shadow-amber-500/20">
+              <Zap className="w-2.5 h-2.5 text-white fill-white" />
+              <span className="text-white text-[8px] font-black uppercase tracking-widest">Öne Çıkan</span>
+            </div>
+          )}
+          {level && (
+            <div className="bg-black/40 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-white/10">
+              <span className="text-white text-[8px] font-black uppercase">Lv.{level}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="absolute top-2.5 right-2.5 flex items-center">
+          {user.social?.isOnline && (
+            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-[0_0_8px_#10B981]" />
+          )}
+        </div>
+
+        {/* Bottom Metadata */}
+        <div className="absolute bottom-3 left-3 right-3 flex flex-col gap-0.5">
+          {/* Main Info Line */}
+          <div className="flex items-center gap-1 w-full">
+            <h4 className="text-white font-black text-xs truncate flex items-center gap-1 leading-none max-w-[80%]">
+              {nickname.split(' ')[0]}
+              {isVerified && <BlueTick size={10} />}
+            </h4>
+          </div>
+
+          {/* Meta Info Line: Age • Zodiac • Level (Compact) */}
+          <div className="flex items-center gap-1 min-h-[12px] flex-wrap">
+            {age && (
+              <span className="text-white text-[9px] font-black leading-none">{age} Yaş</span>
+            )}
+            {age && zodiac && <span className="text-white/40 text-[8px]">/</span>}
+            {zodiac && (
+              <span className="text-white/80 text-[8px] font-bold uppercase tracking-tight truncate leading-none">
+                {zodiac}
+              </span>
+            )}
+            {zodiac && level && <span className="text-white/40 text-[8px]">/</span>}
+            {!zodiac && age && level && <span className="text-white/40 text-[8px]">/</span>}
+            {level && !zodiac && !age ? null : level ? (
+              <span className="text-white/80 text-[8px] font-black leading-none">Lv.{level}</span>
+            ) : null}
+          </div>
+
+          {/* Bio Line if space allows */}
+          {bio && !isGrid && (
+            <p className="text-white/60 text-[7px] leading-tight line-clamp-1 italic font-medium w-full overflow-hidden mt-0.5">
+              "{bio}"
+            </p>
+          )}
+
+          {/* Interest Chips - Only show in grid or if few info */}
+          {interests.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {interests.slice(0, 1).map((interest: string, idx: number) => (
+                <span 
+                  key={idx} 
+                  className={`px-1.5 py-0.5 rounded-md text-[7px] font-black uppercase border border-white/10 ${
+                    isFemale ? 'bg-rose-500/30 text-rose-100' : isMale ? 'bg-indigo-500/30 text-indigo-100' : 'bg-white/10 text-white/80'
+                  }`}
+                >
+                  {interest}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
   return (
-    <div className="flex-1 bg-[#F9F9F9] text-slate-800 overflow-y-auto no-scrollbar pt-[calc(env(safe-area-inset-top,1rem)+64px)] pb-32">
+    <div className="flex-1 bg-[#F9F9F9] text-slate-800 overflow-y-auto no-scrollbar pb-32 relative">
+      {/* Spacer for fixed top bar */}
+      <div className="w-full shrink-0" style={{ height: "calc(env(safe-area-inset-top, 1rem) + 64px)" }} />
       
-      {/* HEADER AREA */}
-      <div className="px-6 pb-6 flex items-baseline justify-between">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-black tracking-tighter text-slate-900">Keşfet</h1>
-            <Sparkles className="w-5 h-5 text-amber-500 animate-pulse fill-amber-500/10" />
-          </div>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Zamanın Ruhuna Dokun</p>
-        </div>
-      </div>
-
-      {/* 1. KATMAN: VIP LOJASI (BOOST) */}
-      <div className="mb-10">
-        <div className="px-6 mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-amber-500" />
-            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">VIP Lojası</span>
-          </div>
-          <motion.button 
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onNavigate('wallet')}
-            className="text-[9px] font-bold text-amber-600 uppercase tracking-widest flex items-center gap-1"
-          >
-            Sıranı Al <Plus className="w-2.5 h-2.5" />
-          </motion.button>
-        </div>
-        <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6">
-          {/* USER SELF BOOST */}
-          <motion.div 
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onNavigate('wallet')}
-            className="flex-shrink-0 flex flex-col items-center gap-2 group"
-          >
-            <div className="relative p-1 rounded-full bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600 shadow-xl shadow-amber-500/20">
-              <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden bg-slate-100 flex items-center justify-center relative">
-                <img 
-                  src={currentUser.social?.photos?.[0] || currentUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${uid}`} 
-                  className="w-full h-full object-cover grayscale-[0.5] group-hover:grayscale-0 transition-all"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                  <Plus className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-            <span className="text-[9px] font-black uppercase tracking-tighter text-amber-600">Öne Çık</span>
-          </motion.div>
-
-          {layers.boosted.map((u) => (
-            <div 
-              key={u.uid} 
-              className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer"
-              onClick={() => openProfile(u)}
-            >
-              <div className={`relative p-1 rounded-full ${u.social?.verified ? 'bg-gradient-to-tr from-sky-400 via-sky-300 to-sky-600 shadow-[0_0_15px_rgba(14,165,233,0.5)]' : 'bg-gradient-to-tr from-amber-500 via-amber-200 to-amber-600'}`}>
-                <div className="w-16 h-16 rounded-full border-[3px] border-white overflow-hidden bg-slate-50">
-                  <img 
-                    src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                    className="w-full h-full object-cover" 
-                    referrerPolicy="no-referrer" 
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-1 justify-center w-16">
-                <span className="text-[9px] font-bold truncate">{u.social?.nickname?.split(' ')[0]}</span>
-                {u.social?.verified && <BlueTick size={8} />}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 2. KATMAN: ÖNERİLEN RUHLAR (2'Lİ BÜYÜK GRID) */}
-      {layers.suggested.length > 0 && (
-        <div className="mb-12">
-          <div className="px-6 mb-5 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" />
-            <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900 underline decoration-amber-400 decoration-2 underline-offset-4">Önerilen Ruhlar</h2>
-          </div>
-          <div className="flex items-center gap-4 overflow-x-auto no-scrollbar px-6 py-2">
-            {layers.suggested.map((u) => (
-              <motion.div 
-                key={u.uid}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => openProfile(u)}
-                className={`flex-shrink-0 w-44 aspect-[3/4.2] bg-white rounded-3xl overflow-hidden shadow-sm relative border ${u.social?.verified ? 'border-sky-400/50 shadow-[0_0_15px_rgba(14,165,233,0.3)]' : 'border-slate-100'}`}
+      {/* 1. STICKY FILTER BAR */}
+      <div className="sticky z-40 bg-[#F9F9F9]/90 backdrop-blur-md shadow-sm border-b border-slate-200/50" style={{ top: "calc(env(safe-area-inset-top, 1rem) + 64px)" }}>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <h1 className="text-xl font-black tracking-tighter text-slate-900 ml-2">Keşfet</h1>
+          <div className="flex bg-slate-200/80 rounded-full p-1 border border-slate-300/50">
+            {[
+              { id: 'all', label: 'Herkes' },
+              { id: 'female', label: 'Kadınlar' },
+              { id: 'male', label: 'Erkekler' }
+            ].map((gen) => (
+              <button 
+                key={gen.id}
+                onClick={() => setGenderFilter(gen.id as any)}
+                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                  genderFilter === gen.id 
+                    ? 'bg-white text-slate-900 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
               >
-                <img 
-                  src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                  className="w-full h-full object-cover" 
-                  referrerPolicy="no-referrer" 
-                />
-                <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="text-sm font-black text-white truncate">{u.social?.nickname}, {u.social?.age || 25}</h4>
-                    {u.social?.verified && <BlueTick size={10} />}
-                  </div>
-                  <div className="flex items-center gap-1 mt-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10B981]" />
-                    <span className="text-[8px] font-black text-amber-400 uppercase tracking-widest">Uyumlu Enerji</span>
-                  </div>
-                </div>
-              </motion.div>
+                {gen.label}
+              </button>
             ))}
           </div>
         </div>
-      )}
+        <div className="px-4 pb-2 text-center text-[9px] text-slate-400 font-medium">
+          Seçimin sadece sana gösterilen profilleri etkiler. Karşı tarafın tercihleri bu listeyi sınırlamaz.
+        </div>
+      </div>
 
-      {/* 3. KATMAN: TAZE RUHLAR (3'LÜ GİZEMLİ GRID) */}
-      <div className="mb-12 bg-white/40 py-8 border-y border-slate-200/50">
-        <div className="px-6 mb-6 flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-orange-500" />
-            <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Taze Ruhlar</h2>
+      {allUsers.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-12 text-center mt-12 gap-4">
+          <div className="w-16 h-16 bg-gradient-to-tr from-amber-400 to-amber-600 rounded-3xl flex items-center justify-center shadow-xl shadow-amber-500/20 rotate-12">
+            <Sparkles className="w-8 h-8 text-white" />
           </div>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-6">Gizem Perdesi Aralanıyor</p>
+          <h3 className="text-xl font-black text-slate-900 mt-4">Henüz Kimse Yok</h3>
+          <p className="text-sm font-bold text-slate-400">Şu anki kriterlerine uygun ruhlar aranıyor. Birazdan tekrar kontrol et.</p>
         </div>
-        <div className="grid grid-cols-3 gap-1 px-1">
-          {layers.fresh.map(u => (
-            <motion.div 
-              key={u.uid}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => openProfile(u)}
-              className="aspect-square bg-slate-200 relative overflow-hidden"
-            >
-              <img 
-                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                className="w-full h-full object-cover" 
-                referrerPolicy="no-referrer" 
-              />
-              <div className="absolute inset-0 bg-indigo-500/5 backdrop-blur-[1px]" />
-            </motion.div>
-          ))}
-        </div>
-      </div>
-
-      {/* 4. KATMAN: ŞU AN AKTİF ENERJİLER */}
-      <div className="mb-12">
-        <div className="px-6 mb-5 flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Şu An Aktif</h2>
-        </div>
-        <div className="flex items-center gap-6 overflow-x-auto no-scrollbar px-6">
-          {layers.active.map(u => (
-            <div 
-              key={u.uid} 
-              className="flex-shrink-0 relative group cursor-pointer"
-              onClick={() => openProfile(u)}
-            >
-              <div className={`w-14 h-14 rounded-full border-2 p-0.5 transition-all bg-slate-50 ${u.social?.verified ? 'border-sky-400 shadow-[0_0_10px_rgba(14,165,233,0.4)]' : 'border-emerald-500/30 group-hover:border-emerald-500'}`}>
-                <img 
-                  src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                  title={u.social?.nickname} 
-                  className="w-full h-full rounded-full object-cover" 
-                  referrerPolicy="no-referrer" 
-                />
-              </div>
-              <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-md" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 5. KATMAN: FREKANS UYUMU */}
-      <div className="mb-12 border-l-4 border-l-indigo-400/30 pl-6 pr-0">
-        <div className="mb-5 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-indigo-500" />
-          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-900">Frekans Uyumu</h2>
-        </div>
-        <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
-          {layers.matchingSigns.map(u => (
-            <div 
-              key={u.uid} 
-              onClick={() => openProfile(u)}
-              className={`flex-shrink-0 w-32 aspect-[4/5] bg-white rounded-2xl overflow-hidden shadow-sm border flex flex-col cursor-pointer ${u.social?.verified ? 'border-sky-300 shadow-[0_0_10px_rgba(14,165,233,0.2)]' : 'border-slate-100'}`}
-            >
-              <img 
-                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                className="w-full h-1/2 object-cover" 
-                referrerPolicy="no-referrer" 
-              />
-              <div className="p-2 flex-1 flex flex-col justify-center gap-1">
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] font-black truncate">{u.social?.nickname}</span>
-                  {u.social?.verified && <BlueTick size={8} />}
-                </div>
-                <div className="px-2 py-0.5 bg-indigo-50 rounded-full inline-block self-start">
-                  <span className="text-[7px] font-bold text-indigo-500 uppercase tracking-tighter">Yüksek Uyum</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 6. KATMAN: ANA MEYDAN (GRID) */}
-      <div className="px-1 mt-16">
-        <div className="px-5 mb-8 flex items-center justify-between">
-          <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Üniversumun Tamamı</h2>
-          <span className="text-[9px] font-bold text-slate-300 uppercase">{allUsers.length} / 50</span>
-        </div>
-        <div className="grid grid-cols-3 gap-1">
-          {layers.mainStreet.map(u => (
-            <motion.div 
-              key={u.uid}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => openProfile(u)}
-              className="aspect-square bg-white relative overflow-hidden"
-            >
-              <img 
-                src={u.social?.photos?.[0] || u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`} 
-                className="w-full h-full object-cover" 
-                referrerPolicy="no-referrer" 
-              />
-              {u.social?.verified && (
-                <div className="absolute top-1 right-1">
-                  <BlueTick size={10} />
-                </div>
-              )}
-              {/* Subtle Overlay */}
-              <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent" />
-            </motion.div>
-          ))}
-        </div>
-
-        {/* REFRESH AREA */}
-        <div className="mt-16 pb-20 flex flex-col items-center gap-8">
-          <div className="w-1.5 h-12 bg-gradient-to-b from-slate-200 to-transparent rounded-full" />
+      ) : (
+        <div className="flex flex-col gap-10 mt-6">
           
-          <div className="text-center space-y-2">
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Evren Döngüsü Tamamlandı</h3>
-            <p className="text-[10px] font-bold text-slate-400 leading-relaxed max-w-[200px]">
-              Bu döngüde çekim merkezine giren ruhlar bunlardı. Evreni yenileyerek yeni kapıları arala.
-            </p>
+          {/* GÜNÜN PARLAYANLARI */}
+          {layers.parlayanlar.length > 0 && (
+            <div className="sticky top-0 z-40 bg-white/60 backdrop-blur-xl pt-4 pb-4 border-b border-black/5 -mx-6 px-6">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+                  <h2 className="text-[14px] font-black uppercase tracking-[0.2em] text-slate-900 leading-none">Günün Parlayanları</h2>
+                </div>
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]" />
+              </div>
+              <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-2 pt-1 -mx-6 px-6">
+                
+                {/* PROMO CARD */}
+                <motion.div 
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => toast("VIP Vitrin yakında aktif olacak!")}
+                  className="flex-shrink-0 w-40 aspect-[3/4.5] bg-gradient-to-br from-slate-900 to-slate-800 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer"
+                >
+                  <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
+                    <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                  </div>
+                  <h4 className="text-white font-black text-[10px] leading-tight mb-2">Burada Öne Çıkmak İster misin?</h4>
+                  <button className="bg-amber-500 text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+                    VIP Ol
+                  </button>
+                </motion.div>
+
+                {layers.parlayanlar.map(u => <CatalogCard key={u.uid} user={u} isFeatured={true} />)}
+              </div>
+            </div>
+          )}
+
+          {/* YENİ KATILANLAR */}
+          {layers.yeniKatilanlar.length > 0 && (
+            <div>
+              <div className="px-6 mb-3 flex items-center gap-2">
+                <Flame className="w-4 h-4 text-rose-500 fill-rose-500" />
+                <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-slate-900">Yeni Katılanlar</h2>
+              </div>
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-6 pb-2">
+                {layers.yeniKatilanlar.map(u => <CatalogCard key={u.uid} user={u} />)}
+              </div>
+            </div>
+          )}
+
+          {/* ŞU AN AKTİF */}
+          {layers.aktifOlanlar.length > 0 && (
+            <div>
+              <div className="px-6 mb-3 flex items-center gap-2">
+                <div className="w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#F9F9F9] shadow-[0_0_8px_#10B981] animate-pulse" />
+                <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-slate-900">Şu An Aktif</h2>
+              </div>
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-6 pb-2">
+                {layers.aktifOlanlar.map(u => <CatalogCard key={u.uid} user={u} />)}
+              </div>
+            </div>
+          )}
+
+          {/* ONAYLI PROFİLLER */}
+          {layers.onayliProfiller.length > 0 && (
+            <div>
+              <div className="px-6 mb-3 flex items-center gap-2">
+                <Award className="w-4 h-4 text-sky-500" />
+                <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-slate-900">Onaylı Profiller</h2>
+              </div>
+              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-6 pb-2">
+                {layers.onayliProfiller.map(u => <CatalogCard key={u.uid} user={u} />)}
+              </div>
+            </div>
+          )}
+
+          {/* ANA AKIŞ - GRID */}
+          <div className="px-5 mt-4">
+            <div className="mb-4 flex items-center gap-2">
+              <Users className="w-4 h-4 text-slate-400" />
+              <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-slate-500">Tüm Evren</h2>
+            </div>
+            
+            {isEmptyFilter && (
+              <div className="mb-4 bg-slate-200/50 border border-slate-300/50 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                <div className="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center mb-3">
+                  <Users className="w-6 h-6 text-slate-400" />
+                </div>
+                <p className="text-slate-600 text-[11px] font-bold uppercase tracking-wider mb-4 leading-relaxed">
+                  Bu seçimde şimdilik az profil var. Herkes'i deneyebilirsin.
+                </p>
+                <button 
+                  onClick={() => setGenderFilter('all')}
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95"
+                >
+                  Herkes'i Göster
+                </button>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-3">
+              {layers.anaAkis.map((u, i) => {
+                const promo = (i > 0 && i % 4 === 0) ? (
+                   <motion.div key={`promo-${i}`} onClick={() => toast("VIP Vitrin yakında aktif olacak!")} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer">
+                     <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
+                       <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                     </div>
+                     <h4 className="text-white font-black text-[11px] leading-tight mb-2 px-2">Burada Öne Çıkmak İster misin?</h4>
+                     <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+                       VIP Ol
+                     </button>
+                   </motion.div>
+                ) : null;
+
+                const card = <CatalogCard key={u.uid} user={u} isGrid={true} />;
+
+                return (
+                  <React.Fragment key={`wrap-${u.uid}`}>
+                    {promo}
+                    {card}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Az kart varsa araya manuel bir promo sıkıştır */}
+              {layers.anaAkis.length > 0 && layers.anaAkis.length < 4 && (
+                 <motion.div onClick={() => toast("VIP Vitrin yakında aktif olacak!")} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer">
+                   <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
+                     <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                   </div>
+                   <h4 className="text-white font-black text-[11px] leading-tight mb-2 px-2">Profilini Parlat</h4>
+                   <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+                     VIP Ol
+                   </button>
+                 </motion.div>
+              )}
+            </div>
           </div>
 
-          <div className="relative group">
-            <div className="absolute inset-0 bg-slate-900 blur-2xl opacity-20 group-hover:opacity-40 transition-opacity" />
+          {/* REFRESH AREA */}
+          <div className="mt-8 pb-20 flex flex-col items-center gap-6 px-6">
+            <div className="w-full h-px bg-slate-200" />
+            <div className="text-center space-y-1">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Evren Döngüsü Tamamlandı</h3>
+            </div>
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleRefreshClick}
               disabled={isProcessing}
-              className="relative px-12 py-5 bg-slate-900 text-white rounded-full flex flex-col items-center gap-1 shadow-2xl overflow-hidden"
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-slate-900/10 disabled:opacity-80"
             >
-              <div className="flex items-center gap-3">
-                <RefreshCw className={`w-4 h-4 text-amber-500 ${isProcessing ? 'animate-spin' : ''}`} />
-                <span className="text-sm font-black uppercase tracking-[0.2em]">Yenile</span>
-              </div>
-              <span className="text-[9px] font-bold text-slate-400 font-mono tracking-tighter">
-                {refreshTimer === 'Yenile' ? 'ÜCRETSİZ HAK' : refreshTimer}
+              <RefreshCw className={`w-4 h-4 text-amber-400 ${isProcessing ? 'animate-spin' : ''}`} />
+              <span className="text-xs font-black uppercase tracking-[0.1em]">
+                {isProcessing ? 'Yenileniyor...' : 'Yeni Ruhlar Keşfet'}
               </span>
             </motion.button>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              {refreshTimer === 'Yenile' ? 'Ücretsiz Yenileme Hazır' : `Kalan Süre: ${refreshTimer}`}
+            </span>
           </div>
-          
-          {refreshTimer !== 'Yenile' && (
-            <button 
-              onClick={handleRefreshClick}
-              className="text-[9px] font-black text-amber-600 uppercase tracking-widest bg-amber-50 px-4 py-2 rounded-full hover:bg-amber-100 transition-colors"
-            >
-              Cüzdanla Hemen Yenile
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
       {/* PROFILE POPUP */}
       <AnimatePresence>
@@ -524,3 +604,4 @@ export default function SocialDiscoverScreen({
     </div>
   );
 }
+

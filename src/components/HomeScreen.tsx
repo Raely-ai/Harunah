@@ -32,6 +32,17 @@ export default function HomeScreen({
   const [refreshTimer, setRefreshTimer] = useState<string>('');
   const [refreshKey, setRefreshKey] = useState(0);
 
+  useEffect(() => {
+    const handleSwitchTab = (e: any) => {
+      const { tab } = e.detail;
+      if (['match', 'discover', 'compatibility'].includes(tab)) {
+        setActiveTopTab(tab as any);
+      }
+    };
+    window.addEventListener('switch-home-tab', handleSwitchTab);
+    return () => window.removeEventListener('switch-home-tab', handleSwitchTab);
+  }, []);
+
   // 2. Tab State Safety Fallback
   useEffect(() => {
     const validTabs = ['match', 'discover', 'compatibility'];

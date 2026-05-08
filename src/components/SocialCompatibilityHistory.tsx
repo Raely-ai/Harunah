@@ -60,6 +60,33 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSpeedingUp, setIsSpeedingUp] = useState<string | null>(null);
   const [speedUpPrice, setSpeedUpPrice] = useState(10);
+  const [sentRequests, setSentRequests] = useState<string[]>([]);
+  const [activeChats, setActiveChats] = useState<string[]>([]);
+
+  // Discover if we have active chats or sent requests with these targets
+  useEffect(() => {
+    if (!uid) return;
+    const fetchRelations = async () => {
+      try {
+        const reqSnap = await getDocs(query(collection(db, "interactionRequests"), where("fromUserId", "==", uid)));
+        setSentRequests(reqSnap.docs.map(d => d.data().toUserId));
+
+        const chatSnap = await getDocs(query(collection(db, "chats"), where("participants", "array-contains", uid)));
+        const chatUsers: string[] = [];
+        chatSnap.docs.forEach(d => {
+           const data = d.data();
+           if (data.participants) {
+             const otherId = data.participants.find((p: string) => p !== uid);
+             if (otherId) chatUsers.push(otherId);
+           }
+        });
+        setActiveChats(chatUsers);
+      } catch (e) {
+        console.error("fetchRelations error:", e);
+      }
+    };
+    fetchRelations();
+  }, [uid]);
 
   // Load price from admin config
   useEffect(() => {
@@ -95,22 +122,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
     return () => unsub();
   }, [uid, isActive]);
 
-  // 2. Real-time Listeners for Pending Requests
+  // 2. Real-time Listeners for Pending Requests - DEPRECATED in favor of unified history
   useEffect(() => {
-    if (!uid || !isActive) return;
-
-    const q = query(
-      collection(db, "compatibilityRequests"),
-      where("userId", "==", uid),
-      where("status", "==", "pending")
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const requests = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setPendingRequests(requests);
-    });
-
-    return () => unsub();
+    // Keep empty or remove to clean up
+    setPendingRequests([]);
   }, [uid, isActive]);
 
   // Unified Form State
@@ -139,8 +154,14 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       return;
     }
 
-    if (currentUser.compatibilityCount <= 0) {
-      toast.info("Yetersiz Analiz Hakkı. Mağazaya göz atın.");
+    const compatPrice = 25; // Standard price from walletService config
+    const hasRights = (currentUser.compatibilityCount || 0) > 0;
+    const hasCoins = (currentUser.mainCoins || 0) >= compatPrice;
+
+    if (!hasRights && !hasCoins) {
+      toast.info(`Yetersiz Analiz Hakkı. Uyum analizi için ${compatPrice} J veya 1 Hak gerekli.`, {
+        description: "Mağazaya göz atabilirsiniz."
+      });
       return;
     }
 
@@ -213,18 +234,13 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   };
 
   const mergedList = useMemo(() => {
-    const combined = [
-      ...pendingRequests.map(r => ({ ...r, isPending: true })),
-      ...history.map(h => ({ ...h, isPending: false }))
-    ];
-    
-    const filtered = combined.filter(item => {
+    const filtered = history.filter(item => {
       const name = item.targetName || item.person2?.name || "";
       return name.toLowerCase().includes(searchTerm.toLowerCase());
     });
 
     return filtered.sort((a, b) => toSafeDate(b.createdAt).getTime() - toSafeDate(a.createdAt).getTime());
-  }, [pendingRequests, history, searchTerm]);
+  }, [history, searchTerm]);
 
   return (
     <div className={`${isTab ? 'h-full' : 'fixed inset-0 z-[60]'} bg-[#F8F9FD] flex flex-col pt-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
@@ -399,7 +415,13 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
 
       <AnimatePresence>
         {selectedAnalysis && (
-          <AnalysisPopup analysis={selectedAnalysis} onClose={() => setSelectedAnalysis(null)} />
+          <AnalysisPopup 
+            analysis={selectedAnalysis} 
+            onClose={() => setSelectedAnalysis(null)} 
+            currentUser={currentUser}
+            sentRequests={sentRequests}
+            activeChats={activeChats}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -408,47 +430,58 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
 
 function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: any) {
   const [timeLeft, setTimeLeft] = useState("");
-  
-  useEffect(() => {
-    if (!item.isPending) return;
-    
-    // Fallback: 5 minutes from creation if no finishTime
-    const createdAtTime = toSafeDate(item.createdAt).getTime();
-    const target = item.finishTime ? new Date(item.finishTime).getTime() : createdAtTime + 5 * 60 * 1000;
+  const [now, setNow] = useState(Date.now());
 
-    const timer = setInterval(() => {
-      const diff = target - Date.now();
-      if (diff <= 0) {
-        setTimeLeft("Hazır!");
-        clearInterval(timer);
-      } else {
-        const mins = Math.floor(diff / 60000);
-        const secs = Math.floor((diff % 60000) / 1000);
-        setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
-      }
+  // Decide if revealed - Hardened check for retro-compatibility
+  const unlockTime = item.unlockAt ? new Date(item.unlockAt).getTime() : 0;
+  const isTimeLocked = !!unlockTime && unlockTime > now;
+
+  const isActuallyRevealed = item.revealed === true || 
+                             item.status === 'revealed' || 
+                             item.status === 'completed' ||
+                             (!item.unlockAt && !item.targetUserId) ||
+                             (!!unlockTime && !isTimeLocked);
+
+  useEffect(() => {
+    if (!isTimeLocked) return;
+    
+    const interval = setInterval(() => {
+      setNow(Date.now());
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [item.isPending, item.finishTime, item.createdAt]);
+    return () => clearInterval(interval);
+  }, [isTimeLocked]);
+
+  useEffect(() => {
+    if (!isTimeLocked) {
+      if (unlockTime > 0) setTimeLeft("Hazır!");
+      return;
+    }
+    
+    const diff = unlockTime - now;
+    if (diff <= 0) {
+      setTimeLeft("Hazır!");
+    } else {
+      const mins = Math.floor(diff / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
+    }
+  }, [isTimeLocked, unlockTime, now]);
 
   const person2Name = item.targetName || item.person2?.name || "Bilinmiyor";
   
-  // Decide if revealed - Hardened check for retro-compatibility
-  // A record is revealed if:
-  // 1. Explicitly marked as revealed: true OR status: 'revealed'
-  // 2. OR it's from compatibilityHistory (isPending: false) AND NOT a new pending request
-  const isActuallyRevealed = item.revealed === true || 
-                             item.status === 'revealed' || 
-                             (!item.isPending && !item.targetUserId); // Heuristic for old history records
+  const isLasyaProfile = item.source === 'discover' && !!item.targetUserId;
+
+  const showLock = isTimeLocked && !isActuallyRevealed;
 
   return (
     <motion.div 
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      onClick={!item.isPending && isActuallyRevealed ? onClick : undefined}
+      onClick={!showLock ? onClick : undefined}
       className={`relative p-4 rounded-[2rem] border transition-all overflow-hidden ${
-        item.isPending || !isActuallyRevealed
+        showLock
           ? 'bg-slate-50 border-slate-100 cursor-default' 
           : 'bg-white border-white shadow-sm hover:shadow-xl hover:border-indigo-100 cursor-pointer group'
       }`}
@@ -460,7 +493,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
           </div>
           <div className="w-12 h-12 rounded-2xl border-2 border-white shadow-md overflow-hidden relative z-20">
             <img src={item.targetPhoto || item.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.targetUserId || person2Name}`} className="w-full h-full object-cover" />
-            {(item.isPending || !isActuallyRevealed) && (
+            {showLock && (
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center">
                 <Loader2 className="w-5 h-5 text-white animate-spin" />
               </div>
@@ -470,10 +503,17 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-0.5">
-            <h4 className="text-[11px] font-black text-slate-900 truncate uppercase tracking-tighter">
-              {item.person1?.name || 'Sen'} & {person2Name}
-            </h4>
-            {(isActuallyRevealed) && (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h4 className="text-[11px] font-black text-slate-900 truncate uppercase tracking-tighter">
+                {item.person1?.name || 'Sen'} & {person2Name}
+              </h4>
+              {isLasyaProfile && (
+                <div className="flex items-center justify-center p-0.5 rounded-full bg-gradient-to-r from-purple-500 to-amber-500" title="Lasya Profili">
+                  <Sparkles className="w-2.5 h-2.5 text-white" />
+                </div>
+              )}
+            </div>
+            {isActuallyRevealed && (
               <div className="px-2 py-0.5 bg-rose-50 text-rose-500 rounded-lg text-[9px] font-black">%{item.loveScore}</div>
             )}
           </div>
@@ -483,12 +523,12 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
             </span>
             <div className="w-1 h-1 rounded-full bg-slate-200" />
             <span className="text-[8px] font-bold text-slate-400 italic truncate max-w-[120px]">
-              {(item.isPending || !isActuallyRevealed) ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
+              {showLock ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
             </span>
           </div>
         </div>
 
-        {(item.isPending) && (
+        {showLock && (
           <div className="flex flex-col items-end gap-1.5 min-w-[70px]">
             <div className="px-2 py-1 bg-indigo-500 text-white rounded-lg text-[9px] font-black flex items-center gap-1.5 shadow-lg shadow-indigo-500/20">
               <Clock className="w-3 h-3" />
@@ -507,14 +547,26 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
         )}
       </div>
 
-      {(isActuallyRevealed) && (
+      {isActuallyRevealed && (
         <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-indigo-500/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity rounded-full" />
       )}
     </motion.div>
   );
 }
 
-function AnalysisPopup({ analysis, onClose }: { analysis: CompatibilityHistory, onClose: () => void }) {
+function AnalysisPopup({ 
+  analysis, 
+  onClose,
+  currentUser,
+  sentRequests,
+  activeChats
+}: { 
+  analysis: CompatibilityHistory, 
+  onClose: () => void,
+  currentUser: UserProfile,
+  sentRequests: string[],
+  activeChats: string[]
+}) {
   const person2Name = analysis.targetName || analysis.person2?.name || "Bilinmiyor";
   const person2Photo = analysis.targetPhoto || analysis.person2?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${analysis.targetUserId || person2Name}`;
 
@@ -593,7 +645,41 @@ function AnalysisPopup({ analysis, onClose }: { analysis: CompatibilityHistory, 
             </div>
           </div>
 
-          <button onClick={onClose} className="w-full py-4 md:py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] md:text-[12px] uppercase tracking-[0.3em] shadow-xl shrink-0">Anladım</button>
+          <div className="space-y-3 shrink-0">
+            {analysis.source === "discover" && analysis.targetUserId && analysis.targetUserId !== currentUser.uid && (
+              <div className="mb-4">
+                {activeChats.includes(analysis.targetUserId) ? (
+                  <button 
+                    onClick={() => {
+                      toast.info("Sohbetler sekmesinden mesajlaşabilirsiniz.");
+                      onClose();
+                    }}
+                    className="w-full py-4 text-white rounded-2xl font-black text-[12px] uppercase tracking-wider bg-gradient-to-r from-purple-500 to-indigo-500 shadow-xl shadow-purple-500/20 mb-2"
+                  >
+                    Sohbete Git
+                  </button>
+                ) : sentRequests.includes(analysis.targetUserId) ? (
+                  <button 
+                    disabled
+                    className="w-full py-4 text-slate-400 rounded-2xl font-black text-[12px] uppercase tracking-wider bg-slate-100 border border-slate-200 mb-2"
+                  >
+                    İstek Gönderildi
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => {
+                      toast.success("Öncelikli mesaj isteği yakında aktif olacak!");
+                    }}
+                    className="w-full py-4 text-white rounded-2xl font-black text-[12px] uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-600 shadow-xl shadow-amber-500/20 flex flex-col items-center justify-center gap-1 mb-2"
+                  >
+                    <span className="flex items-center gap-1"><Zap className="w-4 h-4" /> Öncelikli Mesaj İsteği Gönder</span>
+                    <span className="text-[8px] font-bold text-amber-100 normal-case tracking-normal opacity-90">Mesajın karşı tarafın isteklerinde öne çıkar.</span>
+                  </button>
+                )}
+              </div>
+            )}
+            <button onClick={onClose} className="w-full py-4 md:py-5 bg-slate-900 text-white rounded-2xl font-black text-[11px] md:text-[12px] uppercase tracking-[0.3em] shadow-xl">Anladım</button>
+          </div>
         </div>
       </motion.div>
     </div>

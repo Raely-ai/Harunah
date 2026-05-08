@@ -12,7 +12,8 @@ import {
   AtSign,
   User,
   MessageCircle,
-  UserPlus
+  UserPlus,
+  Zap
 } from "lucide-react";
 import { UserProfile, AppTab } from "../types";
 import PhotoGallery from "./PhotoGallery";
@@ -87,6 +88,8 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
     setActiveSection(activeSection === section ? null : section);
   };
 
+  const isBoostActive = localUser.boostExpiresAt && new Date(localUser.boostExpiresAt) > new Date();
+
   return (
     <div className="flex flex-col h-full bg-[#FAFAFC] text-slate-700">
       {/* Premium Gradient Header */}
@@ -109,6 +112,28 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32 -mt-6 rounded-t-[2.5rem] bg-[#FAFAFC] relative z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] pt-8 px-6 space-y-6">
         
+        {/* Boost Banner */}
+        {isBoostActive && (
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-gradient-to-r from-amber-500 to-amber-600 rounded-3xl p-5 text-white shadow-xl shadow-amber-500/20 relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mt-10 -mr-10" />
+            <div className="relative z-10 flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md shrink-0">
+                <Zap className="w-6 h-6 fill-white text-white animate-pulse" />
+              </div>
+              <div>
+                <h3 className="font-black text-lg">Şu an öne çıkıyorsun ✨</h3>
+                <p className="text-white/80 text-xs mt-1 leading-snug">
+                  Profilin keşfette en üst sıralarda gösteriliyor. Etkileşimlerin artmaya devam edecek!
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Photo Gallery - Redesigned Grid */}
         <section className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 mb-6">

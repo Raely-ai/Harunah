@@ -54,6 +54,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
+    intent: initialData?.social?.intent || "",
     lookingFor: initialData?.social?.lookingFor || initialData?.lookingFor || "",
     nickname: initialData?.social?.nickname || initialData?.nickname || initialData?.displayName || "",
     birthDate: initialData?.birthDate || "",
@@ -84,7 +85,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
 
   const nextStep = async () => {
     console.log("nextStep: start", { step });
-    if (step === 1 && !formData.lookingFor) return toast.error("Lütfen bir niyet seçin.");
+    if (step === 1 && !formData.intent) return toast.error("Lütfen bir niyet seçin.");
     if (step === 2 && (!formData.nickname || formData.nickname.trim().length < 2)) return toast.error("Lütfen geçerli bir takma ad girin (en az 2 karakter).");
     if (step === 3) {
       if (!formData.birthDate) return toast.error("Lütfen doğum tarihinizi seçin.");
@@ -157,7 +158,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
     ) : step;
 
     switch (currentStep) {
-      case 1: return !!formData.lookingFor;
+      case 1: return !!formData.intent;
       case 2: return formData.nickname.trim().length >= 2;
       case 3: {
         if (!formData.birthDate) return false;
@@ -207,9 +208,9 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
               ].map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setFormData({ ...formData, lookingFor: item.id })}
+                  onClick={() => setFormData({ ...formData, intent: item.id })}
                   className={`p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${
-                    formData.lookingFor === item.id 
+                    formData.intent === item.id 
                       ? "border-indigo-600 bg-indigo-500/5 shadow-lg shadow-indigo-600/5" 
                       : "border-black/5 bg-white hover:bg-black/5"
                   }`}

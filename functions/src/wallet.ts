@@ -138,7 +138,15 @@ export const purchaseCoins = functions.region('us-central1').https.onCall(async 
 
     // HARDENING: Receipt Validation Logic
     // Gelecekte gerçek Google/Apple API'ları buraya entegre edilecek.
-    // Şimdilik yapısal doğrulama ve paket kontrolü yapıyoruz.
+    
+    // PRODUCTION GUARD: Gerçek doğrulama yoksa, test mode dışında satın almayı engelle.
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+       // Bu kısım production'a geçmeden önce gerçek Google/Apple API entegrasyonu ile doldurulmalı!
+       // Şimdilik production'da sahte receipt ile coin verilmesini engelliyoruz.
+       throw new functions.https.HttpsError('permission-denied', 'Ödeme sistemi şu an sadece test modundadır.');
+    }
+
     console.log(`[Validation] Validating ${platform} receipt for ${packageId}...`);
     
     const isValid = receipt && receipt.length > 32; // Simüle edilen bir doğrulama kuralı

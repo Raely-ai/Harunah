@@ -28,6 +28,7 @@ import {
   Loader2,
   Crown
 } from 'lucide-react';
+import { cacheManager } from '../lib/cacheManager';
 import { UserProfile, AppTab } from '../types';
 import { isSocialProfileReady } from '../lib/socialUtils';
 import PhotoGallery from "./PhotoGallery";
@@ -463,7 +464,18 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
     try {
       await socialService.updateSocialField(localUser.uid, 'lookingFor', value);
       updateLocalUser('lookingFor', value);
+      cacheManager.clear("match_feed");
       toast.success("Tercih güncellendi.");
+    } catch (err) {
+      toast.error("Hata oluştu.");
+    }
+  };
+
+  const handleUpdateIntent = async (value: string) => {
+    try {
+      await socialService.updateSocialField(localUser.uid, 'intent', value);
+      updateLocalUser('intent', value);
+      toast.success("Amacın güncellendi.");
     } catch (err) {
       toast.error("Hata oluştu.");
     }
@@ -855,14 +867,41 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
         </section>
 
         {/* 4. MATCH PREFERENCES */}
-        <section>
-          <div className="flex items-center gap-2 mb-4 px-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karşılaşma Tercihleri</h3>
+        <section className="space-y-6">
+          <div>
+            <div className="flex items-center gap-2 mb-4 px-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Amacım</h3>
+            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-4 block text-center">Neden Buradasın?</span>
+              <div className="grid grid-cols-3 gap-2">
+                {(['aşk', 'dostluk', 'sohbet'] as const).map((option) => (
+                  <button
+                    key={option}
+                    disabled={isPreviewMode}
+                    onClick={() => handleUpdateIntent(option)}
+                    className={`py-3.5 px-2 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                      (localUser.social?.intent || 'aşk') === option
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg shadow-indigo-200'
+                        : `bg-white text-slate-400 border-slate-100 ${isPreviewMode ? '' : 'hover:bg-slate-50'}`
+                    }`}
+                  >
+                    {option.charAt(0).toUpperCase() + option.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-             <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4 block text-center">Kimi Görmek İstiyorsun?</span>
-             <div className="grid grid-cols-3 gap-2">
+
+          <div>
+            <div className="flex items-center gap-2 mb-4 px-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karşılaşma Tercihleri</h3>
+            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4 block text-center">Kimi Görmek İstiyorsun?</span>
+              <div className="grid grid-cols-3 gap-2">
                 {(['erkek', 'kadın', 'arkadaş'] as const).map((option) => (
                   <button
                     key={option}
@@ -877,7 +916,8 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
                     {option === 'erkek' ? 'Erkekler' : option === 'kadın' ? 'Kadınlar' : 'Herkes'}
                   </button>
                 ))}
-             </div>
+              </div>
+            </div>
           </div>
         </section>
 

@@ -59,8 +59,17 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
   const superLikes = liveUser?.superLikes || 0;
 
   const [potentialMatches, setPotentialMatches] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(new Set([uid]));
+  const [loading, setLoading] = useState(() => {
+    const isValid = cacheManager.isValid("match_feed");
+    console.log(`[MATCH_PERF_LOADING_REASON] Initializing. Cache valid: ${isValid}`);
+    return !isValid;
+  });
+  const [swipedUserIds, setSwipedUserIds] = useState<Set<string>>(() => {
+    const startTime = performance.now();
+    const cached = cacheManager.get<any>("match_feed");
+    console.log(`[MATCH_PERF_CACHE_READ_MS] ${ (performance.now() - startTime).toFixed(2) }ms`);
+    return new Set([uid, ...(cached?.swipedUserIds || [])]);
+  });
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'up' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -74,45 +83,93 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
   const activeUser = displayMatches[0];
 
   const hasFetchedRef = React.useRef(false);
+  const prevLookingForRef = React.useRef(liveUser?.social?.lookingFor || liveUser?.lookingFor);
+  const prevGenderRef = React.useRef(liveUser?.social?.gender || liveUser?.gender);
 
   useEffect(() => {
+    console.log("[MATCH_PERF_MOUNT] SocialMatchScreen mounted/updated");
     if (!uid || !isActive) {
-      if (!isActive) hasFetchedRef.current = false;
+      // DO NOT reset hasFetchedRef.current here to avoid re-fetching when switching tabs
       return;
     }
     
-    // Profile check - ensure loading ends even if profile isn't ready
+    // Profile check
     if (!isSocialProfileReady(liveUser)) {
       setLoading(false);
       return;
     }
 
+    const currentLookingFor = liveUser?.social?.lookingFor || liveUser?.lookingFor;
+    const currentGender = liveUser?.social?.gender || liveUser?.gender;
+
+    // Fast cache check to decide if we need to show loader during preference change
+    const cached = cacheManager.get<any>("match_feed");
+
+    if (
+      (prevLookingForRef.current && prevLookingForRef.current !== currentLookingFor) || 
+      (prevGenderRef.current && prevGenderRef.current !== currentGender)
+    ) {
+      console.log("SocialMatch: User preference changed. Resetting feed.");
+      prevLookingForRef.current = currentLookingFor;
+      prevGenderRef.current = currentGender;
+      
+      hasFetchedRef.current = false;
+      setPotentialMatches([]);
+      setSwipedUserIds(new Set([uid]));
+      
+      // Only show loader if we don't have cache (though we just cleared it above, so it will show)
+      setLoading(true);
+      cacheManager.clear("match_feed");
+    }
+
     if (hasFetchedRef.current) return;
     
-    const fetchData = async () => {
+    const fetchData = () => {
+      const startTime = performance.now();
+      let dataLoadedFromCache = false;
       hasFetchedRef.current = true;
-      const cached = cacheManager.get<any>("match_feed");
+      const initialCached = cacheManager.get<any>("match_feed");
       
-      if (cached) {
-        console.log("SocialMatch: Loading matches from cache:", cached.potentialMatches?.length);
-        setPotentialMatches(cached.potentialMatches || []);
-        setSwipedUserIds(new Set(cached.swipedUserIds || [uid]));
+      if (initialCached && initialCached.potentialMatches && initialCached.potentialMatches.length > 0) {
+        console.log(`[MATCH_PERF_CACHE_HIT] Count: ${initialCached.potentialMatches.length}`);
+        setPotentialMatches(initialCached.potentialMatches);
+        setSwipedUserIds(new Set(initialCached.swipedUserIds || [uid]));
         setLoading(false);
-        // If cache is very fresh (e.g. < 30s), don't background fetch
-        if (Date.now() - (cached._timestamp || 0) < 30000) return;
+        dataLoadedFromCache = true;
+        
+        const ageInSeconds = (Date.now() - (initialCached._timestamp || 0)) / 1000;
+        if (ageInSeconds < 60) {
+          console.log(`[SocialMatchScreen] Cache is fresh (${Math.round(ageInSeconds)}s), skipping background fetch.`);
+          return;
+        }
+      } else {
+        console.log("[MATCH_PERF_CACHE_MISS]");
+        setLoading(true); 
       }
 
-      try {
-        console.log("SocialMatch: Fetching fresh matches...");
-        const fetchedUsers = await matchingService.fetchPotentialMatches(liveUser);
-        console.log("Fetched Matches:", fetchedUsers);
-        setPotentialMatches(fetchedUsers);
-      } catch (error) {
-        console.error("Match fetch error:", error);
-        toast.error("Eşleşmeler yüklenemedi.");
-      } finally {
+      const loaderTimeout = setTimeout(() => {
+        console.log(`[MATCH_PERF_LOADER_TIMEOUT] 1500ms reached. loading was: ${loading}`);
         setLoading(false);
-      }
+      }, 1500);
+
+      console.log("[MATCH_PERF_BACKGROUND_FETCH_START]");
+      const fetchStart = performance.now();
+      matchingService.fetchPotentialMatches(liveUser).then(fetchedUsers => {
+        const fetchEnd = performance.now();
+        console.log(`[MATCH_PERF_BACKEND_MS] ${ (fetchEnd - fetchStart).toFixed(2) }ms. count: ${fetchedUsers?.length || 0}`);
+        if (fetchedUsers && fetchedUsers.length > 0) {
+          const setStart = performance.now();
+          setPotentialMatches(fetchedUsers);
+          console.log(`[MATCH_PERF_SET_STATE_MS] ${ (performance.now() - setStart).toFixed(2) }ms`);
+        }
+      }).catch(error => {
+        console.error("[SocialMatchScreen] Match fetch background error:", error);
+        if (!dataLoadedFromCache) toast.error("Keşfet şu an yüklenemedi.");
+      }).finally(() => {
+        clearTimeout(loaderTimeout);
+        setLoading(false);
+        console.log(`[MATCH_PERF_BACKGROUND_FETCH_DONE] Total fetchData time: ${ (performance.now() - startTime).toFixed(2) }ms`);
+      });
     };
 
     fetchData();
@@ -215,8 +272,18 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     return calculateCompatibility(liveUser, activeUser);
   }, [liveUser, activeUser]);
 
+  console.log(`[SocialMatchScreen] DEBUG RENDER: loading=${loading}, activeUserExists=${!!activeUser}, potentialLen=${potentialMatches.length}, displayLen=${displayMatches.length}, swipedIdsLen=${swipedUserIds.size}`);
+
   return (
     <div className="flex-1 flex flex-col relative w-full h-full bg-[#FAFAFA] pt-[calc(env(safe-area-inset-top,1rem)+72px)] pb-18 overflow-hidden">
+      
+      {/* EXPLANATION NOTICE */}
+      <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+32px)] inset-x-0 flex justify-center z-10 pointer-events-none px-4">
+        <p className="text-[9px] text-slate-400 font-medium text-center bg-white/60 backdrop-blur-md px-3 py-1 rounded-full shadow-sm border border-slate-200/50">
+          Karşılaşma'da sana varsayılan olarak karşı cins profiller gösterilir. Daha geniş keşif için Keşfet'i kullan.
+        </p>
+      </div>
+
       {loading ? (
         <div className="flex-1 flex flex-col items-center justify-center space-y-6">
           <div className="relative">

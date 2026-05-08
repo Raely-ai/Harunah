@@ -5,7 +5,7 @@ import { useAuthState } from "react-firebase-hooks/auth";
 import { signOut } from "firebase/auth";
 import { auth, db, functions, handleFirestoreError, OperationType } from "./lib/firebase";
 import { cacheManager } from "./lib/cacheManager";
-import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment, startAfter } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, orderBy, limit, getDoc, deleteField, runTransaction, increment, startAfter, serverTimestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { Toaster, toast } from "sonner";
 
@@ -331,36 +331,96 @@ function AppContent() {
       return () => unsubscribe();
     }, [user?.uid, quotaExceeded]);
 
-  // Automatic Fast-Track Onboarding Completion
+  // Global Discover Likes Reset Logic
   useEffect(() => {
-    if (activeProfile?.uid && 
-        activeProfile.uid !== 'guest' &&
-        activeProfile.gender && 
-        activeProfile.birthDate && 
-        (!activeProfile.social?.profileCompleted || !activeProfile.social?.enabled)) {
-      
-      // OPTIMISTIC UPDATE: Set state immediately to remove UI latency
-      setUserProfile(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          social: {
-            ...prev.social,
-            enabled: true,
-            profileCompleted: true,
-            visible: true
-          }
-        };
-      });
+    if (!userProfile?.uid || userProfile.uid === 'guest') return;
 
+    const checkReset = async () => {
+      const lastResetStr = userProfile.social?.discoverLikesLastReset;
+      
+      let shouldReset = false;
+      if (!lastResetStr) {
+        shouldReset = true;
+      } else {
+        const lastReset = new Date(lastResetStr);
+        const now = new Date();
+        const diffHrs = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
+        if (diffHrs >= 24) shouldReset = true;
+      }
+
+      if (shouldReset) {
+        try {
+          // One-time Onboarding Boost check
+          const createdAt = userProfile?.createdAt ? new Date(userProfile.createdAt) : new Date();
+          const now = new Date();
+          const isFirstDay = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60) <= 24;
+          
+          if (isFirstDay && !userProfile.social?.onboardingDiscoverBonusClaimed) {
+            const claimBonus = httpsCallable(functions, 'claimOnboardingDiscoverBonus');
+            await claimBonus();
+            toast.success("İlk gün hediyen aktif: +50 Keşfet beğenisi ✨");
+          } else {
+            const resetLikes = httpsCallable(functions, 'resetDailyDiscoverLikes');
+            await resetLikes();
+          }
+        } catch (err) {
+          console.error("Discover likes reset error:", err);
+        }
+      }
+    };
+
+    checkReset();
+  }, [userProfile?.uid, userProfile?.social?.discoverLikesLastReset]);
+
+  // Onboarding: 10 minute active reward
+  useEffect(() => {
+    if (!userProfile?.uid || userProfile.uid === 'guest') return;
+    
+    // Have they received it? 
+    if (userProfile.social?.receivedOnboarding10mReward) return;
+
+    // Is the user newly registered? (e.g. less than 1 day)
+    const createdAt = userProfile.createdAt ? new Date(userProfile.createdAt) : new Date();
+    const now = new Date();
+    if ((now.getTime() - createdAt.getTime()) > 24 * 60 * 60 * 1000) return; // Only for first day
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        const claimReward = httpsCallable(functions, 'claim10MinuteReward');
+        await claimReward();
+        toast.success("✨ 10 dakikadır bizimlesin! Hediye 1 Uyum Analizi kazandın.");
+      } catch (err) {
+        console.error("10m reward error", err);
+      }
+    }, 10 * 60 * 1000); // 10 mins
+
+    return () => clearTimeout(timeoutId);
+  }, [userProfile?.uid, userProfile?.social?.receivedOnboarding10mReward, userProfile?.createdAt]);
+
+  // Automatic Robust Onboarding Completion (Fast-Track)
+  useEffect(() => {
+    if (!userProfile?.uid || userProfile.uid === 'guest') return;
+    
+    // Stricter Criteria: Require Bio and Interests for Auto-Complete
+    const hasEnoughInterests = (userProfile.social?.interests || []).length >= 5;
+    const hasEnoughBio = (userProfile.social?.bio || '').length >= 10;
+    const hasNickname = (userProfile.social?.nickname || '').length >= 2;
+    const hasBirthDate = !!userProfile.birthDate;
+    const hasGender = !!userProfile.social?.gender;
+    
+    const isActuallyComplete = hasNickname && hasGender && hasBirthDate && hasEnoughInterests && hasEnoughBio;
+
+    if (isActuallyComplete && (!userProfile.social?.profileCompleted || !userProfile.social?.enabled)) {
+      // SYNC TO BACKEND
       const syncProfile = async () => {
         try {
-          await updateDoc(doc(db, "users", activeProfile.uid), {
+          await updateDoc(doc(db, "users", userProfile.uid), {
             "social.enabled": true,
             "social.profileCompleted": true,
-            "social.visible": true
+            "social.visible": true,
+            "social.updatedAt": serverTimestamp()
           });
-          console.log("[FastTrack] Profile auto-completed and synced to backend");
+          console.log("[FastTrack] Profile autocompleted with robust criteria");
         } catch (err) {
           console.error("[FastTrack] Auto-sync failed:", err);
         }
@@ -368,7 +428,14 @@ function AppContent() {
       
       syncProfile();
     }
-  }, [activeProfile.gender, activeProfile.birthDate, activeProfile.social?.profileCompleted]);
+  }, [
+    userProfile?.social?.nickname, 
+    userProfile?.social?.gender, 
+    userProfile?.birthDate, 
+    userProfile?.social?.interests?.length, 
+    userProfile?.social?.bio?.length, 
+    userProfile?.social?.profileCompleted
+  ]);
 
   // Real History Sync (Lazy load with pagination)
   const [history, setHistory] = useState<FortuneReading[]>([]);
@@ -845,7 +912,7 @@ function AppContent() {
   return (
     <div className="min-h-[100dvh] bg-[#F6F4F8] relative text-body selection:bg-amber-500/30 overflow-x-hidden">
       <BadgeProvider userProfile={userProfile} quotaExceeded={quotaExceeded}>
-        <NotificationToastListener userProfile={activeProfile} activeChatId={activeChatId} onNavigate={handleNavigate} />
+        <NotificationToastListener userProfile={activeProfile} activeChatId={activeChatId} activeTab={activeTab} onNavigate={handleNavigate} />
         {/* Admin Preview Banner */}
         {previewUser && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-black py-2 px-4 flex items-center justify-between font-bold text-xs shadow-lg">

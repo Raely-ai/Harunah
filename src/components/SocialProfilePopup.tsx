@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin, Zap, Clock } from 'lucide-react';
+import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin, Zap, Clock, ShieldAlert } from 'lucide-react';
 import { UserProfile, CompatibilityHistory } from '../types';
 import { walletService } from '../lib/walletService';
 import { toast } from 'sonner';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { addDoc, collection, query, where, getDocs, limit, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit, orderBy, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 import { reportService } from '../services/reportService';
 
@@ -42,154 +42,130 @@ export default function SocialProfilePopup({
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPending, setIsPending] = useState(false);
-  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<CompatibilityHistory | null>(null);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);  const [analysisResult, setAnalysisResult] = useState<CompatibilityHistory | null>(null);
   const [speedUpPrice, setSpeedUpPrice] = useState(10);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [compatPrice, setCompatPrice] = useState(25);
 
   useEffect(() => {
     walletService.getAdminConfig().then(config => {
       if (config.socialRightsPrices.speedUpPrice) {
         setSpeedUpPrice(config.socialRightsPrices.speedUpPrice);
       }
+      if (config.socialRightsPrices.compatibility) {
+        setCompatPrice(config.socialRightsPrices.compatibility);
+      }
     });
   }, []);
 
+  // Polling logic replaced by onSnapshot for reliability
   useEffect(() => {
     if (!pendingRequestId || !currentUid) return;
-    
-    // In a real app, this should fetch status from Firestore directly to determine revealAt
-    // Simplified for now based on requirement
-    const timer = setInterval(() => {
-      // Logic to check status and timeLeft
-      // This will need Firestore listener actually
-    }, 1000);
-    return () => clearInterval(timer);
+
+    const q = query(
+      collection(db, "compatibilityHistory"),
+      where("userId", "==", currentUid),
+      where("requestId", "==", pendingRequestId),
+      limit(1)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
+        setAnalysisResult(data);
+        setIsPending(false);
+        setPendingRequestId(null);
+        toast.success("Uyum analiziniz hazır! ✨");
+      }
+    }, (error) => {
+      console.error("onSnapshot error:", error);
+    });
+
+    return () => unsub();
   }, [pendingRequestId, currentUid]);
 
   useEffect(() => {
-    if (!currentUid || !uid) return;
-    const checkExistingAnalysis = async () => {
-      console.log("CHECK_EXISTING_START");
-      try {
-        // 1. Check for the latest CompatibilityRequest
-        const qReq = query(
-          collection(db, "compatibilityRequests"),
-          where("userId", "==", currentUid),
-          where("targetUserId", "==", uid),
-          orderBy("createdAt", "desc"),
-          limit(1)
-        );
-        const snapReq = await getDocs(qReq);
-        console.log("REQUESTS_FOUND", snapReq.docs.map(d => ({ id:d.id, ...d.data() })));
-        
-        if (!snapReq.empty) {
-          const req = { id: snapReq.docs[0].id, ...snapReq.docs[0].data() } as any;
-          
-          // IF PENDING: Ignore history, show pending UI
-          if (req.status === 'pending' || req.revealed === false) {
-            setIsPending(true);
-            setPendingRequestId(req.id);
-            console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "checkExistingAnalysis_pending", null);
-            setAnalysisResult(null); // Clear result if any
-            return;
-          }
-          
-         // IF REVEALED: Do NOT fetch result automatically
-          // if (req.status === 'revealed' || req.revealed === true) {
-          //   const qHist = query(
-          //     collection(db, "compatibilityHistory"),
-          //     where("requestId", "==", req.id),
-          //     limit(1)
-          //   );
-          //   const snapHist = await getDocs(qHist);
-          //   console.log("HISTORY_FOUND", snapHist.docs.map(d => ({ id:d.id, ...d.data() })));
-          //   if (!snapHist.empty) {
-          //     const res = { id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory;
-          //     console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "checkExistingAnalysis_revealed", res);
-          //     setAnalysisResult(res);
-          //     setIsPending(false);
-          //     setPendingRequestId(null);
-          //     return;
-          //   }
-          // }
-        }
-        
-        // IF NO PENDING/REVEALED REQUEST: Fallback to old history if exists
-        // (As requested, keeping this logic for retro-compatibility)
-      } catch (error) {
-        console.error("Error checking analysis:", error);
-      }
-    };
-    checkExistingAnalysis();
+    if (uid) {
+      checkExistingAnalysis(uid);
+    }
   }, [currentUid, uid]);
 
-  // Polling for pending analysis
-  useEffect(() => {
-    if (!pendingRequestId || !currentUid) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const q = query(
-          collection(db, "compatibilityRequests"),
-          where("id", "==", pendingRequestId)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const req = snap.docs[0].data() as any;
-          if (req.status === 'revealed' || req.revealed === true) {
-            // Now fetch the history
-            const qHist = query(
-              collection(db, "compatibilityHistory"),
-              where("requestId", "==", pendingRequestId),
-              limit(1)
-            );
-            const snapHist = await getDocs(qHist);
-            if (!snapHist.empty) {
-              const res = { id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory;
-              if (res.revealed === true) {
-                console.log("SET_ANALYSIS_RESULT_CALLED_FROM", "polling", res);
-                setAnalysisResult(res);
-                setIsPending(false);
-                setPendingRequestId(null);
-                clearInterval(interval);
-                toast.success("Uyum analiziniz hazır! ✨");
-              }
-            }
-          }
+  const checkExistingAnalysis = async (targetUid: string) => {
+    try {
+      // 1. Check for the latest CompatibilityRequest
+      const qReq = query(
+        collection(db, "compatibilityRequests"),
+        where("userId", "==", currentUid),
+        where("targetUserId", "==", targetUid),
+        orderBy("createdAt", "desc"),
+        limit(1)
+      );
+      const snapReq = await getDocs(qReq);
+      
+      if (!snapReq.empty) {
+        const req = { id: snapReq.docs[0].id, ...snapReq.docs[0].data() } as any;
+        
+        // IF PENDING: Ignore history, show pending UI
+        if ((req.status === 'pending' || req.status === 'processing') || req.revealed === false) {
+          setIsPending(true);
+          setPendingRequestId(req.id);
+          setAnalysisResult(null); // Clear result if any
+          return;
         }
-      } catch (err) {
-        console.error("Polling error:", err);
       }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [pendingRequestId, currentUid]);
+      
+      // IF NO PENDING/REVEALED REQUEST: Fallback to old history if exists
+      if (snapReq.empty) {
+        const qHist = query(
+          collection(db, "compatibilityHistory"),
+          where("userId", "==", currentUid),
+          where("targetUserId", "==", targetUid),
+          limit(1)
+        );
+        const snapHist = await getDocs(qHist);
+        if (!snapHist.empty) {
+          setAnalysisResult({ id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory);
+        }
+      }
+    } catch (err) {
+      console.error("Check analysis error:", err);
+    }
+  };
 
   const handleCompatibilityCheck = async () => {
-    console.log("ANALYZE_CLICK", currentUid, uid);
     if (isProcessing || isPending || !uid) return;
     
-    console.log("HANDLE_START");
+    // Secure logic: Check rights or coins
+    const hasRights = (currentUser.compatibilityCount || 0) > 0;
+    
+    if (!hasRights && (currentUser.mainCoins || 0) < compatPrice) {
+      toast.info(`Yetersiz Jeton. Uyum analizi için ${compatPrice} J gerekli.`, {
+        description: "Cüzdan sayfasına yönlendiriliyorsunuz..."
+      });
+      onNavigate('wallet');
+      return;
+    }
+
     setIsProcessing(true);
     try {
-      // Create a pending request
-      const reqRef = await addDoc(collection(db, "compatibilityRequests"), {
-        userId: currentUid,
-        targetUserId: uid,
-        status: "pending",
-        revealed: false,
-        createdAt: serverTimestamp(),
-      });
-      console.log("CREATED_REQUEST_ID", reqRef.id);
-      setIsPending(true);
-      setPendingRequestId(reqRef.id);
-      console.log("AFTER_CLICK_STATE", { isPending: true, analysisResult, pendingRequestId: reqRef.id });
-      toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+      // SECURE CALL: Triggers cloud function for analysis and handles payment
+      const result = await walletService.runCompatibilityAnalysis(uid, "compatibility");
+      
+      if (result.success) {
+        if (result.cached && result.analysis) {
+          setAnalysisResult(result.analysis);
+          toast.success("Yıldızlar senin için zaten bakmış! Mevcut analiz getirildi. ✨");
+        } else {
+          setIsPending(true);
+          setPendingRequestId(result.requestId || null);
+          toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+        }
+      } else {
+        toast.error("Analiz başlatılamadı. Lütfen bakiye kontrolü yapın.");
+      }
 
     } catch (error: any) {
       console.error("Analysis request error:", error);
-      toast.error("Talep başlatılamadı.");
+      toast.error(error.message || "Talep başlatılamadı.");
     } finally {
       setIsProcessing(false);
     }
@@ -255,18 +231,24 @@ export default function SocialProfilePopup({
     setPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
-  const handleReport = async () => {
+  const [showReportModal, setShowReportModal] = useState(false);
+
+  const handleReport = async (reason: string) => {
     if (!uid) return;
-    const reason = window.prompt("Raporlama sebebi (Örn: Uygunsuz içerik, Taciz, Sahte profil):");
-    if (!reason) return;
-    
-    await reportService.reportUser({
-      reportedUserId: uid,
-      source: 'profile',
-      reason: reason,
-      description: "Profil üzerinden raporlandı.",
-      metadata: { context }
-    });
+    try {
+      await reportService.reportUser({
+        reportedUserId: uid,
+        source: 'profile',
+        reason: reason,
+        description: "Profil üzerinden raporlandı.",
+        metadata: { context }
+      });
+      setShowReportModal(false);
+      toast.success("Raporun iletildi. Teşekkürler.");
+    } catch (error) {
+      console.error("Report error:", error);
+      toast.error("Rapor iletilemedi.");
+    }
   };
 
   return (
@@ -320,7 +302,7 @@ export default function SocialProfilePopup({
                 {social.nickname || user?.nickname}, {social.age || user?.age || 25}
               </h2>
               <button 
-                onClick={handleReport}
+                onClick={() => setShowReportModal(true)}
                 className="p-2 text-slate-400 hover:text-red-500 transition-colors bg-slate-50 rounded-full"
               >
                 <Flag className="w-4 h-4" />
@@ -446,10 +428,12 @@ export default function SocialProfilePopup({
             <Heart className="w-4 h-4" />
             <span>
               {analysisResult 
-                ? 'Tekrar Analiz Et' 
+                ? 'UYUMU GÖR' 
                 : isPending 
                   ? 'Analiz Hazırlanıyor...' 
-                  : `Uyumunu Gör (${credits})`
+                  : (currentUser.compatibilityCount || 0) > 0 
+                    ? 'UYUMU GÖR (1 Hak)' 
+                    : `UYUMU GÖR (${compatPrice} J)`
               }
             </span>
           </motion.button>
@@ -468,6 +452,46 @@ export default function SocialProfilePopup({
           )}
         </div>
       </div>
+
+      {/* REPORT MODAL */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 text-center border-b border-black/5">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Güven Bölgesi</h3>
+                <p className="text-xs text-slate-500 mt-2 font-medium">Bu profilde seni rahatsız eden nedir?</p>
+              </div>
+              <div className="p-3">
+                {['Spam / Sahte', 'Uygunsuz İçerik', 'Rahatsız Edici', 'Diğer'].map((reason) => (
+                  <button 
+                    key={reason} 
+                    onClick={() => handleReport(reason)} 
+                    className="w-full px-6 py-4 text-left text-sm font-bold text-slate-800 hover:bg-slate-50 transition-colors rounded-2xl flex items-center justify-between group"
+                  >
+                    {reason}
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-600 transition-all" />
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={() => setShowReportModal(false)} 
+                className="w-full py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-900 transition-colors bg-slate-50"
+              >
+                VAZGEÇ
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

@@ -212,6 +212,37 @@ export const updateSocialProfile = functions.region('us-central1').https.onCall(
     // Use set with merge: true for nested object blending
     await userRef.set(updates, { merge: true });
     
+    // Check Profile Completion for rewards/notifications
+    const updatedSnap = await userRef.get();
+    const userData = updatedSnap.data();
+    if (userData?.social) {
+      const completion = calculateProfileCompletion(userData.social);
+      if (completion === 100 && !userData.social.rewardClaimed) {
+         // Notify about 100% completion if not already notified
+         const lastCompNotifAt = userData.social.notifications?.lastProfileCompletedNotifAt;
+         const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+         if (!lastCompNotifAt || lastCompNotifAt.toMillis() < oneDayAgo) {
+            const notifRef = db.collection("notifications").doc();
+            await notifRef.set({
+              userId,
+              type: "profile_completed",
+              title: "Profilin Tamamlandı! ✨",
+              message: "Harika görünüyorsun! Ödülünü Görev Merkezi'nden alabilirsin.",
+              read: false,
+              createdAt: FieldValue.serverTimestamp()
+            });
+            await userRef.set({
+              social: { notifications: { lastProfileCompletedNotifAt: FieldValue.serverTimestamp() } }
+            }, { merge: true });
+            await sendPushToUser(userId, {
+               title: "Profilin Tamamlandı! ✨",
+               body: "Harika görünüyorsun! Ödülünü Görev Merkezi'nden alabilirsin.",
+               category: "status"
+            });
+         }
+      }
+    }
+    
     return { success: true, status: 'SUCCESS' };
   } catch (error: any) {
     // STEP 4: Log detailed error
@@ -257,6 +288,7 @@ export const updateSocialSettings = functions.region('us-central1').https.onCall
 export const refreshDiscover = functions.region('us-central1').https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
+  console.log(`[refreshDiscover] DEBUG START: function called by auth uid=${userId}`);
   
   try {
     const userRef = db.collection("users").doc(userId);
@@ -267,7 +299,24 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
     if (!userSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
     const userData = userSnap.data() as any;
     const gender = userData.social?.gender || userData.gender || "";
-    const targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
+    const lookingFor = userData.social?.lookingFor || userData.lookingFor || "";
+    let targetGender = "";
+    
+    const lfLower = String(lookingFor).toLowerCase();
+    if (lfLower === "erkek" || lfLower === "male" || lfLower === "man" || lfLower === "adam") {
+      targetGender = "erkek";
+    } else if (lfLower === "kadın" || lfLower === "kadin" || lfLower === "female" || lfLower === "woman" || lfLower === "bayan") {
+      targetGender = "kadın";
+    } else if (lfLower === "herkes" || lfLower === "all" || lfLower === "arkadaş" || lfLower === "arkadas") {
+      targetGender = ""; // No gender filter
+    } else {
+      // Fallback to opposite gender if lookingFor is completely unrecognized
+      targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
+    }
+    
+    console.log(`[refreshDiscover] userId: ${userId}, gender: ${gender}, lookingFor: ${lookingFor}, targetGenderQuery: ${targetGender || 'ALL'}`);
+    console.log(`[refreshDiscover] DEBUG START: userId=${userId}, gender=${gender}, lookingFor=${lookingFor}, targetGenderQuery=${targetGender || 'ALL'}`);
+
     const recentIds = userData.social?.recentDiscoverIds || [];
     
     // Perform swipes check outside transaction to gather exclusion context rapidly
@@ -275,8 +324,10 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
       .where("fromUserId", "==", userId)
       .limit(500) // Safety limit for query efficiency
       .get();
-    const swipedUserIds = swipesSnap.docs.map(d => d.data().toUserId);
-    const exclusionList = new Set([userId, ...recentIds, ...swipedUserIds]);
+    const swipedUserIds = swipesSnap.docs
+      .filter(d => d.data().type !== 'pass')
+      .map(d => d.data().toUserId);
+    const exclusionList = new Set([userId, ...swipedUserIds]); // Exclude only self and explicitly swiped users (like/super_like)
 
     let usersQuery = db.collection("users")
       .where("social.enabled", "==", true)
@@ -285,11 +336,16 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
     if (targetGender) {
       usersQuery = usersQuery.where("social.gender", "==", targetGender);
     }
-
+    // Optimization: order by lastActiveAt descending if index available, 
+    // but for now, just fetch more to prevent exclusion starvation.
+    
     // Optimization: Use a slightly larger limit to account for exclusions, but keep it tight
-    const queryLimit = 60; 
+    const queryLimit = 150; 
     const usersSnap = await usersQuery.limit(queryLimit).get();
     
+    console.log(`[refreshDiscover] DEBUG RAW USERS COUNT: ${usersSnap.docs.length}`);
+    console.log(`[refreshDiscover] DEBUG SWIPES EXCLUDED COUNT: ${swipedUserIds.length}`);
+
     const result = await db.runTransaction(async (transaction) => {
       const tUserSnap = await transaction.get(userRef);
       if (!tUserSnap.exists) throw new Error("Kullanıcı bulunamadı.");
@@ -297,16 +353,23 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
       const lastFree = tUserData.social?.lastFreeRefreshAt;
       const isFreeAvailable = !lastFree || (now.getTime() - new Date(lastFree).getTime() >= 24 * 60 * 60 * 1000);
       
-      let status = 'SUCCESS';
-      let updates: any = { "social.lastDiscoverRefreshAt": nowIso };
+      const mode = data?.mode || 'discover';
       
-      if (isFreeAvailable) {
-        status = 'FREE_REFRESH_USED'; 
-        updates["social.lastFreeRefreshAt"] = nowIso;
+      let status = 'SUCCESS';
+      let updates: any = {};
+      
+      if (mode === 'match') {
+        status = 'MATCH_MODE';
       } else {
-        if ((tUserData.refreshCount || 0) <= 0) return { success: false, status: 'INSUFFICIENT_FUNDS' };
-        status = 'PAID_REFRESH_USED'; 
-        updates["refreshCount"] = FieldValue.increment(-1);
+        updates["social.lastDiscoverRefreshAt"] = nowIso;
+        if (isFreeAvailable) {
+          status = 'FREE_REFRESH_USED'; 
+          updates["social.lastFreeRefreshAt"] = nowIso;
+        } else {
+          if ((tUserData.refreshCount || 0) <= 0) return { success: false, status: 'INSUFFICIENT_FUNDS' };
+          status = 'PAID_REFRESH_USED'; 
+          updates["refreshCount"] = FieldValue.increment(-1);
+        }
       }
 
       let available = usersSnap.docs
@@ -325,7 +388,15 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
             // Uyum analizi için gereken ham astrolojik veriler (detaylı profil değil)
             element: d.element || "",
             birthDate: d.birthDate || d.social?.birthDate || "",
-            bio: d.social?.bio || d.bio || "" // Kısa bio yeterli
+            bio: d.social?.bio || d.bio || "", // Kısa bio yeterli
+            lookingFor: d.social?.lookingFor || d.lookingFor || "",
+            socialLookingFor: d.social?.lookingFor || "",
+            socialGender: d.social?.gender || "",
+            interests: d.social?.interests || d.interests || [],
+            photos: d.social?.photos || [],
+            verified: d.social?.verified || false,
+            profileCompleted: d.social?.profileCompleted || false,
+            level: d.level || d.social?.level || 0
           };
         });
         
@@ -343,18 +414,70 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
               gender: d.social?.gender || d.gender || "",
               photoURL: d.social?.photos?.[0] || d.photoURL || "",
               zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
+              // Uyum analizi için gereken ham astrolojik veriler (detaylı profil değil)
               element: d.element || "",
               birthDate: d.birthDate || d.social?.birthDate || "",
-              bio: d.social?.bio || d.bio || ""
+              bio: d.social?.bio || d.bio || "",
+              lookingFor: d.social?.lookingFor || d.lookingFor || "",
+              socialLookingFor: d.social?.lookingFor || "",
+              socialGender: d.social?.gender || "",
+              interests: d.social?.interests || d.interests || [],
+              photos: d.social?.photos || [],
+              verified: d.social?.verified || false,
+              profileCompleted: d.social?.profileCompleted || false,
+              level: d.level || d.social?.level || 0,
+              boostExpiresAt: d.boostExpiresAt || ""
             };
           });
+          
+         if (available.length < 5 && usersSnap.docs.length > 0) {
+            console.warn(`[refreshDiscover] WARNING: only ${available.length} users left for ${userId}! Allowing swiped users to prevent soft-lock.`);
+            // If even absoluteExclusion causes low results, fall back to self-only exclusion so app doesn't break
+            const selfExclusion = new Set([userId]);
+            available = usersSnap.docs
+              .filter(doc => !selfExclusion.has(doc.id))
+              .map(doc => {
+                const d = doc.data() as any;
+                return {
+                  id: doc.id,
+                  uid: doc.id,
+                  nickname: d.social?.nickname || d.displayName || "Kullanıcı",
+                  age: d.age || d.social?.age || 0,
+                  gender: d.social?.gender || d.gender || "",
+                  photoURL: d.social?.photos?.[0] || d.photoURL || "",
+                  zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
+                  element: d.element || "",
+                  birthDate: d.birthDate || d.social?.birthDate || "",
+                  bio: d.social?.bio || d.bio || "",
+                  lookingFor: d.social?.lookingFor || d.lookingFor || "",
+                  socialLookingFor: d.social?.lookingFor || "",
+                  socialGender: d.social?.gender || "",
+                  interests: d.social?.interests || d.interests || [],
+                  photos: d.social?.photos || [],
+                  verified: d.social?.verified || false,
+                  profileCompleted: d.social?.profileCompleted || false,
+                  level: d.level || d.social?.level || 0
+                };
+              });
+         }
       }
       
-      available = available.sort(() => Math.random() - 0.5).slice(0, 20);
+      available = available.sort((a,b) => {
+          const aBoost = a.boostExpiresAt ? new Date(a.boostExpiresAt).getTime() : 0;
+          const bBoost = b.boostExpiresAt ? new Date(b.boostExpiresAt).getTime() : 0;
+          const now = Date.now();
+          if (aBoost > now && bBoost <= now) return -1;
+          if (bBoost > now && aBoost <= now) return 1;
+          return Math.random() - 0.5;
+      }).slice(0, 20);
       
-      updates["social.recentDiscoverIds"] = Array.from(new Set([...recentIds, ...available.map(u => u.id)])).slice(-100);
-      transaction.update(userRef, updates);
+      // Removed recentDiscoverIds update to prevent unswiped users from being permanently excluded just because they were fetched
+      if (Object.keys(updates).length > 0) {
+        transaction.update(userRef, updates);
+      }
       
+      console.log(`[refreshDiscover] DEBUG FINAL RETURNED COUNT: ${available.length}, UID LIST: ${available.map((u: any) => u.uid).join(',')}`);
+
       return { success: true, status, users: available };
     });
 
@@ -374,7 +497,7 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
   if (!data) throw new functions.https.HttpsError('invalid-argument', 'Veri gönderilmedi.');
   
   const fromUserId = context.auth.uid;
-  const { targetUserId, type } = data; // type: 'like', 'super_like', 'pass'
+  const { targetUserId, type, source } = data; // type: 'like', 'super_like', 'pass', source: 'discover' | 'match'
 
   if (!targetUserId || !['like', 'super_like', 'pass'].includes(type) || fromUserId === targetUserId) {
     throw new functions.https.HttpsError('invalid-argument', 'Geçersiz işlem parametreleri.');
@@ -391,22 +514,52 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
       const fromData = fromSnap.data() as any;
       const toData = toSnap.data() as any;
       
-      // 1. STRICT DAILY LIMIT CHECK: 15 SWIPES
+      // 1. STRICT DAILY LIMIT CHECK: 15 SWIPES (Only for like and super_like)
       const now = new Date();
       const today = now.toISOString().split('T')[0];
       const lastDate = fromData.dailySwipeDate || "";
       const used = fromData.dailySwipeUsed || 0;
       const isNewDay = lastDate !== today;
 
-      if (!isNewDay && used >= 15) {
-        throw new functions.https.HttpsError('resource-exhausted', 'daily_limit_reached');
-      }
+      const swipeUpdate: any = {};
+      
+      // Always increment lifetime swipes for ALL interactions (like, super_like, pass)
+      swipeUpdate['social.lifetimeSwipes'] = FieldValue.increment(1);
 
-      // 2. Consume Credit
-      transaction.update(fromUserRef, {
-        dailySwipeUsed: isNewDay ? 1 : FieldValue.increment(1),
-        dailySwipeDate: today
-      });
+      if (type !== 'pass') {
+        const lifetimeSwipes = fromData.social?.lifetimeSwipes || 0;
+        // Free onboarding advantage ONLY applies to normal likes
+        // Super Like is NEVER free during onboarding
+        const isFreeOnboardingSwipe = lifetimeSwipes < 10 && type === 'like';
+
+        if (type === 'super_like') {
+            // Super Like ALWAYS requires credit
+            if ((fromData.superLikes || 0) <= 0) {
+                throw new functions.https.HttpsError('failed-precondition', 'Yetersiz Süper Like.');
+            }
+            swipeUpdate.superLikes = FieldValue.increment(-1);
+        } else {
+            // Normal like
+            if (source === 'discover') {
+                const currentRemaining = fromData.social?.discoverLikesRemaining ?? fromData.discoverLikesRemaining ?? 0;
+                if (!isFreeOnboardingSwipe) {
+                    if (currentRemaining <= 0) {
+                        throw new functions.https.HttpsError('failed-precondition', 'discover_like_limit_reached');
+                    }
+                    swipeUpdate['social.discoverLikesRemaining'] = FieldValue.increment(-1);
+                }
+            } else {
+                if (!isFreeOnboardingSwipe) {
+                    if (!isNewDay && used >= 15) {
+                      throw new functions.https.HttpsError('resource-exhausted', 'daily_limit_reached');
+                    }
+                    swipeUpdate.dailySwipeUsed = isNewDay ? 1 : FieldValue.increment(1);
+                    swipeUpdate.dailySwipeDate = today;
+                }
+            }
+        }
+        transaction.update(fromUserRef, swipeUpdate);
+      }
 
       const swipeId = `swipe_${fromUserId}_${targetUserId}`;
       const swipeRef = db.collection("swipes").doc(swipeId);
@@ -416,10 +569,16 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
       if (type === 'like' || type === 'super_like') {
         const notifRef = db.collection("notifications").doc();
         transaction.set(notifRef, {
-          userId: targetUserId, fromUserId, type: type === 'super_like' ? "super_like" : "like", 
+          userId: targetUserId, 
+          fromUserId, 
+          type: type === 'super_like' ? "super_like" : "like", 
           title: type === 'super_like' ? "Yeni Süper Like! ✨" : "Yeni Beğeni! ❤️",
           message: `${fromData.social?.nickname || fromData.displayName || "Biri"} seni beğendi!`,
-          data: { fromUserId }, read: false, createdAt: serverNow
+          fromUserName: fromData.social?.nickname || fromData.displayName || "Biri",
+          fromUserPhoto: fromData.photoURL || fromData.social?.photos?.[0] || "",
+          data: { fromUserId }, 
+          read: false, 
+          createdAt: serverNow
         });
       }
 
@@ -443,6 +602,78 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
     console.error("sendLike error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'Beğeni işlemi başarısız oldu.');
+  }
+});
+
+// Priority Message Request
+export const sendPriorityMessageRequest = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  
+  const fromUserId = context.auth.uid;
+  const { targetUserId } = data;
+
+  if (!targetUserId || fromUserId === targetUserId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Geçersiz kullanıcı.');
+  }
+
+  try {
+     const configSnap = await db.collection("adminSettings").doc("economy").get();
+     const economy = configSnap.exists ? configSnap.data() as any : {};
+     const priorityMessagePrice = economy.socialPricing?.priorityMessagePrice || 50;
+
+     const fromUserRef = db.collection("users").doc(fromUserId);
+     const requestRef = db.collection("interactionRequests").doc(`req_${fromUserId}_${targetUserId}`);
+
+    let fromUserName = "Biri";
+    await db.runTransaction(async (transaction) => {
+        const fromSnap = await transaction.get(fromUserRef);
+        if (!fromSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+        const fromData = fromSnap.data() as any;
+        fromUserName = fromData.social?.nickname || fromData.displayName || "Biri";
+
+        // Check Coins
+        if ((fromData.mainCoins || 0) < priorityMessagePrice) {
+            throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+        }
+
+        // Check existing chat/request
+        const reqSnap = await transaction.get(requestRef);
+        if (reqSnap.exists) throw new functions.https.HttpsError('already-exists', 'Bir istek zaten var.');
+        
+        // Deduct Coins
+        transaction.update(fromUserRef, { mainCoins: FieldValue.increment(-priorityMessagePrice) });
+
+        // Update Request
+        const now = FieldValue.serverTimestamp();
+        transaction.set(requestRef, { 
+            id: requestRef.id, fromUserId, toUserId: targetUserId, status: 'pending', type: 'priority_message_request', priority: true, createdAt: now 
+        });
+
+        transaction.set(db.collection("notifications").doc(), {
+            userId: targetUserId, fromUserId, type: 'priority_message_request',
+            title: "Öncelikli Mesaj İsteği 🚀",
+            message: `${fromUserName} sana öncelikli bir mesaj isteği gönderdi!`,
+            read: false, createdAt: now
+        });
+     });
+
+    // Send Push
+    await sendPushToUser(targetUserId, {
+        title: "Öncelikli mesaj isteğin var 💌",
+        body: `${fromUserName} sana öne çıkan bir mesaj isteği gönderdi.`,
+        data: {
+            type: "priority_message_request",
+            fromUserId,
+            requestId: `req_${fromUserId}_${targetUserId}`,
+            targetTab: "messages",
+            targetSubTab: "requests"
+        }
+    });
+
+    return { success: true };
+  } catch (error: any) {
+      console.error("sendPriorityMessageRequest error:", error);
+      throw error;
   }
 });
 
@@ -552,10 +783,16 @@ export const sendMessageRequest = functions.region('us-central1').https.onCall(a
 
       const notifRef = db.collection("notifications").doc();
       transaction.set(notifRef, { 
-        userId: toUserId, fromUserId, type: "message_request", 
+        userId: toUserId, 
+        fromUserId, 
+        type: "message_request", 
         title: "Yeni Mesaj İsteği 💌", 
         message: `${fromData.social?.nickname || fromData.displayName || "Biri"} sana bir mesaj isteği gönderdi.`, 
-        data: { fromUserId }, read: false, createdAt: now 
+        fromUserName: fromData.social?.nickname || fromData.displayName || "Biri",
+        fromUserPhoto: fromData.photoURL || fromData.social?.photos?.[0] || "",
+        data: { fromUserId }, 
+        read: false, 
+        createdAt: now 
       });
 
       return { success: true, status: 'SUCCESS', toUserId, senderNickname: fromData.social?.nickname || fromData.displayName, senderPhoto: fromData.photoURL || fromData.social?.photos?.[0] };
@@ -610,7 +847,17 @@ export const acceptRequest = functions.region('us-central1').https.onCall(async 
       transaction.set(msgRef, { id: msgRef.id, chatId, participants: [fromUserId, userId], senderId: "system", text: "Sohbet başlayabilir.", createdAt: now, status: 'sent', type: 'system' });
 
       const notifRef = db.collection("notifications").doc();
-      transaction.set(notifRef, { userId: fromUserId, type: "request_accepted", title: "İstek Kabul Edildi!", message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, data: { chatId }, read: false, createdAt: now });
+      transaction.set(notifRef, { 
+        userId: fromUserId, 
+        type: "request_accepted", 
+        title: "İstek Kabul Edildi!", 
+        message: `${toSnap.data()?.social?.nickname || toSnap.data()?.displayName} mesaj isteğini kabul etti! 🎉`, 
+        fromUserName: toSnap.data()?.social?.nickname || toSnap.data()?.displayName || "Biri",
+        fromUserPhoto: toSnap.data()?.photoURL || toSnap.data()?.social?.photos?.[0] || "",
+        data: { chatId }, 
+        read: false, 
+        createdAt: now 
+      });
 
       return { status: 'SUCCESS', chatId, fromUserId, toUserId: userId, toUserNickname: toSnap.data()?.social?.nickname || toSnap.data()?.displayName, toUserPhoto: toSnap.data()?.photoURL || toSnap.data()?.social?.photos?.[0] };
     });
@@ -1036,6 +1283,7 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       person2,
       relationshipType: relationshipType || 'ask',
       status: 'locked', 
+      revealed: false,
       unlockAt: unlockAtTime,
       loveScore: parseScore(parsed.loveScore),
       friendshipScore: parseScore(parsed.friendshipScore),
@@ -1049,18 +1297,26 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
     
     const batch = db.batch();
     batch.set(docRef, analysisData);
-    batch.set(db.collection("notifications").doc(), { userId, type: 'system', title: 'Kozmik Uyum Analizi Hazır! ✨', message: 'Frekans analiz sonuçlarını incelemek için dokun.', read: false, createdAt: FieldValue.serverTimestamp() });
+    batch.set(db.collection("notifications").doc(), { 
+      userId, 
+      type: 'system', 
+      title: 'Uyum Analizi Hazırlanıyor... ✨', 
+      message: 'Frekans analizin birazdan sonuçlanacak. Sonucunu Frekans Arşivi\'nde görebilirsin.', 
+      read: false, 
+      createdAt: FieldValue.serverTimestamp() 
+    });
     await batch.commit();
     await sendPushToUser(userId, { 
-      title: "Uyum Analizin Tamamlandı 🔮", 
-      body: "Frekansınız ortaya çıktı, sonucu görmek ister misin?", 
+      title: "Uyum Analizi Başlatıldı 🔮", 
+      body: "Frekansların taranıyor... Analizin birazdan hazır olacak.", 
       category: 'compatibility',
-      data: { type: 'compatibility', analysisId: docRef.id }
+      data: { type: 'compatibilityProgress', analysisId: docRef.id }
     });
     return analysisData;
-  } catch (e) {
-    console.error("AI Generation Error", e);
-    throw new functions.https.HttpsError('internal', 'AI servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
+  } catch (e: any) {
+    console.error("AI Generation Fatal Error:", e);
+    const errorMessage = e && e.message ? e.message : 'Bilinmeyen hata';
+    throw new functions.https.HttpsError('internal', `AI servisine şu an ulaşılamıyor: ${errorMessage}`);
   }
 }
 
@@ -1072,37 +1328,84 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
     if (!data || !data.targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
     const { targetUserId, relationshipType } = data;
 
-    // Credit check and Request creation must be atomic
+    // Duplicate check: prevent starting new analysis if one is already pending or locked
+    const existingPending = await db.collection("compatibilityHistory")
+      .where("userId", "==", userId)
+      .where("targetUserId", "==", targetUserId)
+      .where("status", "in", ["locked", "pending"])
+      .limit(1)
+      .get();
+      
+    if (!existingPending.empty) {
+      throw new functions.https.HttpsError('already-exists', 'ALREADY_PENDING');
+    }
+
     const userRef = db.collection("users").doc(userId);
-    const requestRef = db.collection("compatibilityRequests").doc();
-    
-    const requestId = await db.runTransaction(async (transaction) => {
-      const uSnap = await transaction.get(userRef);
+    const targetRef = db.collection("users").doc(targetUserId);
+
+    // 1. Fetch Economy Config for Price
+    const economySnap = await db.collection("adminSettings").doc("economy").get();
+    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
+
+    // 2. Perform Transaction for Payment
+    const usersData = await db.runTransaction(async (transaction) => {
+      const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
       if (!uSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+      if (!tSnap.exists) throw new functions.https.HttpsError('not-found', "Hedef kullanıcı bulunamadı.");
       
       const user = uSnap.data() as any;
-      if ((user.compatibilityCount || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
+      const targetUser = tSnap.data() as any;
 
-      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
-      
-      const revealAt = new Date(Date.now() + 5 * 60 * 1000); // Now + 5 mins
-      
-      transaction.set(requestRef, { 
-        userId,
-        targetUserId,
-        relationshipType: relationshipType || 'ask',
-        status: "pending",
-        revealed: false,
-        createdAt: FieldValue.serverTimestamp(),
-        revealAt: revealAt.toISOString()
-      });
-      return requestRef.id;
+      if ((user.compatibilityCount || 0) > 0) {
+        transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      } else if ((user.mainCoins || 0) >= compatPrice) {
+        transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });
+        // Log transaction
+        const txRef = db.collection("walletTransactions").doc();
+        transaction.set(txRef, {
+          id: txRef.id,
+          userId,
+          type: 'spend',
+          source: 'compatibility_analysis',
+          amount: -compatPrice,
+          balanceType: 'main',
+          createdAt: new Date().toISOString(),
+          status: 'spent',
+          description: `Uyum Analizi (Keşfet)`
+        });
+      } else {
+        throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye veya analiz hakkı.");
+      }
+
+      return {
+        me: {
+          name: user.social?.nickname || user.displayName || "Sen",
+          birthDate: user.birthDate || user.social?.birthDate || "",
+          photo: user.social?.photos?.[0] || user.photoURL || ""
+        },
+        target: {
+          name: targetUser.social?.nickname || targetUser.displayName || "O",
+          birthDate: targetUser.birthDate || targetUser.social?.birthDate || "",
+          photo: targetUser.social?.photos?.[0] || targetUser.photoURL || ""
+        }
+      };
     });
+
+    // 3. Process AI implicitly inline - results in compatibilityHistory
+    const analysisData = await generateCompatibilityAiDirect(
+      usersData.me, 
+      usersData.target, 
+      relationshipType || 'ask', 
+      userId, 
+      targetUserId
+    );
     
     return { 
       success: true, 
-      requestId, 
-      status: "pending"
+      requestId: analysisData.id, 
+      status: "locked",
+      finishTime: analysisData.unlockAt
     };
   } catch (error: any) {
     console.error("runDiscoverCompatibilityAnalysis error:", error);
@@ -1123,17 +1426,47 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
     const cleanPerson2 = JSON.parse(JSON.stringify(person2));
 
     const userRef = db.collection("users").doc(userId);
+
+    // 1. Fetch Economy Config for Price
+    const economySnap = await db.collection("adminSettings").doc("economy").get();
+    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
     
     await db.runTransaction(async (transaction) => {
       const snap = await transaction.get(userRef);
       if (!snap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
-      if ((snap.data()?.compatibilityCount || 0) <= 0) throw new functions.https.HttpsError('failed-precondition', "Yetersiz uyum analizi kredisi.");
-      transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      const user = snap.data() as any;
+
+      if ((user.compatibilityCount || 0) > 0) {
+        transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      } else if ((user.mainCoins || 0) >= compatPrice) {
+        transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });
+        // Log transaction
+        const txRef = db.collection("walletTransactions").doc();
+        transaction.set(txRef, {
+          id: txRef.id,
+          userId,
+          type: 'spend',
+          source: 'compatibility_analysis',
+          amount: -compatPrice,
+          balanceType: 'main',
+          createdAt: new Date().toISOString(),
+          status: 'spent',
+          description: `Uyum Analizi (Manuel)`
+        });
+      } else {
+        throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye veya analiz hakkı.");
+      }
     });
     
-    // Process AI explicitly inline
+    // 2. Process AI implicitly inline - results in compatibilityHistory with 5min lock
     const analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
-    return { success: true, analysis: analysisData, cached: true };
+    return { 
+      success: true, 
+      requestId: analysisData.id, 
+      finishTime: analysisData.unlockAt,
+      status: "locked" 
+    };
   } catch (error: any) {
     console.error("runManualCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -1180,6 +1513,7 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
       
       transaction.update(reqRef, {
         status: 'completed',
+        revealed: true,
         unlockAt: new Date().toISOString() // Unlock immediately
       });
       
@@ -1189,6 +1523,169 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
     console.error("speedUpCompatibilityAnalysis error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'İşlem sırasında hata oluştu.');
+  }
+});
+
+export const claimOnboardingDiscoverBonus = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const userRef = db.collection("users").doc(userId);
+  
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      const user = snap.data();
+      
+      if (user?.social?.onboardingDiscoverBonusClaimed) {
+        throw new functions.https.HttpsError('already-exists', 'Bonus zaten alındı.');
+      }
+
+      const createdAt = user?.createdAt ? new Date(user.createdAt) : new Date();
+      const now = new Date();
+      const diffHrs = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+      if (diffHrs > 24) {
+          throw new functions.https.HttpsError('failed-precondition', 'Bonus süresi doldu.');
+      }
+
+      transaction.update(userRef, {
+        "social.onboardingDiscoverBonusClaimed": true,
+        "social.discoverLikesRemaining": 65,
+        "social.discoverLikesLastReset": now.toISOString(),
+        "social.updatedAt": FieldValue.serverTimestamp()
+      });
+      
+      return { success: true, amount: 65 };
+    });
+  } catch (error: any) {
+    console.error("claimOnboardingDiscoverBonus error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Bonus alınırken hata oluştu.');
+  }
+});
+
+export const claim10MinuteReward = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const userRef = db.collection("users").doc(userId);
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      const user = snap.data();
+      
+      if (user?.social?.receivedOnboarding10mReward) {
+        throw new functions.https.HttpsError('already-exists', 'Ödül zaten alındı.');
+      }
+
+      transaction.update(userRef, {
+        "social.receivedOnboarding10mReward": true,
+        "compatibilityCount": FieldValue.increment(1),
+        "social.updatedAt": FieldValue.serverTimestamp()
+      });
+
+      return { success: true };
+    });
+  } catch (error: any) {
+    console.error("claim10MinuteReward error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Ödül alınırken hata oluştu.');
+  }
+});
+
+export const resetDailyDiscoverLikes = functions.region('us-central1').https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
+  const userRef = db.collection("users").doc(userId);
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      const user = snap.data();
+
+      const lastResetStr = user?.social?.discoverLikesLastReset;
+      const now = new Date();
+      
+      if (lastResetStr) {
+        const lastReset = new Date(lastResetStr);
+        const diffHrs = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
+        if (diffHrs < 24) {
+          return { success: false, message: 'Henüz yenileme zamanı gelmedi.' };
+        }
+      }
+
+      transaction.update(userRef, {
+        "social.discoverLikesRemaining": 15,
+        "social.discoverLikesLastReset": now.toISOString(),
+        "social.updatedAt": FieldValue.serverTimestamp()
+      });
+
+      return { success: true, amount: 15 };
+    });
+  } catch (error: any) {
+    console.error("resetDailyDiscoverLikes error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Yenileme sırasında hata oluştu.');
+  }
+});
+
+// 23. Check and Notify Locked Compatibility
+export const notifyUnlockedCompatibility = functions.region('us-central1').pubsub.schedule('every 2 minutes').onRun(async (context) => {
+  const now = new Date().toISOString();
+  
+  try {
+    const lockedSnap = await db.collection("compatibilityHistory")
+      .where("status", "==", "locked")
+      .where("revealed", "==", false)
+      .where("unlockAt", "<=", now)
+      .limit(100)
+      .get();
+      
+    if (lockedSnap.empty) return null;
+    
+    console.log(`[notifyUnlockedCompatibility] Found ${lockedSnap.size} analyses to unlock`);
+    
+    const promises = lockedSnap.docs.map(async (doc) => {
+      const data = doc.data();
+      // Double check notifiedReady to avoid race conditions if multiple instances run
+      if (data.notifiedReady) return;
+      
+      const userId = data.userId;
+      
+      const batch = db.batch();
+      batch.update(doc.ref, {
+        notifiedReady: true,
+        status: 'completed',
+        revealed: true
+      });
+      
+      batch.set(db.collection("notifications").doc(), {
+        userId,
+        type: 'compatibility_ready',
+        title: 'Uyum Analizin Hazır! ✨',
+        message: 'Frekans analiz sonucun artık açıldı, hemen incele.',
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+        metadata: { analysisId: doc.id }
+      });
+      
+      await batch.commit();
+      
+      await sendPushToUser(userId, {
+        title: "Uyum Analizin Açıldı! ✨",
+        body: "Yıldızlar konuştu, kozmik uyum sonucunu görmek ister misin?",
+        category: 'compatibility',
+        data: { type: 'compatibility', analysisId: doc.id }
+      });
+    });
+    
+    await Promise.all(promises);
+    return null;
+  } catch (error) {
+    console.error("notifyUnlockedCompatibility error:", error);
+    return null;
   }
 });
 
@@ -1378,5 +1875,110 @@ export const adminUpdateVerificationStatus = functions.region('us-central1').htt
     console.error("adminUpdateVerificationStatus error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', 'İşlem başarısız oldu.');
+  }
+});
+
+/**
+ * Calculate Profile Completion Percentage
+ */
+function calculateProfileCompletion(social: any) {
+  if (!social) return 0;
+  let score = 0;
+  if (social.nickname) score += 20;
+  if (social.bio && social.bio.length > 20) score += 20;
+  else if (social.bio) score += 10;
+  
+  if (social.photos && social.photos.length >= 3) score += 20;
+  else if (social.photos && social.photos.length > 0) score += 10;
+  
+  if (social.interests && social.interests.length >= 5) score += 20;
+  else if (social.interests && social.interests.length > 0) score += 10;
+  
+  if (social.birthDate && social.gender) score += 20;
+  else if (social.birthDate || social.gender) score += 10;
+  
+  return score;
+}
+
+// 24. Daily Engagement Scheduled Task
+export const notifyDailyEngagement = functions.region('us-central1').pubsub.schedule('every 2 hours').onRun(async (context) => {
+  const now = admin.firestore.Timestamp.now();
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  
+  try {
+    // 1. Discover Return Inactivity (24h+)
+    const inactiveUsers = await db.collection("users")
+      .where("lastActiveAt", "<=", oneDayAgo)
+      .limit(100)
+      .get();
+      
+    const engagementPromises = inactiveUsers.docs.map(async (doc) => {
+      const data = doc.data();
+      const lastDiscRemAt = data.social?.notifications?.lastDiscoverReminderAt;
+      
+      // Cooldown 24h
+      if (lastDiscRemAt && lastDiscRemAt.toMillis() > oneDayAgo.getTime()) return;
+      
+      const userId = doc.id;
+      
+      await db.collection("notifications").add({
+        userId,
+        type: "discover_return",
+        title: "Seni Özledik! 🔮",
+        message: "Bugün Keşfet'te yeni ruhlar seni bekliyor olabilir.",
+        read: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
+      
+      await db.collection("users").doc(userId).set({
+        social: { notifications: { lastDiscoverReminderAt: FieldValue.serverTimestamp() } }
+      }, { merge: true });
+      
+      await sendPushToUser(userId, {
+        title: "Yeni Ruhlar Seni Bekliyor! 🔮",
+        body: "Enerjin bugün harika! Keşfet'te kimlerin olduğunu görmek ister misin?",
+        category: "engagement"
+      });
+    });
+    
+    // 2. Daily Likes Reset Reminder
+    const resetUsers = await db.collection("users")
+      .where("social.notifications.lastLikesResetNotifAt", "<=", sixHoursAgo)
+      .limit(50)
+      .get();
+      
+    const resetPromises = resetUsers.docs.map(async (doc) => {
+      const data = doc.data();
+      // If discoverLikes is full (reset happened)
+      if (data.social?.discoverLikes === 20) {
+        const userId = doc.id;
+        
+        await db.collection("notifications").add({
+           userId,
+           type: "daily_likes_reset",
+           title: "Beğeni Hakların Yenilendi! ❤️",
+           message: "Yeni gün, yeni eşleşmeler! Ücretsiz beğeni hakların seni bekliyor.",
+           read: false,
+           createdAt: FieldValue.serverTimestamp()
+        });
+        
+        await db.collection("users").doc(userId).set({
+          social: { notifications: { lastLikesResetNotifAt: FieldValue.serverTimestamp() } }
+        }, { merge: true });
+        
+        await sendPushToUser(userId, {
+           title: "Beğeni Hakların Yenilendi! ❤️",
+           body: "Bugünkü eşleşmeni henüz bulamadın mı? Hemen Keşfet'e göz at.",
+           category: "engagement"
+        });
+      }
+    });
+
+    await Promise.all([...engagementPromises, ...resetPromises]);
+    return null;
+  } catch (err) {
+    console.error("notifyDailyEngagement error:", err);
+    return null;
   }
 });

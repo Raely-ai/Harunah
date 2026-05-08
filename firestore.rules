@@ -36,8 +36,12 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isNotBanned();
       allow update: if isOwner(userId) && isNotBanned() && 
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mainCoins', 'energy', 'subscription', 'isBanned', 'superLikes', 'refreshCount', 'compatibilityCount', 'boostExpiresAt', 'socialSubscription']) &&
-        (!('social' in request.resource.data) || !('completionRewardClaimed' in request.resource.data.social) || request.resource.data.social.completionRewardClaimed == resource.data.social.get('completionRewardClaimed', false));
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mainCoins', 'energy', 'subscription', 'isBanned', 'superLikes', 'refreshCount', 'compatibilityCount', 'boostExpiresAt', 'socialSubscription', 'discoverLikesRemaining', 'discoverLikesLastReset']) &&
+        (!('social' in request.resource.data) || (
+          (!('completionRewardClaimed' in request.resource.data.social) || request.resource.data.social.completionRewardClaimed == resource.data.social.get('completionRewardClaimed', false)) &&
+          (!('onboardingDiscoverBonusClaimed' in request.resource.data.social) || request.resource.data.social.onboardingDiscoverBonusClaimed == resource.data.social.get('onboardingDiscoverBonusClaimed', false)) &&
+          (!('receivedOnboarding10mReward' in request.resource.data.social) || request.resource.data.social.receivedOnboarding10mReward == resource.data.social.get('receivedOnboarding10mReward', false))
+        ));
       allow delete: if isAdmin();
     }
 
@@ -124,7 +128,7 @@ service cloud.firestore {
 
     // Compatibility
     match /compatibilityHistory/{id} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
       allow write: if false;
     }
 

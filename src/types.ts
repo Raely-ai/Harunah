@@ -122,6 +122,8 @@ export interface CompatibilityHistory {
   createdAt: string;
   cacheKey: string;
   revealed?: boolean;
+  status?: 'locked' | 'revealed' | 'completed';
+  unlockAt?: string;
   person1?: {
     name: string;
     birthDate: string;
@@ -221,6 +223,7 @@ export interface UserProfile {
     visible: boolean;
     banned: boolean;
     isOnline?: boolean;
+    active?: boolean;
     lastSeen?: any;
     lastActiveAt?: any;
     lastSeenLikersAt?: any;
@@ -247,12 +250,25 @@ export interface UserProfile {
     blockedUserIds?: string[];
     mutedUserIds?: string[];
     completionRewardClaimed?: boolean;
+    // Discover Likes
+    discoverLikesRemaining?: number;
+    discoverLikesLastReset?: string;
     verified?: boolean;
     verificationStatus?: "none" | "pending" | "approved" | "rejected";
     verificationPhotoUrl?: string;
     verificationSubmittedAt?: string;
     verificationApprovedAt?: string;
     verificationRewardClaimed?: boolean;
+    notifications?: {
+      lastProfileReminderAt?: any;
+      lastDiscoverReminderAt?: any;
+      lastLikesResetNotifAt?: any;
+      lastProfileCompletedNotifAt?: any;
+    };
+    intent?: string;
+    lifetimeSwipes?: number;
+    receivedOnboarding10mReward?: boolean;
+    onboardingDiscoverBonusClaimed?: boolean;
   };
 
   // Notification & FCM
@@ -290,6 +306,9 @@ export interface UserProfile {
     city: string;
     country: string;
   };
+  
+  level?: number;
+  isNew?: boolean;
 
   // Social Wallet Fields
   boostExpiresAt?: string;
@@ -372,6 +391,18 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
     else social.lookingFor = 'arkadaş';
   }
   if (!social.bio) social.bio = data.bio || '';
+  if (!social.intent) social.intent = data.social?.intent || '';
+  
+  // Clean up lookingFor vs intent
+  const intentValues = ['aşk', 'dostluk', 'sohbet'];
+  if (social.lookingFor && intentValues.includes(social.lookingFor.toLowerCase())) {
+    if (!social.intent) social.intent = social.lookingFor;
+    // Reset lookingFor to a gender-based default
+    if (social.gender === 'erkek') social.lookingFor = 'kadın';
+    else if (social.gender === 'kadın') social.lookingFor = 'erkek';
+    else social.lookingFor = 'herkes';
+  }
+
   if (!social.photos || social.photos.length === 0) social.photos = data.photos || [];
   if (!social.interests || social.interests.length === 0) social.interests = data.interests || [];
   if (social.enabled === undefined) social.enabled = data.socialEnabled || false;
@@ -379,10 +410,25 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
   if (social.completionRewardClaimed === undefined) social.completionRewardClaimed = data.social?.completionRewardClaimed || false;
   if (social.verificationRewardClaimed === undefined) social.verificationRewardClaimed = data.social?.verificationRewardClaimed || data.verificationRewardClaimed || false;
 
-  // Auto-complete profile flag if basic requirements (Fast Track) are met after merge
+  // Discovery Likes Initialization
+  if (social.discoverLikesRemaining === undefined) {
+    social.discoverLikesRemaining = data.social?.discoverLikesRemaining !== undefined ? data.social.discoverLikesRemaining : 15;
+  }
+  if (!social.discoverLikesLastReset) {
+    social.discoverLikesLastReset = data.social?.discoverLikesLastReset || new Date().toISOString();
+  }
+
+  // Auto-complete profile flag if robust requirements are met
   if (!social.profileCompleted) {
-    const hasFastTrack = !!(social.nickname && social.gender && (data.birthDate || profile.birthDate));
-    if (hasFastTrack) {
+    const hasEnoughInterests = (social.interests || []).length >= 5;
+    const hasEnoughBio = (social.bio || '').length >= 10;
+    const hasNickname = (social.nickname || '').length >= 2;
+    const hasBirthDate = !!(data.birthDate || profile.birthDate);
+    const hasGender = !!social.gender;
+    
+    const isActuallyComplete = hasNickname && hasGender && hasBirthDate && hasEnoughInterests && hasEnoughBio;
+    
+    if (isActuallyComplete) {
       social.profileCompleted = true;
       social.enabled = true;
     }
@@ -815,6 +861,7 @@ export type SocialActionResult =
   | 'BLOCKED'
   | 'INSUFFICIENT_FUNDS'
   | 'DAILY_LIMIT_REACHED'
+  | 'DISCOVER_LIMIT_REACHED'
   | 'NOTIFICATION_FAILED'
   | 'TECHNICAL_ERROR';
 

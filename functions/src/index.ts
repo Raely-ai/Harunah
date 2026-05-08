@@ -33,6 +33,7 @@ export const {
   refreshDiscoverFeed,
   sendLike,
   sendMessageRequest,
+  sendPriorityMessageRequest,
   acceptRequest,
   rejectRequest,
   sendMessage,
@@ -51,10 +52,15 @@ export const {
   runDiscoverCompatibilityAnalysis,
   runManualCompatibilityAnalysis,
   speedUpCompatibilityAnalysis,
+  claimOnboardingDiscoverBonus,
+  claim10MinuteReward,
+  resetDailyDiscoverLikes,
   claimProfileCompletionReward,
   submitProfileVerification,
   adminUpdateVerificationStatus,
   onMessageCreated,
+  notifyUnlockedCompatibility,
+  notifyDailyEngagement,
   generateThumbnails
 } = social;
 

@@ -18,38 +18,28 @@ export const getTargetGender = (user: UserProfile): "erkek" | "kadın" => {
   return target;
 };
 
-export const checkMutualGenderPreference = (currentUser: UserProfile, targetUser: UserProfile): boolean => {
+export const checkGenderPreference = (currentUser: UserProfile, targetUser: UserProfile): boolean => {
   const currentGender = (currentUser.social?.gender || "erkek").toLowerCase();
   const targetGender = (targetUser.social?.gender || "kadın").toLowerCase();
 
   const currentLookingFor = (currentUser.social?.lookingFor || "").toLowerCase();
-  const targetLookingFor = (targetUser.social?.lookingFor || "").toLowerCase();
 
-  // 1) Does current user accept target gender?
-  let currentLikesTarget = false;
-  if (currentLookingFor.includes('herkes') || currentLookingFor.includes('arkadaş')) {
-    currentLikesTarget = true;
-  } else if (currentLookingFor.includes(targetGender)) {
-    currentLikesTarget = true;
-  } else if (!currentLookingFor || currentLookingFor === 'aşk' || currentLookingFor === 'dostluk' || currentLookingFor === 'sohbet') {
-    // Fallback: Default to opposite gender
-    const defaultTarget = currentGender === 'erkek' ? 'kadın' : 'erkek';
-    currentLikesTarget = (targetGender === defaultTarget);
+  // "Kimleri istiyorsun?" - target'in ne istediğine asla bakmıyoruz.
+  if (currentLookingFor.includes('herkes') || currentLookingFor.includes('arkadaş') || currentLookingFor.includes('all')) {
+    return true;
+  } 
+
+  if (currentLookingFor.includes('kadın') || currentLookingFor.includes('female') || currentLookingFor.includes('kadin')) {
+    if (targetGender.includes('kadın') || targetGender.includes('female') || targetGender.includes('kadin')) return true;
+  }
+  
+  if (currentLookingFor.includes('erkek') || currentLookingFor.includes('male')) {
+    if (targetGender.includes('erkek') || targetGender.includes('male')) return true;
   }
 
-  // 2) Does target user accept current gender?
-  let targetLikesCurrent = false;
-  if (targetLookingFor.includes('herkes') || targetLookingFor.includes('arkadaş')) {
-    targetLikesCurrent = true;
-  } else if (targetLookingFor.includes(currentGender)) {
-    targetLikesCurrent = true;
-  } else if (!targetLookingFor || targetLookingFor === 'aşk' || targetLookingFor === 'dostluk' || targetLookingFor === 'sohbet') {
-    // Fallback: Default to opposite gender
-    const defaultTarget = targetGender === 'erkek' ? 'kadın' : 'erkek';
-    targetLikesCurrent = (currentGender === defaultTarget);
-  }
-
-  return currentLikesTarget && targetLikesCurrent;
+  // Fallback for "aşk", "dostluk", "sohbet" or empty - we default to everyone instead of opposite 
+  // since this should not hard filter the pool if they haven't explicitly set a gender
+  return true; 
 };
 
 /**
@@ -67,7 +57,7 @@ export const isEligibleSocialUser = (user: UserProfile, currentUser: UserProfile
     return false;
   }
 
-  if (!checkMutualGenderPreference(currentUser, user)) {
+  if (!checkGenderPreference(currentUser, user)) {
     return false;
   }
 

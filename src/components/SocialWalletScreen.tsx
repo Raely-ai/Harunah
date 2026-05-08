@@ -199,7 +199,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         try {
           const result = await walletService.purchaseBoostPackage(currentUser.uid, type);
           if (result.success) {
-            toast.success("Boost başarıyla aktif edildi!");
+            toast.success("Artık daha fazla kişiye görünüyorsun ✨");
             setShowBoostModal(false);
             refreshData();
           } else {

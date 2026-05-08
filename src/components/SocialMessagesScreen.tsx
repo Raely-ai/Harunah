@@ -136,9 +136,19 @@ export default function SocialMessagesScreen({
 
     window.addEventListener('openChatFromToast', handleOpenChat);
     window.addEventListener('open-chat', handleOpenChat);
+
+    const handleSwitchTab = (e: any) => {
+      const { tab } = e.detail;
+      if (['chats', 'requests', 'likers'].includes(tab)) {
+        setActiveTab(tab as any);
+      }
+    };
+    window.addEventListener('switch-social-tab', handleSwitchTab);
+
     return () => {
       window.removeEventListener('openChatFromToast', handleOpenChat);
       window.removeEventListener('open-chat', handleOpenChat);
+      window.removeEventListener('switch-social-tab', handleSwitchTab);
     };
   }, [chats, currentUser.uid]);
 

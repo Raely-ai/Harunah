@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDoc, doc, updateDoc, Timestamp } from 'firebase/firestore';
 
 import { db } from '../lib/firebase';
 import { toast } from 'sonner';
 import { CustomToast } from './CustomToast';
 
-import { UserProfile, normalizeUserProfile } from '../types';
+import { UserProfile, normalizeUserProfile, AppTab } from '../types';
 import { isNotificationProcessed, markNotificationProcessed } from '../lib/notificationStore';
 
 // Cache for user profiles to avoid redundant fetches
@@ -14,15 +14,18 @@ const profileCache = new Map<string, { name: string, photo: string }>();
 export const NotificationToastListener: React.FC<{ 
   userProfile: UserProfile | null; 
   activeChatId?: string | null;
+  activeTab: AppTab;
   onNavigate: (tab: any) => void;
 }> = ({ 
   userProfile,
   activeChatId,
+  activeTab,
   onNavigate
 }) => {
   const mountTime = useRef(new Date());
   const activeChatIdRef = useRef(activeChatId);
   const onNavigateRef = useRef(onNavigate);
+  const activeTabRef = useRef(activeTab);
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
@@ -30,7 +33,28 @@ export const NotificationToastListener: React.FC<{
 
   useEffect(() => {
     onNavigateRef.current = onNavigate;
-  }, [onNavigate]);
+    activeTabRef.current = activeTab;
+  }, [onNavigate, activeTab]);
+
+  // Helper to calculate profile completion
+  const calculateProfileCompletion = (social: any) => {
+    if (!social) return 0;
+    let score = 0;
+    if (social.nickname) score += 20;
+    if (social.bio && social.bio.length > 20) score += 20;
+    else if (social.bio) score += 10;
+    
+    if (social.photos && social.photos.length >= 3) score += 20;
+    else if (social.photos && social.photos.length > 0) score += 10;
+    
+    if (social.interests && social.interests.length >= 5) score += 20;
+    else if (social.interests && social.interests.length > 0) score += 10;
+    
+    if (social.birthDate && social.gender) score += 20;
+    else if (social.birthDate || social.gender) score += 10;
+    
+    return score;
+  };
 
   // Helper to safely parse Firestore Timestamps or strings
   const parseDate = (val: any) => {
@@ -44,35 +68,41 @@ export const NotificationToastListener: React.FC<{
 
     console.log("TOAST_LISTENER_ACTIVE", userProfile.uid);
 
-    // 1. Listen for new Interaction Requests (Likes, Friend Requests)
-    const requestsQuery = query(
-      collection(db, "interactionRequests"),
-      where("toUserId", "==", userProfile.uid),
-      where("status", "==", "pending")
-    );
+    // 1. Profile Completion Reminder (In-App Only)
+    const checkProfileReminder = async () => {
+      if (userProfile.uid === 'guest') return;
+      const social = userProfile.social;
+      if (!social) return;
 
-    const unsubRequests = onSnapshot(requestsQuery, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
-          const docId = change.doc.id;
-          if (isNotificationProcessed(docId)) return;
-
-          const data = change.doc.data();
-          const createdAt = parseDate(data.createdAt);
-          
-          if (createdAt && createdAt > mountTime.current) {
-            markNotificationProcessed(docId);
+      const completion = calculateProfileCompletion(social);
+      if (completion < 80) {
+        const lastRem = social.notifications?.lastProfileReminderAt;
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const lastRemTime = lastRem?.toMillis ? lastRem.toMillis() : (lastRem ? new Date(lastRem).getTime() : 0);
+        
+        if (!lastRem || lastRemTime < oneDayAgo) {
+          if (activeTabRef.current !== 'social-profile') {
             toast(<CustomToast 
-                name={data.senderName || 'Yeni Beğeni'}
-                message={data.type === 'super_like' ? 'Sana bir Süper Like gönderdi! 🔥' : 'Seni beğendi, hemen bak! ❤️'}
-                avatar={data.senderPhoto || ''}
-                onNavigate={() => onNavigateRef.current('messages')} 
-                onDismiss={() => {}}
-            />, { id: `request-${docId}` });
+              name="Profilini Güçlendir ✨"
+              message="Profilini biraz daha tamamlarsan Keşfet'te çok daha fazla kişinin önüne çıkabilirsin!"
+              avatar=""
+              onNavigate={() => onNavigateRef.current('social-profile')}
+              onDismiss={() => {}}
+            />, { duration: 6000 });
+
+            try {
+              await updateDoc(doc(db, "users", userProfile.uid), {
+                "social.notifications.lastProfileReminderAt": Timestamp.now()
+              });
+            } catch (err) {
+              console.error("Failed to update profile reminder timestamp:", err);
+            }
           }
         }
-      });
-    });
+      }
+    };
+    
+    const reminderTimer = setTimeout(checkProfileReminder, 5000);
 
     // 2. Listen for new Completed Readings
     const readingsQuery = query(
@@ -92,6 +122,10 @@ export const NotificationToastListener: React.FC<{
           
           if (createdAt && createdAt > mountTime.current) {
             markNotificationProcessed(docId);
+            
+            // Skip if user is already looking at history
+            if (activeTabRef.current === 'history') return;
+
             toast(<CustomToast 
                 name="Kahve Falı"
                 message="Kahve falın yorumlandı, hemen incele! ☕"
@@ -213,13 +247,85 @@ export const NotificationToastListener: React.FC<{
     });
 
     return () => {
-      unsubRequests();
       unsubReadings();
       unsubChats();
-      // Only clear if needed, keeping processed ids might prevent repeats on toggle
-      // processedMessageIds.clear(); 
+      clearTimeout(reminderTimer);
     };
-  }, [userProfile?.uid]); // Reduced dependencies to avoid re-mounting on profile detail changes (status, etc)
+  }, [userProfile?.uid, activeTab]); 
+
+  // 4. Listen for System Notifications
+  useEffect(() => {
+    if (!userProfile?.uid) return;
+
+    const notifQuery = query(
+      collection(db, "notifications"),
+      where("userId", "==", userProfile.uid),
+      where("read", "==", false)
+    );
+
+    const unsubNotifs = onSnapshot(notifQuery, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added" && !change.doc.metadata.hasPendingWrites) {
+          const docId = change.doc.id;
+          if (isNotificationProcessed(docId)) return;
+
+          const data = change.doc.data();
+          const createdAt = parseDate(data.createdAt);
+          
+          if (createdAt && createdAt > mountTime.current) {
+            markNotificationProcessed(docId);
+            
+            // Customize based on type
+            let name = data.fromUserName || data.title || 'Lasya';
+            let message = data.message || 'Yeni bir bildiriminiz var.';
+            let avatar = data.fromUserPhoto || '';
+            let targetTab: any = 'home';
+            let subTab: string | null = null;
+
+            if (data.type === 'compatibility_ready' || data.type === 'system' || data.type === 'compatibility_started') {
+                if (activeTabRef.current === 'history') return;
+                targetTab = 'history';
+            } else if (data.type === 'like' || data.type === 'super_like') {
+                if (activeTabRef.current === 'messages') return;
+                targetTab = 'messages';
+                subTab = 'likers';
+            } else if (data.type === 'message_request') {
+                if (activeTabRef.current === 'messages') return;
+                targetTab = 'messages';
+                subTab = 'requests';
+            } else if (data.type === 'request_accepted') {
+                targetTab = 'messages';
+                subTab = 'chats';
+            } else if (data.type === 'discover_return' || data.type === 'daily_likes_reset') {
+                targetTab = 'home';
+                subTab = 'discover';
+            } else if (data.type === 'profile_completed') {
+                if (activeTabRef.current === 'social-profile') return;
+                targetTab = 'social-profile';
+            }
+
+            toast(<CustomToast 
+                name={name}
+                message={message}
+                avatar={avatar}
+                onNavigate={() => {
+                   onNavigateRef.current(targetTab);
+                   if (subTab) {
+                      const eventPrefix = targetTab === 'messages' ? 'social' : 'home';
+                      setTimeout(() => {
+                         window.dispatchEvent(new CustomEvent(`switch-${eventPrefix}-tab`, { detail: { tab: subTab } }));
+                      }, 400);
+                   }
+                }} 
+                onDismiss={() => {}}
+            />, { id: `notif-${docId}` });
+          }
+        }
+      });
+    });
+
+    return () => unsubNotifs();
+  }, [userProfile?.uid]);
 
   return null;
 };

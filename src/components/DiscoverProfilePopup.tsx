@@ -13,14 +13,17 @@ import {
   Wind,
   Clock,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Flag,
+  ShieldAlert
 } from "lucide-react";
 import { UserProfile, CompatibilityHistory } from "../types";
 import { walletService } from "../lib/walletService";
 import { socialService } from "../lib/socialService";
+import { reportService } from "../services/reportService";
 import { toast } from "sonner";
 import { db } from "../lib/firebase";
-import { collection, query, where, getDocs, limit, onSnapshot, orderBy, serverTimestamp, addDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, limit, onSnapshot, orderBy, serverTimestamp, addDoc, doc } from "firebase/firestore";
 import { BlueTick } from "./BlueTick";
 
 interface DiscoverProfilePopupProps {
@@ -46,15 +49,64 @@ export default function DiscoverProfilePopup({
   const [isMessaging, setIsMessaging] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [hasLikedOptimistic, setHasLikedOptimistic] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   const [analysisResult, setAnalysisResult] = useState<CompatibilityHistory | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 
   const activeUser = users[currentIndex];
+
+  // DATA EXTRACTION & DEBUG LOG
+  const gender = (activeUser?.gender || activeUser?.social?.gender || "unknown").toLowerCase();
+  const isFemale = gender === 'female' || gender === 'kadin' || gender === 'kadın';
+  const isMale = gender === 'male' || gender === 'erkek';
+  const nickname = activeUser?.social?.nickname || activeUser?.displayName || "İsimsiz";
+  
+  const calculateAge = (bDay: string | null | undefined): number | null => {
+    if (!bDay) return null;
+    try {
+      const birthDate = new Date(bDay);
+      const ageDifMs = Date.now() - birthDate.getTime();
+      const ageDate = new Date(ageDifMs);
+      return Math.abs(ageDate.getUTCFullYear() - 1970);
+    } catch (e) { return null; }
+  };
+    const u = activeUser as any;
+    const ageValue = u.social?.age || u.age || calculateAge(u.birthDate);
+    const zodiacValue = u.social?.zodiacSign || u.zodiacSign || null;
+    const levelValue = u.social?.level || u.level || null;
+    const isVerifiedValue = u.social?.verified || u.isVerified || u.social?.verificationStatus === "approved";
+    const bioValue = u.social?.bio || u.bio || null;
+    const interestsValue = u.social?.interests || u.interests || [];
+    const lookingForValue = u.social?.lookingFor || u.lookingFor || null;
+
+  console.log("DISCOVER_POPUP_RENDER_FIELDS", {
+    uid: activeUser?.uid,
+    name: nickname,
+    age: ageValue,
+    birthDate: u.birthDate,
+    zodiac: zodiacValue,
+    level: levelValue,
+    verified: isVerifiedValue,
+    bio: bioValue,
+    interests: interestsValue
+  });
+
   const photos = activeUser?.social?.photos || [];
   const currentUid = currentUser.uid;
   const targetUid = activeUser?.uid;
+
+  const [compatPrice, setCompatPrice] = useState(25);
+  
+  const boostTime = activeUser?.boostExpiresAt ? new Date(activeUser.boostExpiresAt).getTime() : 0;
+  const isBoosted = boostTime > Date.now();
+
+  useEffect(() => {
+    walletService.getAdminConfig().then(config => {
+      setCompatPrice(config.socialRightsPrices.compatibility);
+    });
+  }, []);
 
   // Sync state when index changes
   useEffect(() => {
@@ -69,65 +121,41 @@ export default function DiscoverProfilePopup({
     if (targetUid) {
       checkExistingAnalysis(targetUid);
     }
-  }, [currentIndex, targetUid]);
+  }, [currentIndex, targetUid, currentUid]);
 
   const checkExistingAnalysis = async (uid: string) => {
     try {
-      // 1. Check for the latest CompatibilityRequest
-      const qReq = query(
-        collection(db, "compatibilityRequests"),
-        where("userId", "==", currentUid),
-        where("targetUserId", "==", uid),
-        orderBy("createdAt", "desc"),
-        limit(1)
-      );
-      const snapReq = await getDocs(qReq);
-      
-      if (!snapReq.empty) {
-        const req = { id: snapReq.docs[0].id, ...snapReq.docs[0].data() } as any;
-        
-        // IF PENDING: Ignore history, show pending UI
-        if (req.status === 'pending' || req.revealed === false) {
-          setIsPending(true);
-          setPendingRequestId(req.id);
-          setAnalysisResult(null); // Clear result if any
-          return;
-        }
-        
-        // IF REVEALED: Do NOT fetch result automatically
-        // (Wait for polling or explicit user action)
-      }
-      
-      // IF NO PENDING/REVEALED REQUEST: Fallback to old history if exists
-      // (As requested, keeping this logic for retro-compatibility)
-      // I am keeping the logic below so it doesn't break, but I won't automatically show it
-      // as part of the popup opening in a way that interferes with the request check.
-      // Wait, actually, the previous implementation did this:
-      /*
-      const q = query(
+      // 1. Check for the latest CompatibilityHistory
+    const q = query(
         collection(db, "compatibilityHistory"),
         where("userId", "==", currentUid),
-        where("targetUserId", "==", uid),
-        limit(1)
+        where("targetUserId", "==", uid)
       );
       const snap = await getDocs(q);
+      
       if (!snap.empty) {
-        setAnalysisResult({ id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory);
-        return;
-      }
-      */
-      // I will only run this if NO active pending request was found, to support retro-compatibility,
-      // as requested.
-      if (snapReq.empty) {
-        const qHist = query(
-          collection(db, "compatibilityHistory"),
-          where("userId", "==", currentUid),
-          where("targetUserId", "==", uid),
-          limit(1)
-        );
-        const snapHist = await getDocs(qHist);
-        if (!snapHist.empty) {
-          setAnalysisResult({ id: snapHist.docs[0].id, ...snapHist.docs[0].data() } as CompatibilityHistory);
+        // Sort in memory to avoid complex composite index requirement
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as CompatibilityHistory));
+        docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        
+        const data = docs[0];
+        
+        // Deciding if it's locked or revealed
+        const unlockTime = (data as any).unlockAt ? new Date((data as any).unlockAt).getTime() : 0;
+        const isTimeLocked = !!unlockTime && unlockTime > Date.now();
+        const isActuallyRevealed = data.revealed === true || 
+                                   data.status === 'revealed' || 
+                                   data.status === 'completed' ||
+                                   (!data.unlockAt && !isTimeLocked);
+
+        if (isTimeLocked && !isActuallyRevealed) {
+          setIsPending(true);
+          setPendingRequestId(data.id);
+          setAnalysisResult(null);
+        } else {
+          setAnalysisResult(data);
+          setIsPending(false);
+          setPendingRequestId(null);
         }
       }
     } catch (err) {
@@ -135,24 +163,23 @@ export default function DiscoverProfilePopup({
     }
   };
 
-  // Polling logic replaced by onSnapshot for reliability
+  // Listen to the specific pending record if exists
   useEffect(() => {
     if (!pendingRequestId || !currentUid) return;
 
-    const q = query(
-      collection(db, "compatibilityHistory"),
-      where("userId", "==", currentUid),
-      where("requestId", "==", pendingRequestId),
-      limit(1)
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as CompatibilityHistory;
-        setAnalysisResult(data);
-        setIsPending(false);
-        setPendingRequestId(null);
-        toast.success("Uyum analiziniz hazır! ✨");
+    const unsub = onSnapshot(doc(db, "compatibilityHistory", pendingRequestId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = { id: docSnap.id, ...docSnap.data() } as CompatibilityHistory;
+        
+        const unlockTime = (data as any).unlockAt ? new Date((data as any).unlockAt).getTime() : 0;
+        const isTimeLocked = !!unlockTime && unlockTime > Date.now();
+        
+        if (!isTimeLocked || data.revealed === true) {
+          setAnalysisResult(data);
+          setIsPending(false);
+          setPendingRequestId(null);
+          toast.success("Uyum analiziniz hazır! ✨");
+        }
       }
     });
 
@@ -177,71 +204,96 @@ export default function DiscoverProfilePopup({
   const handleCompatibility = async () => {
     if (isAnalyzing || isPending || !targetUid) return;
     
+    // Secure logic: Check rights or coins
+    const hasRights = (currentUser.compatibilityCount || 0) > 0;
+    
+    if (!hasRights && (currentUser.mainCoins || 0) < compatPrice) {
+      toast.info(`Yetersiz Jeton. Uyum analizi için ${compatPrice} J gerekli.`, {
+        description: "Cüzdan sayfasına yönlendiriliyorsunuz..."
+      });
+      onNavigate('wallet');
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
-      // Create a pending request
-      const reqRef = await addDoc(collection(db, "compatibilityRequests"), {
-        userId: currentUid,
-        targetUserId: targetUid,
-        status: "pending",
-        revealed: false,
-        createdAt: serverTimestamp(),
-      });
-      setIsPending(true);
-      setPendingRequestId(reqRef.id);
-      toast.success("Uyum analizi başlatıldı! Yıldızlar hesaplanıyor... ✨");
+      // SECURE CALL: Triggers cloud function for analysis and handles payment
+      const result = await walletService.runCompatibilityAnalysis(targetUid, "compatibility");
+      
+      if (result.success) {
+        if (result.cached && result.analysis) {
+          setAnalysisResult(result.analysis);
+          toast.success("Yıldızlar senin için zaten bakmış! Mevcut analiz getirildi. ✨");
+        } else {
+          setIsPending(true);
+          setPendingRequestId(result.requestId || null);
+          toast.success("Uyum analizin hazırlanıyor! Yıldızlar hesaplanıyor... ✨");
+        }
+      } else {
+        toast.error("Analiz başlatılamadı. Lütfen bakiye kontrolü yapın.");
+      }
 
     } catch (error: any) {
       console.error("Analysis request error:", error);
-      toast.error("Talep başlatılamadı.");
+      toast.error(error.message || "Talep başlatılamadı.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // BUTTON B: Priority Message (100 Credit)
+  // BUTTON B: Priority Message (50 Credit)
   const handlePriorityMessage = async () => {
     if (isMessaging || !targetUid) return;
-    if (currentUser.mainCoins < 100) {
-      toast.info("Yetersiz Kredi (100 J gerekli).");
+    
+    // Check balance (approximate)
+    if (currentUser.mainCoins < 50) {
+      toast.info("Yetersiz Kredi (50 J gerekli).");
       onNavigate('wallet');
       return;
     }
 
     setIsMessaging(true);
-    const timeout = setTimeout(() => {
-      toast.info("İşlem biraz uzun sürüyor...");
-    }, 5000);
-
+    
     try {
-      // 1. Deduct 100 credits
-      const spend = await walletService.spendBalance(
-        currentUid, 
-        'main', 
-        100, 
-        'priority_message', 
-        `${activeUser.social?.nickname} kullanıcısına öncelikli mesaj.`
-      );
-
-      clearTimeout(timeout);
-
-      if (spend.success) {
-        // 2. Open chat
-        const chatId = await socialService.createChat(currentUid, targetUid);
-        if (chatId) {
-          onNavigate('messages');
-          toast.success("Öncelikli mesaj kanalı açıldı! ⚡️");
-          onClose();
+      const result = await socialService.sendPriorityMessageRequest(targetUid);
+      
+      if (result === 'SUCCESS') {
+        toast.success("Mesajın en üste taşındı 💌");
+        if (activeUser?.social?.isOnline) {
+          setTimeout(() => {
+            toast.success("Şu an aktif, hemen görme ihtimali yüksek");
+          }, 600);
         }
+        onClose();
+      } else if (result === 'ALREADY_REQUESTED') {
+        toast.info("Bu kullanıcıya zaten bir istek gönderilmiş.");
+      } else if (result === 'INSUFFICIENT_FUNDS') {
+        toast.info("Bakiye yetersiz.");
+        onNavigate('wallet');
       } else {
-        toast.error(spend.message || "İşlem başarısız.");
+        toast.error("İstek gönderilemedi.");
       }
     } catch (err) {
-      clearTimeout(timeout);
       console.error("Priority message error:", err);
-      toast.error("Mesaj gönderilemedi.");
+      toast.error("İstek gönderilirken hata oluştu.");
     } finally {
       setIsMessaging(false);
+    }
+  };
+
+  const handleReport = async (reason: string) => {
+    if (!activeUser) return;
+    try {
+      await reportService.reportUser({
+        reportedUserId: activeUser.uid,
+        source: 'discover',
+        reason: reason,
+        description: "Keşfet profili üzerinden raporlandı.",
+        metadata: { activeUserId: activeUser.uid }
+      });
+      setShowReportModal(false);
+    } catch (error) {
+      console.error("Report error:", error);
     }
   };
 
@@ -249,18 +301,41 @@ export default function DiscoverProfilePopup({
   const handleFreeLike = async () => {
     if (isLiking || hasLikedOptimistic || !targetUid) return;
     
+    const remaining = currentUser.social?.discoverLikesRemaining ?? 15;
+    
+    if (remaining <= 0) {
+      toast.info("Bugünkü beğeni hakkın bitti! 🌙", {
+        description: "Yarın tekrar deneyebilirsin."
+      });
+      return;
+    }
+
     // OPTIMISTIC UPDATE: Mark as liked immediately
     setHasLikedOptimistic(true);
     setIsLiking(true);
 
     try {
-      // Async call without blocking the user
-      socialService.sendLike(currentUser, targetUid, 'like')
+      // 1. Consume from Firestore
+      const consumed = await socialService.consumeDiscoverLike(currentUid, remaining);
+      
+      if (!consumed) {
+        setHasLikedOptimistic(false);
+        setIsLiking(false);
+        return;
+      }
+
+      // 2. Async call to social backend
+      socialService.sendLike(currentUser, targetUid, 'like', 'discover')
         .then(result => {
           if (result === 'SUCCESS') {
             toast.success(`${activeUser.social?.nickname} beğenildi! 👍`);
+          } else if (result === 'DISCOVER_LIMIT_REACHED') {
+            setHasLikedOptimistic(false);
+            toast.error("Keşfet beğeni limitin doldu!");
           } else {
             setHasLikedOptimistic(false); // Revert if failed
+            if (result === 'DAILY_LIMIT_REACHED') toast.error("Günlük beğeni limitin doldu.");
+            else toast.error("Bir hata oluştu.");
           }
         })
         .catch(err => {
@@ -280,30 +355,31 @@ export default function DiscoverProfilePopup({
   return (
     <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
       {/* BACKGROUND BACKDROP */}
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+      <div 
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
       />
 
       {/* POPUP CARD */}
-      <motion.div 
-        layoutId={`discover-card-${targetUid}`}
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+      <div 
         className="relative w-full max-w-lg h-[85vh] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
       >
-        {/* CLOSE & NAV BUTTONS */}
+        {/* CLOSE, REPORT & NAV BUTTONS */}
         <div className="absolute top-6 inset-x-6 flex items-center justify-between z-50">
-          <button 
-            onClick={onClose}
-            className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={onClose}
+              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowReportModal(true)}
+              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-rose-500 shadow-xl"
+            >
+              <Flag className="w-5 h-5" />
+            </button>
+          </div>
           
           <div className="flex items-center gap-2">
             <button 
@@ -327,17 +403,12 @@ export default function DiscoverProfilePopup({
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {/* PHOTO SECTION */}
           <div className="relative aspect-[4/5] bg-slate-100">
-              <AnimatePresence mode="wait">
-                <motion.img 
-                  key={`${targetUid}-${photoIndex}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  src={photos[photoIndex] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUid}`} 
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              </AnimatePresence>
+            <img 
+              key={`${targetUid}-${photoIndex}`}
+              src={photos[photoIndex] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUid}`} 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
 
             {/* PHOTO NAV DOTS */}
             <div className="absolute bottom-6 inset-x-6 flex gap-1.5 pointer-events-none">
@@ -355,41 +426,80 @@ export default function DiscoverProfilePopup({
             )}
           </div>
 
-          {/* CONTENT SECTION */}
-          <div className="p-8 pb-32 space-y-8">
-            {/* NAME & AGE */}
-            <div>
-              <div className="flex items-center gap-2">
+          {/* CONTENT SECTION (PROFILE PANEL) */}
+          <div className="p-8 pb-32 space-y-6 bg-white rounded-t-[3rem] -mt-10 relative z-10 border-t border-slate-100 shadow-2xl">
+            {/* NAME & AGE PANEL */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-4xl font-black tracking-tighter text-slate-900">
-                  {activeUser.social?.nickname}, <span className="text-amber-500">{activeUser.social?.age || 25}</span>
+                  {nickname}{ageValue ? `, ` : ''}
+                  {ageValue && <span className="text-amber-500">{ageValue}</span>}
                 </h2>
-                {activeUser.social?.verified && <BlueTick size={18} />}
+                {isVerifiedValue && <BlueTick size={24} />}
+                {isBoosted && (
+                  <div className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-amber-600 px-2 py-0.5 rounded-lg shadow-md shadow-amber-500/20">
+                    <Zap className="w-3 h-3 text-white fill-white" />
+                    <span className="text-white text-[10px] font-black uppercase tracking-wider">Öne Çıkan</span>
+                  </div>
+                )}
+                {levelValue && (
+                  <div className="bg-indigo-600 px-3 py-1 rounded-xl shadow-lg shadow-indigo-200">
+                    <span className="text-white text-[10px] font-black uppercase">Lv.{levelValue}</span>
+                  </div>
+                )}
+                <div className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${isFemale ? 'bg-rose-100 text-rose-500' : isMale ? 'bg-indigo-100 text-indigo-500' : 'bg-slate-100 text-slate-500'}`}>
+                  {isFemale ? 'Kadın' : isMale ? 'Erkek' : 'Ruh'}
+                </div>
               </div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2 flex items-center gap-2">
-                <Target className="w-3 h-3" /> {activeUser.social?.lookingFor || "Uzaklara Bakıyor"}
-              </p>
+              
+              <div className="flex flex-wrap items-center gap-3">
+                {lookingForValue && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Target className="w-3.5 h-3.5 text-indigo-500" /> {lookingForValue}
+                  </p>
+                )}
+                {zodiacValue && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Star className="w-3.5 h-3.5 text-amber-400" /> {zodiacValue}
+                  </p>
+                )}
+                {activeUser?.social?.isOnline && (
+                  <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" /> Aktif
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* BIO */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-3 bg-amber-400 rounded-full" />
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ruhun Hikayesi</h3>
-              </div>
-              <p className="text-sm font-medium leading-relaxed text-slate-600">
-                {activeUser.social?.bio || "Bu ruh henüz hikayesinin detaylarını paylaşmadı..."}
-              </p>
-            </div>
-
-            {/* COSMIC STATS */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100">
-                <div className="flex items-center gap-2 mb-1">
-                  <Star className="w-3.5 h-3.5 text-amber-500" />
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Burç</span>
+            {bioValue && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-3 bg-amber-400 rounded-full" />
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ruhun Hikayesi</h3>
                 </div>
-                <p className="text-sm font-black text-slate-800">{activeUser.zodiacSign || "Bilinmiyor"}</p>
+                <p className="text-sm font-medium leading-relaxed text-slate-600">
+                  "{bioValue}"
+                </p>
               </div>
+            )}
+
+            {/* INTERESTS */}
+            {interestsValue.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 pl-3">İlgi Alanları</h3>
+                <div className="flex flex-wrap gap-2">
+                  {interestsValue.slice(0, 5).map((tag: string) => (
+                    <span key={tag} className="px-4 py-2 bg-white border border-slate-100 shadow-sm rounded-2xl text-[11px] font-bold text-slate-600">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* COSMIC STATS - AURA */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100">
                 <div className="flex items-center gap-2 mb-1">
                   <Zap className="w-3.5 h-3.5 text-indigo-500" />
@@ -399,47 +509,35 @@ export default function DiscoverProfilePopup({
               </div>
             </div>
 
-            {/* INTERESTS */}
-            <div className="space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 pl-3">İlgi Alanları</h3>
-              <div className="flex flex-wrap gap-2">
-                {activeUser.social?.interests.map(tag => (
-                  <span key={tag} className="px-4 py-2 bg-white border border-slate-100 shadow-sm rounded-2xl text-[11px] font-bold text-slate-600">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-
             {/* COMPATIBILITY RESULT */}
-            <AnimatePresence>
-              {analysisResult && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-6 bg-gradient-to-br from-amber-50 to-rose-50 border border-amber-100 rounded-[2rem] space-y-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-amber-500" />
-                      <h4 className="text-sm font-black uppercase tracking-tighter">KOZMİK UYUM RAPORU</h4>
-                    </div>
-                    <span className="text-lg font-black text-rose-500">%{analysisResult.loveScore}</span>
+            {analysisResult && (
+              <div className="p-6 bg-gradient-to-br from-amber-50 to-rose-50 border border-amber-100 rounded-[2rem] space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-amber-500" />
+                    <h4 className="text-sm font-black uppercase tracking-tighter">KOZMİK UYUM RAPORU</h4>
                   </div>
-                  
-                  <p className="text-xs font-bold leading-relaxed text-slate-700 italic">
-                    "{analysisResult.summaryLong}"
-                  </p>
-                </motion.div>
-              )}
-
-              {isPending && (
-                <div className="p-6 bg-slate-50 border border-slate-100 rounded-[2rem] flex flex-col items-center gap-3">
-                  <Clock className="w-6 h-6 text-indigo-500 animate-spin" />
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Analiz Hazırlanıyor...</p>
+                  <span className="text-lg font-black text-rose-500">%{analysisResult.loveScore}</span>
                 </div>
-              )}
-            </AnimatePresence>
+                
+                <p className="text-xs font-bold leading-relaxed text-slate-700 italic">
+                  "{analysisResult.summaryLong}"
+                </p>
+              </div>
+            )}
+
+            {isPending && (
+              <div className="p-6 bg-slate-50 border border-slate-100 rounded-[2rem] flex flex-col items-center gap-3">
+                <Clock className="w-6 h-6 text-indigo-500 animate-spin" />
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Analiz Kozmik Güçler Tarafından Hazırlandı.<br/>5 Dakika İçinde Açılacak!</p>
+                <button 
+                  onClick={() => onNavigate('history')}
+                  className="mt-2 text-[9px] font-black text-indigo-600 underline uppercase tracking-tighter"
+                >
+                  Hızlandır veya Tarihçeye Git
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -447,8 +545,7 @@ export default function DiscoverProfilePopup({
         <div className="absolute bottom-0 inset-x-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 z-[60]">
           <div className="grid grid-cols-3 gap-3">
             {/* BUTTON A: Analiz */}
-            <motion.button 
-              whileTap={{ scale: 0.95 }}
+            <button 
               onClick={handleCompatibility}
               disabled={isAnalyzing}
               className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-slate-100 rounded-3xl gap-1 text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-50"
@@ -459,36 +556,50 @@ export default function DiscoverProfilePopup({
                 <Heart className="w-5 h-5 fill-current" />
               )}
               <span className="text-[8px] font-black tracking-tighter uppercase whitespace-nowrap">
-                {isAnalyzing ? 'Taranıyor...' : `UYUM GÖR (${currentUser.compatibilityCount})`}
+                {isAnalyzing ? 'Taranıyor...' : 
+                 (currentUser.compatibilityCount || 0) > 0 ? 'UYUM GÖR (1 Hak)' : `UYUM ANALİZİ (${compatPrice} J)`}
               </span>
-            </motion.button>
+            </button>
 
             {/* BUTTON B: Priority Message */}
-            <motion.button 
-              whileTap={{ scale: 0.95 }}
+            <button 
               onClick={handlePriorityMessage}
               disabled={isMessaging}
-              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-xl shadow-slate-900/20 disabled:opacity-80"
+              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-xl shadow-slate-900/20 disabled:opacity-80 transition-transform active:scale-95 relative overflow-hidden group"
             >
-              {isMessaging ? (
-                <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
-              ) : (
-                <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+              {isMessaging && (
+                 <motion.div 
+                    initial={{ left: '-100%' }}
+                    animate={{ left: '200%' }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                    className="absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 z-10"
+                 />
               )}
-              <span className="text-[8px] font-black tracking-tighter uppercase">
-                {isMessaging ? 'Gidiyor...' : 'MESAJ GÖNDER (100 J)'}
-              </span>
-            </motion.button>
+              {isMessaging ? (
+                <Loader2 className="w-5 h-5 animate-spin text-amber-400 relative z-20" />
+              ) : (
+                <Zap className="w-5 h-5 text-amber-400 fill-amber-400 relative z-20 group-hover:scale-110 transition-transform" />
+              )}
+              <div className="flex flex-col items-center relative z-20 text-center">
+                <span className="text-[8px] font-black tracking-tighter uppercase">
+                  {isMessaging ? 'Gidiyor...' : 'ÖNCELİKLİ MESAJ İSTEĞİ (50 J)'}
+                </span>
+                <span className="text-[6px] text-amber-400/80 uppercase tracking-widest mt-0.5">
+                  Mesajın karşı tarafın en üstünde görünür
+                </span>
+              </div>
+            </button>
 
             {/* BUTTON C: Free Like */}
-            <motion.button 
-              whileTap={{ scale: 0.95 }}
+            <button 
               onClick={handleFreeLike}
               disabled={isLiking || hasLikedOptimistic}
-              className={`flex flex-col items-center justify-center p-3 rounded-3xl gap-1 transition-all border ${
+              className={`flex flex-col items-center justify-center p-3 rounded-3xl gap-1 transition-all border active:scale-95 ${
                 hasLikedOptimistic 
                   ? 'bg-emerald-500 text-white border-emerald-500' 
-                  : 'bg-slate-50 text-emerald-500 border-slate-100 hover:bg-emerald-50'
+                  : (currentUser.social?.discoverLikesRemaining ?? 15) <= 0
+                    ? 'bg-slate-50 text-slate-300 border-slate-100'
+                    : 'bg-slate-50 text-emerald-500 border-slate-100 hover:bg-emerald-50'
               }`}
             >
               {hasLikedOptimistic ? (
@@ -496,15 +607,56 @@ export default function DiscoverProfilePopup({
               ) : isLiking ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                <Star className="w-5 h-5 fill-current" />
+                <Star className={`w-5 h-5 ${(currentUser.social?.discoverLikesRemaining ?? 15) <= 0 ? 'fill-slate-300' : 'fill-current'}`} />
               )}
               <span className="text-[8px] font-black tracking-tighter uppercase">
-                {hasLikedOptimistic ? 'BEĞENİLDİ' : isLiking ? '...' : 'ÜCRETSİZ BEĞEN'}
+                {hasLikedOptimistic 
+                  ? 'BEĞENİLDİ' 
+                  : isLiking 
+                    ? '...' 
+                    : (currentUser.social?.discoverLikesRemaining ?? 15) <= 0
+                      ? 'Beğeni Hakkın Bitti'
+                      : `Ücretsiz Beğen (${currentUser.social?.discoverLikesRemaining ?? 15})`}
               </span>
-            </motion.button>
+            </button>
           </div>
         </div>
-      </motion.div>
+      </div>
+
+      {/* REPORT MODAL */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <div className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
+              <div className="p-8 text-center border-b border-black/5">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Güven Bölgesi</h3>
+                <p className="text-xs text-slate-500 mt-2 font-medium">Bu profilde seni rahatsız eden nedir?</p>
+              </div>
+              <div className="p-3">
+                {['Spam / Sahte', 'Uygunsuz İçerik', 'Rahatsız Edici', 'Diğer'].map((reason) => (
+                  <button 
+                    key={reason} 
+                    onClick={() => handleReport(reason)} 
+                    className="w-full px-6 py-4 text-left text-sm font-bold text-slate-800 hover:bg-slate-50 transition-colors rounded-2xl flex items-center justify-between group"
+                  >
+                    {reason}
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-600 transition-all" />
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={() => setShowReportModal(false)} 
+                className="w-full py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-900 transition-colors bg-slate-50"
+              >
+                VAZGEÇ
+              </button>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
