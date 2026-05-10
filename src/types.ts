@@ -328,12 +328,38 @@ export interface UserProfile {
   };
 }
 
+export interface CompatibilityPeek {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  fromUserName: string;
+  fromUserPhoto: string;
+  fromUserAge?: number;
+  createdAt: any;
+  source: string;
+  read: boolean;
+}
+
+/**
+ * Checks if a given URL is a Google/external photo (vs Firebase Storage)
+ */
+export function isExternalPhotoUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.includes('googleusercontent.com') || url.includes('google.com') || url.includes('lh3.googleusercontent.com');
+}
+
 /**
  * Normalizes a UserProfile object from Firestore, ensuring new fields are populated
  * from old fields if they are missing (Backward Compatibility).
  */
 export function normalizeUserProfile(data: any, uid: string): UserProfile {
   const profile = { ...data, uid } as UserProfile;
+
+  // PRODUCT DECISION: Google/External photoURLs should NOT be used as the primary photoURL 
+  // or added to social.photos automatically.
+  if (isExternalPhotoUrl(profile.photoURL)) {
+    profile.photoURL = undefined;
+  }
 
   // 1. Wallet Normalization
   if (profile.mainCoins === undefined && data.credits !== undefined) profile.mainCoins = data.credits;
@@ -403,7 +429,11 @@ export function normalizeUserProfile(data: any, uid: string): UserProfile {
     else social.lookingFor = 'herkes';
   }
 
-  if (!social.photos || social.photos.length === 0) social.photos = data.photos || [];
+  if (!social.photos || social.photos.length === 0) {
+    const legacyPhotos = data.photos || [];
+    // Filter out Google photos from legacy photos
+    social.photos = legacyPhotos.filter((url: string) => !isExternalPhotoUrl(url));
+  }
   if (!social.interests || social.interests.length === 0) social.interests = data.interests || [];
   if (social.enabled === undefined) social.enabled = data.socialEnabled || false;
   if (social.visible === undefined) social.visible = data.socialVisible !== undefined ? data.socialVisible : true;

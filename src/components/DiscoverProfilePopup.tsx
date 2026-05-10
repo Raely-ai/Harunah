@@ -17,7 +17,7 @@ import {
   Flag,
   ShieldAlert
 } from "lucide-react";
-import { UserProfile, CompatibilityHistory } from "../types";
+import { UserProfile, CompatibilityHistory, isExternalPhotoUrl } from "../types";
 import { walletService } from "../lib/walletService";
 import { socialService } from "../lib/socialService";
 import { reportService } from "../services/reportService";
@@ -355,27 +355,34 @@ export default function DiscoverProfilePopup({
   return (
     <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
       {/* BACKGROUND BACKDROP */}
-      <div 
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
       />
 
       {/* POPUP CARD */}
-      <div 
-        className="relative w-full max-w-lg h-[85vh] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+      <motion.div 
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.98 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="relative w-full max-w-lg h-[85vh] bg-white rounded-[2.5rem] shadow-xl overflow-hidden flex flex-col"
       >
         {/* CLOSE, REPORT & NAV BUTTONS */}
         <div className="absolute top-6 inset-x-6 flex items-center justify-between z-50">
           <div className="flex items-center gap-2">
             <button 
               onClick={onClose}
-              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl"
+              className="w-10 h-10 bg-white/40 backdrop-blur-sm rounded-2xl flex items-center justify-center text-slate-800 shadow-sm"
             >
               <X className="w-5 h-5" />
             </button>
             <button 
               onClick={() => setShowReportModal(true)}
-              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-rose-500 shadow-xl"
+              className="w-10 h-10 bg-white/40 backdrop-blur-sm rounded-2xl flex items-center justify-center text-rose-500 shadow-sm"
             >
               <Flag className="w-5 h-5" />
             </button>
@@ -385,14 +392,14 @@ export default function DiscoverProfilePopup({
             <button 
               disabled={currentIndex === 0}
               onClick={handlePrev}
-              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl disabled:opacity-30"
+              className="w-10 h-10 bg-white/40 backdrop-blur-sm rounded-2xl flex items-center justify-center text-slate-800 shadow-sm disabled:opacity-30"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
               disabled={currentIndex === users.length - 1}
               onClick={handleNext}
-              className="w-10 h-10 bg-white/60 backdrop-blur-xl rounded-2xl flex items-center justify-center text-slate-800 shadow-xl disabled:opacity-30"
+              className="w-10 h-10 bg-white/40 backdrop-blur-sm rounded-2xl flex items-center justify-center text-slate-800 shadow-sm disabled:opacity-30"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -405,7 +412,7 @@ export default function DiscoverProfilePopup({
           <div className="relative aspect-[4/5] bg-slate-100">
             <img 
               key={`${targetUid}-${photoIndex}`}
-              src={photos[photoIndex] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUid}`} 
+              src={photos[photoIndex] || (!isExternalPhotoUrl(activeUser.photoURL) ? activeUser.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUid}`} 
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
             />
@@ -419,15 +426,15 @@ export default function DiscoverProfilePopup({
 
             {/* ONLINE INDICATOR */}
             {activeUser.social?.isOnline && (
-              <div className="absolute top-20 right-6 flex items-center gap-2 bg-white/40 backdrop-blur-xl px-3 py-1.5 rounded-full">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_10px_#10B981]" />
+              <div className="absolute top-20 right-6 flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full" />
                 <span className="text-[10px] font-black text-white uppercase tracking-widest">AKTİF</span>
               </div>
             )}
           </div>
 
           {/* CONTENT SECTION (PROFILE PANEL) */}
-          <div className="p-8 pb-32 space-y-6 bg-white rounded-t-[3rem] -mt-10 relative z-10 border-t border-slate-100 shadow-2xl">
+          <div className="p-8 pb-32 space-y-6 bg-white rounded-t-[3rem] -mt-10 relative z-10 border-t border-slate-50 shadow-sm">
             {/* NAME & AGE PANEL */}
             <div className="space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
@@ -437,13 +444,13 @@ export default function DiscoverProfilePopup({
                 </h2>
                 {isVerifiedValue && <BlueTick size={24} />}
                 {isBoosted && (
-                  <div className="flex items-center gap-1 bg-gradient-to-r from-amber-500 to-amber-600 px-2 py-0.5 rounded-lg shadow-md shadow-amber-500/20">
+                  <div className="flex items-center gap-1 bg-amber-500 px-2 py-0.5 rounded-lg shadow-sm">
                     <Zap className="w-3 h-3 text-white fill-white" />
                     <span className="text-white text-[10px] font-black uppercase tracking-wider">Öne Çıkan</span>
                   </div>
                 )}
                 {levelValue && (
-                  <div className="bg-indigo-600 px-3 py-1 rounded-xl shadow-lg shadow-indigo-200">
+                  <div className="bg-indigo-600 px-3 py-1 rounded-xl shadow-sm">
                     <span className="text-white text-[10px] font-black uppercase">Lv.{levelValue}</span>
                   </div>
                 )}
@@ -542,7 +549,7 @@ export default function DiscoverProfilePopup({
         </div>
 
         {/* ACTION BAR */}
-        <div className="absolute bottom-0 inset-x-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 z-[60]">
+        <div className="absolute bottom-0 inset-x-0 p-6 bg-white/60 backdrop-blur-sm border-t border-slate-50 z-[60]">
           <div className="grid grid-cols-3 gap-3">
             {/* BUTTON A: Analiz */}
             <button 
@@ -565,14 +572,14 @@ export default function DiscoverProfilePopup({
             <button 
               onClick={handlePriorityMessage}
               disabled={isMessaging}
-              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-xl shadow-slate-900/20 disabled:opacity-80 transition-transform active:scale-95 relative overflow-hidden group"
+              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-md shadow-slate-900/5 disabled:opacity-80 transition-transform active:scale-[0.98] relative overflow-hidden group"
             >
               {isMessaging && (
                  <motion.div 
                     initial={{ left: '-100%' }}
                     animate={{ left: '200%' }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                    className="absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 z-10"
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="absolute top-0 bottom-0 w-1/3 bg-white/10 skew-x-12 z-10"
                  />
               )}
               {isMessaging ? (
@@ -594,12 +601,12 @@ export default function DiscoverProfilePopup({
             <button 
               onClick={handleFreeLike}
               disabled={isLiking || hasLikedOptimistic}
-              className={`flex flex-col items-center justify-center p-3 rounded-3xl gap-1 transition-all border active:scale-95 ${
+              className={`flex flex-col items-center justify-center p-3 rounded-3xl gap-1 transition-all border active:scale-[0.98] ${
                 hasLikedOptimistic 
                   ? 'bg-emerald-500 text-white border-emerald-500' 
                   : (currentUser.social?.discoverLikesRemaining ?? 15) <= 0
                     ? 'bg-slate-50 text-slate-300 border-slate-100'
-                    : 'bg-slate-50 text-emerald-500 border-slate-100 hover:bg-emerald-50'
+                    : 'bg-slate-50 text-emerald-500 border-slate-100'
               }`}
             >
               {hasLikedOptimistic ? (
@@ -621,13 +628,18 @@ export default function DiscoverProfilePopup({
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* REPORT MODAL */}
       <AnimatePresence>
         {showReportModal && (
-          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
+          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-xl"
+            >
               <div className="p-8 text-center border-b border-black/5">
                 <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                   <ShieldAlert className="w-8 h-8" />
@@ -653,7 +665,7 @@ export default function DiscoverProfilePopup({
               >
                 VAZGEÇ
               </button>
-            </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

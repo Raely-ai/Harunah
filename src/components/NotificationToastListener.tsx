@@ -281,16 +281,36 @@ export const NotificationToastListener: React.FC<{
             let avatar = data.fromUserPhoto || '';
             let targetTab: any = 'home';
             let subTab: string | null = null;
+            let onNav = () => {
+              onNavigateRef.current(targetTab);
+              if (subTab) {
+                const eventPrefix = targetTab === 'messages' ? 'social' : 'home';
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent(`switch-${eventPrefix}-tab`, { detail: { tab: subTab } }));
+                }, 100);
+              }
+            };
 
             if (data.type === 'compatibility_ready' || data.type === 'system' || data.type === 'compatibility_started') {
-                if (activeTabRef.current === 'history') return;
                 targetTab = 'history';
+                if (data.type === 'compatibility_ready') {
+                  const analysisId = data.metadata?.analysisId || data.compatibilityHistoryId;
+                  if (analysisId) {
+                    onNav = () => {
+                      onNavigateRef.current('history');
+                      setTimeout(() => {
+                        window.dispatchEvent(new CustomEvent('open-compatibility-details', { detail: { id: analysisId } }));
+                      }, 100);
+                    };
+                  }
+                }
             } else if (data.type === 'like' || data.type === 'super_like') {
-                if (activeTabRef.current === 'messages') return;
                 targetTab = 'messages';
                 subTab = 'likers';
-            } else if (data.type === 'message_request') {
-                if (activeTabRef.current === 'messages') return;
+            } else if (data.type === 'compatibility_peek') {
+                targetTab = 'messages';
+                subTab = 'peeks';
+            } else if (data.type === 'message_request' || data.type === 'priority_message_request') {
                 targetTab = 'messages';
                 subTab = 'requests';
             } else if (data.type === 'request_accepted') {
@@ -300,23 +320,23 @@ export const NotificationToastListener: React.FC<{
                 targetTab = 'home';
                 subTab = 'discover';
             } else if (data.type === 'profile_completed') {
-                if (activeTabRef.current === 'social-profile') return;
                 targetTab = 'social-profile';
+            }
+
+            if ('vibrate' in navigator) {
+              if (data.type === 'super_like' || data.type === 'priority_message_request' || data.type === 'compatibility_ready') {
+                try {
+                  navigator.vibrate([10, 30, 10]);
+                } catch(e){}
+              }
             }
 
             toast(<CustomToast 
                 name={name}
                 message={message}
                 avatar={avatar}
-                onNavigate={() => {
-                   onNavigateRef.current(targetTab);
-                   if (subTab) {
-                      const eventPrefix = targetTab === 'messages' ? 'social' : 'home';
-                      setTimeout(() => {
-                         window.dispatchEvent(new CustomEvent(`switch-${eventPrefix}-tab`, { detail: { tab: subTab } }));
-                      }, 400);
-                   }
-                }} 
+                type={data.type}
+                onNavigate={onNav}
                 onDismiss={() => {}}
             />, { id: `notif-${docId}` });
           }
@@ -326,6 +346,42 @@ export const NotificationToastListener: React.FC<{
 
     return () => unsubNotifs();
   }, [userProfile?.uid]);
+
+  // 5. Foreground Return Experience
+  useEffect(() => {
+    let backgroundTime: number | null = null;
+    let unreadCountLocally = 0;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        backgroundTime = Date.now();
+        unreadCountLocally = 0; // reset
+      } else if (document.visibilityState === 'visible') {
+        if (backgroundTime) {
+          const diffInMinutes = (Date.now() - backgroundTime) / (1000 * 60);
+          if (diffInMinutes > 120) { // 2 hours
+            // Soft welcome after long absence
+            setTimeout(() => {
+              toast(<CustomToast 
+                name="Tekrar Hoş Geldin ✨"
+                message="Sen yokken her şey yolundaydı. Yeni neler var keşfetmeye başla!"
+                avatar=""
+                type="system"
+                onNavigate={() => {}}
+                onDismiss={() => {}}
+              />, { duration: 4000 });
+            }, 1500);
+          }
+        }
+        backgroundTime = null;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   return null;
 };

@@ -122,6 +122,24 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
     return () => unsub();
   }, [uid, isActive]);
 
+  // Listen for smart open event
+  useEffect(() => {
+    const handleOpenDetails = (e: CustomEvent) => {
+      const analysisId = e.detail?.id;
+      if (analysisId) {
+        const item = history.find(h => h.id === analysisId);
+        if (item) {
+          setSelectedAnalysis(item);
+        }
+      }
+    };
+
+    window.addEventListener('open-compatibility-details', handleOpenDetails as EventListener);
+    return () => {
+      window.removeEventListener('open-compatibility-details', handleOpenDetails as EventListener);
+    };
+  }, [history]);
+
   // 2. Real-time Listeners for Pending Requests - DEPRECATED in favor of unified history
   useEffect(() => {
     // Keep empty or remove to clean up
@@ -248,7 +266,7 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
 
       {/* Header */}
       {!isTab && (
-        <div className="px-6 pt-12 pb-4 bg-white/80 backdrop-blur-xl border-b border-slate-100 flex items-center justify-between sticky top-0 z-20">
+        <div className="px-6 pt-12 pb-4 bg-white/60 backdrop-blur-sm border-b border-slate-100 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-slate-900 transition-colors">
               <ChevronLeft className="w-6 h-6" />
@@ -267,17 +285,17 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         {/* LABORATORY FORM */}
         <div className="px-2 py-6 sm:px-4 sm:py-8">
-          <div className="bg-white rounded-[2rem] sm:rounded-[3rem] p-4 sm:p-8 border border-slate-100 shadow-2xl shadow-indigo-900/10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 blur-[100px] rounded-full pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 blur-[100px] rounded-full pointer-events-none" />
+          <div className="bg-white rounded-[2rem] sm:rounded-[3rem] p-4 sm:p-8 border border-slate-100 shadow-lg shadow-indigo-900/5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 blur-[80px] rounded-full pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 blur-[80px] rounded-full pointer-events-none" />
 
             <div className="relative z-10 space-y-10 sm:space-y-12">
               <div className="flex items-center justify-between sm:justify-center gap-2 sm:gap-8">
                 {/* Person 1 (Self) */}
                 <div className="flex flex-col items-center gap-3 sm:gap-4 flex-1">
-                  <div className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-100 overflow-hidden shadow-lg w-full max-w-[128px]">
+                  <div className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border border-slate-100 overflow-hidden shadow-md w-full max-w-[128px]">
                     <img src={person1.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    <div className="absolute inset-x-0 bottom-0 py-2 bg-black/40 backdrop-blur-md text-white text-[8px] sm:text-[9px] font-black uppercase text-center tracking-widest">SEN</div>
+                    <div className="absolute inset-x-0 bottom-0 py-2 bg-black/20 backdrop-blur-sm text-white text-[8px] sm:text-[9px] font-black uppercase text-center tracking-widest">SEN</div>
                   </div>
                   <div className="w-full max-w-[128px] text-center space-y-1 px-1">
                     <div className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase truncate w-full">{person1.name}</div>
@@ -288,9 +306,9 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                 {/* HEART BRIDGE */}
                 <div className="flex flex-col items-center gap-2 sm:gap-4 shrink-0 px-1">
                   <motion.div 
-                    animate={{ scale: [1, 1.2, 1], filter: ["drop-shadow(0 0 0px #F43F5E)", "drop-shadow(0 0 15px #F43F5E)", "drop-shadow(0 0 0px #F43F5E)"] }}
+                    animate={{ scale: [1, 1.1, 1] }}
                     transition={{ duration: 2, repeat: Infinity }}
-                    className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-white shadow-xl flex items-center justify-center border-2 border-slate-50 relative z-10"
+                    className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-white shadow-md flex items-center justify-center border border-slate-50 relative z-10"
                   >
                     <Heart className="w-5 h-5 sm:w-7 sm:h-7 text-rose-500 fill-rose-500" />
                   </motion.div>
@@ -358,10 +376,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                 whileTap={{ scale: 0.98 }}
                 onClick={handleManualAnalysis}
                 disabled={isAnalyzing}
-                className={`w-full py-5 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 shadow-2xl transition-all ${
+                className={`w-full py-5 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all ${
                   isAnalyzing 
                     ? 'bg-slate-100 text-slate-300 shadow-none' 
-                    : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-500 text-white shadow-indigo-600/30'
+                    : 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
                 }`}
               >
                 {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
@@ -483,7 +501,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
       className={`relative p-4 rounded-[2rem] border transition-all overflow-hidden ${
         showLock
           ? 'bg-slate-50 border-slate-100 cursor-default' 
-          : 'bg-white border-white shadow-sm hover:shadow-xl hover:border-indigo-100 cursor-pointer group'
+          : 'bg-white border-white shadow-sm hover:shadow-md hover:border-slate-100 cursor-pointer group'
       }`}
     >
       <div className="flex items-center gap-4 relative z-10">
@@ -572,10 +590,10 @@ function AnalysisPopup({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-slate-900">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm" />
       <motion.div 
-        initial={{ opacity: 0, scale: 0.9, y: 40 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 40 }}
-        className="relative w-full max-w-sm bg-white rounded-[3.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+        initial={{ opacity: 0, scale: 0.98, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, y: 12 }}
+        className="relative w-full max-w-sm bg-white rounded-[3.5rem] overflow-hidden shadow-xl flex flex-col max-h-[90vh]"
       >
         <div className="relative h-64 flex shrink-0">
           <div className="w-1/2 h-full relative">
@@ -589,8 +607,8 @@ function AnalysisPopup({
           
           <div className="absolute inset-0 flex items-center justify-center">
             <motion.div 
-              initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", bounce: 0.4, delay: 0.2 }}
-              className="w-16 h-16 rounded-full bg-white shadow-2xl flex items-center justify-center border-4 border-rose-50 relative z-10"
+              initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", bounce: 0, delay: 0.2 }}
+              className="w-16 h-16 rounded-full bg-white shadow-lg flex items-center justify-center border-2 border-rose-50 relative z-10"
             >
               <Heart className="w-8 h-8 text-rose-500 fill-rose-500" />
               <motion.div animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 rounded-full border-2 border-rose-500" />

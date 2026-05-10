@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Flag, Heart, MessageCircle, ChevronLeft, ChevronRight, Sparkles, User, MapPin, Zap, Clock, ShieldAlert } from 'lucide-react';
-import { UserProfile, CompatibilityHistory } from '../types';
+import { UserProfile, CompatibilityHistory, isExternalPhotoUrl } from '../types';
 import { walletService } from '../lib/walletService';
 import { toast } from 'sonner';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -36,7 +36,9 @@ export default function SocialProfilePopup({
   const uid = user?.uid || "";
   const currentUid = currentUser?.uid || "";
   const social = user?.social || { photos: [], nickname: "", bio: "", zodiacSign: "", age: 25, lookingFor: "Ruh Eşi", interests: [] };
-  const photos = social.photos.length > 0 ? social.photos : [user?.photoURL].filter(Boolean) as string[];
+  const photos = social.photos.length > 0 
+    ? social.photos 
+    : [!isExternalPhotoUrl(user?.photoURL) ? user?.photoURL : ""].filter(Boolean) as string[];
   const credits = currentUser?.compatibilityCount || 0;
 
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -253,15 +255,16 @@ export default function SocialProfilePopup({
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 z-[100] flex flex-col bg-white/10 backdrop-blur-sm"
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 12, scale: 0.98 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className="fixed inset-0 z-[100] flex flex-col bg-black/30 backdrop-blur-sm"
     >
       {/* Close Button - Premium and stable */}
       <button 
         onClick={onClose} 
-        className="absolute top-6 right-6 p-2 bg-white/80 backdrop-blur-md rounded-full text-slate-800 border border-slate-100/50 z-50 hover:bg-white transition-all active:scale-95 shadow-sm"
+        className="absolute top-6 right-6 p-2 bg-white/40 backdrop-blur-sm rounded-full text-slate-800 border border-slate-100/50 z-50 hover:bg-white transition-all active:scale-[0.98] shadow-sm"
       >
         <X className="w-5 h-5" />
       </button>
@@ -347,8 +350,9 @@ export default function SocialProfilePopup({
             <AnimatePresence>
               {isPending && !analysisResult && (
                 <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
                   className="p-5 bg-purple-500/5 border border-purple-500/10 rounded-3xl space-y-3"
                 >
                   <div className="flex items-center gap-3">
@@ -364,8 +368,8 @@ export default function SocialProfilePopup({
                     <motion.div 
                       initial={{ x: "-100%" }}
                       animate={{ x: "100%" }}
-                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                      className="h-full w-1/2 bg-gradient-to-r from-transparent via-purple-500 to-transparent"
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                      className="h-full w-1/2 bg-purple-500"
                     />
                   </div>
                   <p className="text-[10px] text-center text-muted/60 font-medium italic">
@@ -376,9 +380,10 @@ export default function SocialProfilePopup({
 
               {analysisResult && (
                 <motion.div 
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="p-5 bg-gradient-to-br from-amber-500/10 to-rose-500/10 border border-amber-500/20 rounded-3xl space-y-4"
+                  transition={{ duration: 0.2 }}
+                  className="p-5 bg-gradient-to-br from-amber-500/5 to-rose-500/5 border border-amber-500/10 rounded-3xl space-y-4"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -418,12 +423,11 @@ export default function SocialProfilePopup({
       <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-slate-100 z-40">
         <div className="max-w-md mx-auto flex flex-col gap-3">
           <motion.button
-            whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             disabled={isProcessing || isPending}
-            animate={isProcessing || isPending ? { scale: 0.98, opacity: 0.6 } : { scale: 1, opacity: 1 }}
+            animate={isProcessing || isPending ? { opacity: 0.6 } : { opacity: 1 }}
             onClick={handleCompatibilityCheck}
-            className="flex items-center justify-center gap-3 py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-lg active:scale-[0.98] transition-all"
+            className="flex items-center justify-center gap-3 py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-md active:scale-[0.98] transition-all"
           >
             <Heart className="w-4 h-4" />
             <span>
@@ -440,11 +444,10 @@ export default function SocialProfilePopup({
           
           {isPending && (
             <motion.button
-              whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               disabled={isProcessing}
               onClick={handleSpeedUp}
-              className="flex items-center justify-center gap-3 py-4 bg-amber-50 text-amber-700 rounded-2xl font-bold text-sm border border-amber-200 hover:bg-amber-100 active:scale-[0.98] transition-all"
+              className="flex items-center justify-center gap-3 py-4 bg-amber-50 text-amber-700 rounded-2xl font-bold text-sm border border-amber-200 active:scale-[0.98] transition-all"
             >
               <Zap className="w-4 h-4" />
               <span>Beklemek istemiyor musun? ({speedUpPrice} J)</span>
@@ -456,12 +459,13 @@ export default function SocialProfilePopup({
       {/* REPORT MODAL */}
       <AnimatePresence>
         {showReportModal && (
-          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[200000] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.98, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl"
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-xl"
             >
               <div className="p-8 text-center border-b border-black/5">
                 <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">

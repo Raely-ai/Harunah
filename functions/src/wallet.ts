@@ -6,13 +6,17 @@ let cachedEconomy: any = null;
 let lastCacheUpdate = 0;
 const CACHE_TTL = 300000; // 5 minutes
 
-async function getEconomyConfig() {
+export async function getEconomyConfig() {
   const now = Date.now();
   if (cachedEconomy && (now - lastCacheUpdate < CACHE_TTL)) {
     return cachedEconomy;
   }
   const configSnap = await db.collection("adminSettings").doc("economy").get();
-  if (!configSnap.exists) return null;
+  if (!configSnap.exists) {
+    cachedEconomy = {}; // empty object instead of null to prevent null reference checks breaking
+    lastCacheUpdate = now;
+    return cachedEconomy;
+  }
   cachedEconomy = configSnap.data();
   lastCacheUpdate = now;
   return cachedEconomy;
@@ -140,11 +144,11 @@ export const purchaseCoins = functions.region('us-central1').https.onCall(async 
     // Gelecekte gerçek Google/Apple API'ları buraya entegre edilecek.
     
     // PRODUCTION GUARD: Gerçek doğrulama yoksa, test mode dışında satın almayı engelle.
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = !process.env.FUNCTIONS_EMULATOR;
     if (isProduction) {
        // Bu kısım production'a geçmeden önce gerçek Google/Apple API entegrasyonu ile doldurulmalı!
        // Şimdilik production'da sahte receipt ile coin verilmesini engelliyoruz.
-       throw new functions.https.HttpsError('permission-denied', 'Ödeme sistemi şu an sadece test modundadır.');
+       throw new functions.https.HttpsError('permission-denied', 'Ödeme sistemi şu an bakımda.');
     }
 
     console.log(`[Validation] Validating ${platform} receipt for ${packageId}...`);
@@ -154,8 +158,19 @@ export const purchaseCoins = functions.region('us-central1').https.onCall(async 
       throw new functions.https.HttpsError('permission-denied', 'Ödeme doğrulaması başarısız oldu (Invalid Receipt).');
     }
 
-    const economy = await getEconomyConfig();
-    const pkg = economy?.coinPackages?.find((p: any) => p.id === packageId);
+    // DOUBLE PURCHASE / DUPLICATE RECEIPT GUARD
+    const receiptPrefix = receipt.substring(0, 32);
+    const existingTx = await db.collection("walletTransactions")
+      .where("receiptId", "==", receiptPrefix)
+      .limit(1)
+      .get();
+    
+    if (!existingTx.empty) {
+      throw new functions.https.HttpsError('already-exists', 'Bu ödeme işlemi zaten kullanılmış.');
+    }
+
+    const economy = await getEconomyConfig() || {};
+    const pkg = economy.coinPackages?.find((p: any) => p.id === packageId);
     if (!pkg) throw new functions.https.HttpsError('not-found', 'Paket bilgisi sistemde bulunamadı.');
     
     const coinsToGrant = pkg.coins + (pkg.bonus || 0);
@@ -177,7 +192,7 @@ export const purchaseCoins = functions.region('us-central1').https.onCall(async 
         createdAt: now.toISOString(),
         platform,
         packageId,
-        receiptId: receipt.substring(0, 10) + "...", // Güvenlik için kısaltılmış
+        receiptId: receiptPrefix, // Safely stored for double purchase prevention
         status: 'active',
         description: `Satın alım onaylandı: ${packageId}`
       });
@@ -436,29 +451,27 @@ export const purchaseSocialItem = functions.region('us-central1').https.onCall(a
 
     console.log(`[purchaseSocialItem] User: ${userId}, Type: ${type}, Qty: ${quantity}`);
 
-    // 1. Fetch config from socialCommerce
-    const configSnap = await db.collection("config").doc("socialCommerce").get();
-    if (!configSnap.exists) throw new functions.https.HttpsError('internal', "Sosyal market yapılandırması bulunamadı.");
-    const commerceConfig = configSnap.data() as any;
+    // 1. Fetch config from economy
+    const economy = await getEconomyConfig() || {};
     
     // 2. Determine Price (Try to find matching package, fallback to unit price)
-    let packageArray = [];
-    if (type === 'superLike') packageArray = commerceConfig.superLikePackages || [];
-    else if (type === 'refresh') packageArray = commerceConfig.discoverRefreshPackages || [];
-    else if (type === 'compatibility') packageArray = commerceConfig.analysisPackages || [];
+    let packageArray: any[] = [];
+    if (type === 'superLike') packageArray = economy.socialPricing?.superLike || [];
+    else if (type === 'refresh') packageArray = economy.socialPricing?.refresh || [];
+    else if (type === 'compatibility') packageArray = economy.socialPricing?.compatibility || [];
     else throw new functions.https.HttpsError('invalid-argument', "Geçersiz öğe tipi.");
     
     const qty = Math.max(1, parseInt(quantity) || 1);
     
-    const matchingPkg = packageArray.find((p: any) => p.count === qty || p.value === qty);
+    const matchingPkg = packageArray.find((p: any) => p.count === qty);
     let totalPrice: number;
     let actualQty = qty;
     
     if (matchingPkg) {
-      totalPrice = matchingPkg.price; // use .price from CommercePackage
-      actualQty = matchingPkg.count || matchingPkg.value || qty;
+      totalPrice = matchingPkg.priceCoins; // use .priceCoins from EconomyConfig
+      actualQty = matchingPkg.count || qty;
     } else {
-      const unitPrice = packageArray[0]?.price || 20;
+      const unitPrice = packageArray[0]?.priceCoins || 20;
       totalPrice = unitPrice * qty;
     }
 

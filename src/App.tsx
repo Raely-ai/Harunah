@@ -33,7 +33,7 @@ import SocialProfileScreen from "./components/SocialProfileScreen";
 import SocialWalletScreen from "./components/SocialWalletScreen";
 import FortunesScreen from "./components/FortunesScreen";
 import { SubscriptionScreen } from "./components/SubscriptionScreen";
-import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, EconomyConfig, normalizeUserProfile } from "./types";
+import { FortuneType, AuthScreen, AppTab, FortuneReading, ReadingStatus, UserProfile, AppConfig, EconomyConfig, normalizeUserProfile, isExternalPhotoUrl } from "./types";
 import { DEFAULT_ECONOMY_CONFIG } from "./constants";
 import { socialService } from "./lib/socialService";
 import { walletService, callFunction } from "./lib/walletService";
@@ -133,7 +133,7 @@ function AppContent() {
     uid: user?.uid || "guest",
     email: user?.email || "",
     displayName: user?.displayName || "Gezgin",
-    photoURL: user?.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=Guest",
+    photoURL: !isExternalPhotoUrl(user?.photoURL) ? user?.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=Guest" : "https://api.dicebear.com/7.x/avataaars/svg?seed=Guest",
     mainCoins: 0,
     energy: 0,
     role: 'user',
@@ -255,7 +255,7 @@ function AppContent() {
               uid: user.uid,
               email: user.email || "",
               displayName: user.displayName || user.email?.split('@')[0] || "Gezgin",
-              photoURL: user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
+              photoURL: !isExternalPhotoUrl(user.photoURL) ? user.photoURL || "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault" : "https://api.dicebear.com/7.x/avataaars/svg?seed=LASYADefault",
               dailyAdReadingsUsed: {
                 coffee: 0,
                 tarot: 0,

@@ -128,14 +128,14 @@ export default function HomeScreen({
   return (
     <div className="relative h-full w-full bg-[#F6F4F8] overflow-hidden">
       {/* Top Navigation Bar - Sticky & Full Width */}
-      <div className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 border-b ${
+      <div className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${
         activeTopTab === 'match' 
-          ? 'bg-black/20 backdrop-blur-xl border-white/10' 
-          : 'bg-white/80 backdrop-blur-xl border-black/5'
+          ? 'bg-black/10 backdrop-blur-md border-white/5' 
+          : 'bg-white/60 backdrop-blur-sm border-black/5'
       } pt-[env(safe-area-inset-top,1rem)] h-[calc(env(safe-area-inset-top,1rem)+64px)]`}>
     <div className="h-full max-w-md mx-auto px-6 flex items-center">
           {/* Segmented Control - Slim Capsule Design */}
-          <div className="relative flex w-full bg-slate-100/50 backdrop-blur-md p-1 rounded-2xl border border-black/5 shadow-inner">
+          <div className="relative flex w-full bg-slate-100 p-1 rounded-2xl border border-black/5">
             {/* Soft Pill Indicator */}
             <motion.div
               layoutId="activeTabHighlight"
@@ -196,7 +196,7 @@ export default function HomeScreen({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2 }}
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
@@ -219,7 +219,7 @@ export default function HomeScreen({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2 }}
               className="h-full w-full"
             >
               <div className={`relative h-full w-full ${isSocialEnabled ? 'overflow-y-auto' : 'overflow-hidden'}`}>
@@ -247,7 +247,7 @@ export default function HomeScreen({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.2 }}
               className="h-full w-full"
             >
               <div className="relative h-full w-full">

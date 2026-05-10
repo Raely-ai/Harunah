@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
+import { getEconomyConfig } from "./wallet";
 
 // 1. Complete Social Onboarding
 export const completeSocialOnboarding = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -302,32 +303,45 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
     const lookingFor = userData.social?.lookingFor || userData.lookingFor || "";
     let targetGender = "";
     
+    const mode = data?.mode || 'discover';
+
     const lfLower = String(lookingFor).toLowerCase();
-    if (lfLower === "erkek" || lfLower === "male" || lfLower === "man" || lfLower === "adam") {
-      targetGender = "erkek";
-    } else if (lfLower === "kadın" || lfLower === "kadin" || lfLower === "female" || lfLower === "woman" || lfLower === "bayan") {
-      targetGender = "kadın";
-    } else if (lfLower === "herkes" || lfLower === "all" || lfLower === "arkadaş" || lfLower === "arkadas") {
-      targetGender = ""; // No gender filter
-    } else {
-      // Fallback to opposite gender if lookingFor is completely unrecognized
+    if (mode === 'match') {
       targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
+    } else {
+      if (lfLower === "erkek" || lfLower === "male" || lfLower === "man" || lfLower === "adam") {
+        targetGender = "erkek";
+      } else if (lfLower === "kadın" || lfLower === "kadin" || lfLower === "female" || lfLower === "woman" || lfLower === "bayan") {
+        targetGender = "kadın";
+      } else if (lfLower === "herkes" || lfLower === "all" || lfLower === "arkadaş" || lfLower === "arkadas") {
+        targetGender = ""; // No gender filter
+      } else {
+        targetGender = gender === 'erkek' ? 'kadın' : gender === 'kadın' ? 'erkek' : "";
+      }
     }
     
     console.log(`[refreshDiscover] userId: ${userId}, gender: ${gender}, lookingFor: ${lookingFor}, targetGenderQuery: ${targetGender || 'ALL'}`);
-    console.log(`[refreshDiscover] DEBUG START: userId=${userId}, gender=${gender}, lookingFor=${lookingFor}, targetGenderQuery=${targetGender || 'ALL'}`);
+    console.log(`[refreshDiscover] DEBUG START: userId=${userId}, gender=${gender}, lookingFor=${lookingFor}, targetGenderQuery=${targetGender || 'ALL'}, mode=${mode}`);
 
-    const recentIds = userData.social?.recentDiscoverIds || [];
-    
     // Perform swipes check outside transaction to gather exclusion context rapidly
     const swipesSnap = await db.collection("swipes")
       .where("fromUserId", "==", userId)
-      .limit(500) // Safety limit for query efficiency
+      .limit(800) // Safety limit, optimize memory/read
       .get();
+      
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    
     const swipedUserIds = swipesSnap.docs
-      .filter(d => d.data().type !== 'pass')
+      .filter(d => {
+        const data = d.data();
+        if (data.type !== 'pass') return true; // always exclude likes/superlikes
+        const createdAt = data.createdAt?.toMillis?.() || 0;
+        if (createdAt && createdAt < thirtyDaysAgo) return false; // forget old passes
+        return true;
+      })
       .map(d => d.data().toUserId);
-    const exclusionList = new Set([userId, ...swipedUserIds]); // Exclude only self and explicitly swiped users (like/super_like)
+      
+    const exclusionList = new Set([userId, ...swipedUserIds]); 
 
     let usersQuery = db.collection("users")
       .where("social.enabled", "==", true)
@@ -336,11 +350,9 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
     if (targetGender) {
       usersQuery = usersQuery.where("social.gender", "==", targetGender);
     }
-    // Optimization: order by lastActiveAt descending if index available, 
-    // but for now, just fetch more to prevent exclusion starvation.
     
-    // Optimization: Use a slightly larger limit to account for exclusions, but keep it tight
-    const queryLimit = 150; 
+    // Optimization: Use a larger limit to guarantee we find non-excluded people
+    const queryLimit = 250; 
     const usersSnap = await usersQuery.limit(queryLimit).get();
     
     console.log(`[refreshDiscover] DEBUG RAW USERS COUNT: ${usersSnap.docs.length}`);
@@ -352,8 +364,7 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
       const tUserData = tUserSnap.data() as any;
       const lastFree = tUserData.social?.lastFreeRefreshAt;
       const isFreeAvailable = !lastFree || (now.getTime() - new Date(lastFree).getTime() >= 24 * 60 * 60 * 1000);
-      
-      const mode = data?.mode || 'discover';
+
       
       let status = 'SUCCESS';
       let updates: any = {};
@@ -372,103 +383,54 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
         }
       }
 
+      const mapUserDoc = (doc: any) => {
+        const d = doc.data() as any;
+        return {
+          id: doc.id,
+          uid: doc.id,
+          nickname: d.social?.nickname || d.displayName || "Kullanıcı",
+          age: d.age || d.social?.age || 0,
+          gender: d.social?.gender || d.gender || "",
+          photoURL: d.social?.photos?.[0] || d.photoURL || "",
+          zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
+          element: d.element || "",
+          birthDate: d.birthDate || d.social?.birthDate || "",
+          bio: d.social?.bio || d.bio || "",
+          lookingFor: d.social?.lookingFor || d.lookingFor || "",
+          socialLookingFor: d.social?.lookingFor || "",
+          socialGender: d.social?.gender || "",
+          interests: d.social?.interests || d.interests || [],
+          photos: d.social?.photos || [],
+          verified: d.social?.verified || false,
+          profileCompleted: d.social?.profileCompleted || false,
+          level: d.level || d.social?.level || 0,
+          boostExpiresAt: d.social?.boostExpiresAt || d.boostExpiresAt || ""
+        };
+      };
+
       let available = usersSnap.docs
         .filter(doc => !exclusionList.has(doc.id))
-        .map(doc => {
-          const d = doc.data() as any;
-          // OVER-FETCHING FIX: Sadece ana ekranda gerekenleri gönder
-          return {
-            id: doc.id,
-            uid: doc.id,
-            nickname: d.social?.nickname || d.displayName || "Kullanıcı",
-            age: d.age || d.social?.age || 0,
-            gender: d.social?.gender || d.gender || "",
-            photoURL: d.social?.photos?.[0] || d.photoURL || "",
-            zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
-            // Uyum analizi için gereken ham astrolojik veriler (detaylı profil değil)
-            element: d.element || "",
-            birthDate: d.birthDate || d.social?.birthDate || "",
-            bio: d.social?.bio || d.bio || "", // Kısa bio yeterli
-            lookingFor: d.social?.lookingFor || d.lookingFor || "",
-            socialLookingFor: d.social?.lookingFor || "",
-            socialGender: d.social?.gender || "",
-            interests: d.social?.interests || d.interests || [],
-            photos: d.social?.photos || [],
-            verified: d.social?.verified || false,
-            profileCompleted: d.social?.profileCompleted || false,
-            level: d.level || d.social?.level || 0
-          };
-        });
+        .map(mapUserDoc);
         
-      if (available.length < 5) {
-        const absoluteExclusion = new Set([userId, ...swipedUserIds]);
+      if (available.length < 5 && usersSnap.docs.length > 0) {
+        console.warn(`[refreshDiscover] WARNING: only ${available.length} users left for ${userId}! Allowing swiped users to prevent soft-lock.`);
+        // Fall back to self-only exclusion so app doesn't break
+        const selfExclusion = new Set([userId]);
         available = usersSnap.docs
-          .filter(doc => !absoluteExclusion.has(doc.id))
-          .map(doc => {
-            const d = doc.data() as any;
-            return {
-              id: doc.id,
-              uid: doc.id,
-              nickname: d.social?.nickname || d.displayName || "Kullanıcı",
-              age: d.age || d.social?.age || 0,
-              gender: d.social?.gender || d.gender || "",
-              photoURL: d.social?.photos?.[0] || d.photoURL || "",
-              zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
-              // Uyum analizi için gereken ham astrolojik veriler (detaylı profil değil)
-              element: d.element || "",
-              birthDate: d.birthDate || d.social?.birthDate || "",
-              bio: d.social?.bio || d.bio || "",
-              lookingFor: d.social?.lookingFor || d.lookingFor || "",
-              socialLookingFor: d.social?.lookingFor || "",
-              socialGender: d.social?.gender || "",
-              interests: d.social?.interests || d.interests || [],
-              photos: d.social?.photos || [],
-              verified: d.social?.verified || false,
-              profileCompleted: d.social?.profileCompleted || false,
-              level: d.level || d.social?.level || 0,
-              boostExpiresAt: d.boostExpiresAt || ""
-            };
-          });
-          
-         if (available.length < 5 && usersSnap.docs.length > 0) {
-            console.warn(`[refreshDiscover] WARNING: only ${available.length} users left for ${userId}! Allowing swiped users to prevent soft-lock.`);
-            // If even absoluteExclusion causes low results, fall back to self-only exclusion so app doesn't break
-            const selfExclusion = new Set([userId]);
-            available = usersSnap.docs
-              .filter(doc => !selfExclusion.has(doc.id))
-              .map(doc => {
-                const d = doc.data() as any;
-                return {
-                  id: doc.id,
-                  uid: doc.id,
-                  nickname: d.social?.nickname || d.displayName || "Kullanıcı",
-                  age: d.age || d.social?.age || 0,
-                  gender: d.social?.gender || d.gender || "",
-                  photoURL: d.social?.photos?.[0] || d.photoURL || "",
-                  zodiacSign: d.zodiacSign || d.social?.zodiacSign || "",
-                  element: d.element || "",
-                  birthDate: d.birthDate || d.social?.birthDate || "",
-                  bio: d.social?.bio || d.bio || "",
-                  lookingFor: d.social?.lookingFor || d.lookingFor || "",
-                  socialLookingFor: d.social?.lookingFor || "",
-                  socialGender: d.social?.gender || "",
-                  interests: d.social?.interests || d.interests || [],
-                  photos: d.social?.photos || [],
-                  verified: d.social?.verified || false,
-                  profileCompleted: d.social?.profileCompleted || false,
-                  level: d.level || d.social?.level || 0
-                };
-              });
-         }
+          .filter(doc => !selfExclusion.has(doc.id))
+          .map(mapUserDoc);
       }
       
       available = available.sort((a,b) => {
           const aBoost = a.boostExpiresAt ? new Date(a.boostExpiresAt).getTime() : 0;
           const bBoost = b.boostExpiresAt ? new Date(b.boostExpiresAt).getTime() : 0;
-          const now = Date.now();
-          if (aBoost > now && bBoost <= now) return -1;
-          if (bBoost > now && aBoost <= now) return 1;
-          return Math.random() - 0.5;
+          const nowTime = Date.now();
+          const aIsBoosted = aBoost > nowTime;
+          const bIsBoosted = bBoost > nowTime;
+          
+          if (aIsBoosted && !bIsBoosted) return -1;
+          if (bIsBoosted && !aIsBoosted) return 1;
+          return Math.random() - 0.5; // Natural random for the rest
       }).slice(0, 20);
       
       // Removed recentDiscoverIds update to prevent unswiped users from being permanently excluded just because they were fetched
@@ -617,8 +579,7 @@ export const sendPriorityMessageRequest = functions.region('us-central1').https.
   }
 
   try {
-     const configSnap = await db.collection("adminSettings").doc("economy").get();
-     const economy = configSnap.exists ? configSnap.data() as any : {};
+     const economy = await getEconomyConfig() || {};
      const priorityMessagePrice = economy.socialPricing?.priorityMessagePrice || 50;
 
      const fromUserRef = db.collection("users").doc(fromUserId);
@@ -684,8 +645,7 @@ export const claimProfileCompletionReward = functions.region('us-central1').http
 
   try {
     const userRef = db.collection("users").doc(userId);
-    const economySnap = await db.collection("adminSettings").doc("economy").get();
-    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const economy = await getEconomyConfig() || {};
     const rewardAmount = economy.rewards?.profileCompletionEnergy || 50;
 
     return await db.runTransaction(async (transaction) => {
@@ -1344,8 +1304,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
     const targetRef = db.collection("users").doc(targetUserId);
 
     // 1. Fetch Economy Config for Price
-    const economySnap = await db.collection("adminSettings").doc("economy").get();
-    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const economy = await getEconomyConfig() || {};
     const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
 
     // 2. Perform Transaction for Payment
@@ -1357,8 +1316,11 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
       const user = uSnap.data() as any;
       const targetUser = tSnap.data() as any;
 
+      let paymentType: 'count' | 'coins' = 'coins';
+
       if ((user.compatibilityCount || 0) > 0) {
         transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+        paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
         transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });
         // Log transaction
@@ -1374,33 +1336,122 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
           status: 'spent',
           description: `Uyum Analizi (Keşfet)`
         });
+        paymentType = 'coins';
       } else {
-        throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye veya analiz hakkı.");
+        throw new functions.https.HttpsError('failed-precondition', "Yeterli jetonun yok.");
       }
 
       return {
+        paymentType,
+        compatPrice,
         me: {
           name: user.social?.nickname || user.displayName || "Sen",
           birthDate: user.birthDate || user.social?.birthDate || "",
-          photo: user.social?.photos?.[0] || user.photoURL || ""
+          photo: user.social?.photos?.[0] || user.photoURL || "",
+          age: user.age || 0
         },
         target: {
           name: targetUser.social?.nickname || targetUser.displayName || "O",
           birthDate: targetUser.birthDate || targetUser.social?.birthDate || "",
-          photo: targetUser.social?.photos?.[0] || targetUser.photoURL || ""
+          photo: targetUser.social?.photos?.[0] || targetUser.photoURL || "",
+          age: targetUser.age || 0
         }
       };
     });
 
     // 3. Process AI implicitly inline - results in compatibilityHistory
-    const analysisData = await generateCompatibilityAiDirect(
-      usersData.me, 
-      usersData.target, 
-      relationshipType || 'ask', 
-      userId, 
-      targetUserId
-    );
+    let analysisData;
+    try {
+      analysisData = await generateCompatibilityAiDirect(
+        usersData.me, 
+        usersData.target, 
+        relationshipType || 'ask', 
+        userId, 
+        targetUserId
+      );
+    } catch (aiError: any) {
+      await db.runTransaction(async (t) => {
+        if (usersData.paymentType === 'count') {
+          t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
+        } else if (usersData.paymentType === 'coins') {
+          t.update(userRef, { mainCoins: FieldValue.increment(usersData.compatPrice) });
+          // Log refund
+          const refundRef = db.collection("walletTransactions").doc();
+          t.set(refundRef, {
+            id: refundRef.id,
+            userId,
+            type: 'earn',
+            source: 'refund',
+            amount: usersData.compatPrice,
+            balanceType: 'main',
+            createdAt: new Date().toISOString(),
+            status: 'completed',
+            description: `Uyum Analizi İadesi (Hata)`
+          });
+        }
+      });
+      throw new functions.https.HttpsError('internal', 'Uyum analizi şu an hazırlanamadı. Hakkın/jetonun iade edildi.');
+    }
     
+    // NEW: Notify the target user that someone is curious (Compatibility Peek)
+    try {
+      const peekId = `peek_${userId}_${targetUserId}`;
+      const peekRef = db.collection("compatibilityPeeks").doc(peekId);
+      const peekSnap = await peekRef.get();
+      
+      let shouldUpdatePeek = true;
+      if (peekSnap.exists) {
+        const peekData = peekSnap.data();
+        if (peekData?.createdAt) {
+          const lastTime = peekData.createdAt.toDate ? peekData.createdAt.toDate() : new Date(peekData.createdAt);
+          const diffMs = Date.now() - lastTime.getTime();
+          if (diffMs < 24 * 60 * 60 * 1000) {
+            shouldUpdatePeek = false; // Cooldown active
+          }
+        }
+      }
+      
+      if (shouldUpdatePeek) {
+        const fromUser = usersData.me;
+        await peekRef.set({
+          id: peekId,
+          fromUserId: userId,
+          toUserId: targetUserId,
+          fromUserName: fromUser.name,
+          fromUserPhoto: fromUser.photo,
+          fromUserAge: fromUser.age,
+          createdAt: FieldValue.serverTimestamp(),
+          source: "discover",
+          read: false
+        });
+        
+        // Create Notification for Target User
+        const targetNotificationRef = db.collection("notifications").doc();
+        await targetNotificationRef.set({
+          userId: targetUserId,
+          type: 'compatibility_peek',
+          title: 'Birisi uyumunu merak etti ✨',
+          message: 'Enerjin birinin dikkatini çekti! Kimin seninle uyumunu merak ettiğini gör.',
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+          metadata: {
+            fromUserId: userId,
+            peekId: peekId
+          }
+        });
+        
+        await sendPushToUser(targetUserId, {
+          title: "Birisi uyumunu merak etti ✨",
+          body: "Enerjin birinin dikkatini çekti! Kimin seninle uyumunu merak ettiğini gör.",
+          category: 'compatibility',
+          data: { type: 'compatibilityPeek', fromUserId: userId }
+        });
+      }
+    } catch (peekError) {
+      console.error("peek creation error:", peekError);
+      // Non-blocking
+    }
+
     return { 
       success: true, 
       requestId: analysisData.id, 
@@ -1428,17 +1479,19 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
     const userRef = db.collection("users").doc(userId);
 
     // 1. Fetch Economy Config for Price
-    const economySnap = await db.collection("adminSettings").doc("economy").get();
-    const economy = economySnap.exists ? economySnap.data() as any : {};
+    const economy = await getEconomyConfig() || {};
     const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
     
-    await db.runTransaction(async (transaction) => {
+    const paymentData = await db.runTransaction(async (transaction) => {
       const snap = await transaction.get(userRef);
       if (!snap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const user = snap.data() as any;
 
+      let paymentType: 'count' | 'coins' = 'coins';
+
       if ((user.compatibilityCount || 0) > 0) {
         transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+        paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
         transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });
         // Log transaction
@@ -1454,13 +1507,41 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
           status: 'spent',
           description: `Uyum Analizi (Manuel)`
         });
+        paymentType = 'coins';
       } else {
-        throw new functions.https.HttpsError('failed-precondition', "Yetersiz bakiye veya analiz hakkı.");
+        throw new functions.https.HttpsError('failed-precondition', "Yeterli jetonun yok.");
       }
+
+      return { paymentType, compatPrice };
     });
     
     // 2. Process AI implicitly inline - results in compatibilityHistory with 5min lock
-    const analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
+    let analysisData;
+    try {
+      analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
+    } catch (aiError: any) {
+      await db.runTransaction(async (t) => {
+        if (paymentData.paymentType === 'count') {
+          t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
+        } else if (paymentData.paymentType === 'coins') {
+          t.update(userRef, { mainCoins: FieldValue.increment(paymentData.compatPrice) });
+          // Log refund
+          const refundRef = db.collection("walletTransactions").doc();
+          t.set(refundRef, {
+            id: refundRef.id,
+            userId,
+            type: 'earn',
+            source: 'refund',
+            amount: paymentData.compatPrice,
+            balanceType: 'main',
+            createdAt: new Date().toISOString(),
+            status: 'completed',
+            description: `Uyum Analizi İadesi (Hata)`
+          });
+        }
+      });
+      throw new functions.https.HttpsError('internal', 'Uyum analizi şu an hazırlanamadı. Hakkın/jetonun iade edildi.');
+    }
     return { 
       success: true, 
       requestId: analysisData.id, 
@@ -1482,20 +1563,16 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
   if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'RequestId gerekli.');
   
   try {
+    const economy = await getEconomyConfig() || {};
+    const speedUpPrice = economy.socialPricing?.compatibilitySpeedUpPrice ?? 10;
+
     return await db.runTransaction(async (transaction) => {
       const userRef = db.collection("users").doc(userId);
       const userSnap = await transaction.get(userRef);
       if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
       
-      const configSnap = await transaction.get(db.collection("config").doc("global"));
-      let speedUpPrice = 10; // Default
-      if (configSnap.exists) {
-        const configData = configSnap.data();
-        speedUpPrice = configData?.socialEconomy?.compatibilitySpeedUpPrice ?? 10;
-      }
-      
       const userData = userSnap.data() || {};
-      if ((userData.mainCoins || 0) < speedUpPrice) throw new functions.https.HttpsError('failed-precondition', 'Yetersiz J-Coin bakiyesi.');
+      if ((userData.mainCoins || 0) < speedUpPrice) throw new functions.https.HttpsError('failed-precondition', 'Yeterli jetonun yok.');
       
       // Look up in compatibilityHistory since we instantly generate and lock it
       const reqRef = db.collection("compatibilityHistory").doc(requestId);
@@ -1505,7 +1582,9 @@ export const speedUpCompatibilityAnalysis = functions.region('us-central1').http
       const reqData = reqSnap.data() || {};
       
       if (reqData.userId !== userId) throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
-      if (reqData.status !== 'locked') throw new functions.https.HttpsError('failed-precondition', 'Bu analizin zaten kilidi açık veya geçersiz durumda.');
+      if (reqData.status !== 'locked' || reqData.revealed) {
+        throw new functions.https.HttpsError('failed-precondition', 'Analiz zaten açılmış.');
+      }
       
       transaction.update(userRef, {
         mainCoins: FieldValue.increment(-speedUpPrice)

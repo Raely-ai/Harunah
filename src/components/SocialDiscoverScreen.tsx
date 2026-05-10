@@ -9,7 +9,7 @@ import {
   getDocs
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory } from "../types";
+import { UserProfile, AppConfig, normalizeUserProfile, CompatibilityHistory, isExternalPhotoUrl } from "../types";
 import { getTargetGender, isSocialProfileReady, checkGenderPreference } from "../lib/socialUtils";
 import { toast } from "sonner";
 import { 
@@ -183,7 +183,41 @@ export default function SocialDiscoverScreen({
     }
   };
 
-  // 4. Client-side Layer Partitioning
+  // 4. Boost Logic
+  const [showBoostModal, setShowBoostModal] = useState(false);
+  const [boostConfig, setBoostConfig] = useState<any>(null);
+
+  useEffect(() => {
+    walletService.getAdminConfig().then(cfg => {
+      setBoostConfig(cfg.boostPackages);
+    });
+  }, []);
+
+  const handlePurchaseBoost = async (type: 'weekly' | 'monthly') => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const result = await walletService.purchaseBoostPackage(uid, type);
+      if (result.success) {
+        toast.success("Artık daha fazla kişiye görünüyorsun ✨");
+        if (onRefresh) onRefresh();
+        setShowBoostModal(false);
+      } else {
+        if (result.message?.includes("yetersiz") || result.message?.includes("Cüzdan")) {
+          toast.error("Yetersiz bakiye. Cüzdana yönlendiriliyorsun.");
+          onNavigate('wallet');
+        } else {
+          toast.error(result.message || "Boost alınamadı.");
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Bir hata oluştu.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 5. Client-side Layer Partitioning
   const { layers, isEmptyFilter } = useMemo(() => {
     const now = new Date().getTime();
     
@@ -244,10 +278,10 @@ export default function SocialDiscoverScreen({
       <div className="flex-1 bg-[#F9F9F9] flex flex-col items-center justify-center p-8 gap-4">
         <motion.div 
           animate={{ rotate: 360 }} 
-          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-          className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full shadow-lg"
+          transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+          className="w-10 h-10 border-2 border-amber-400 border-t-transparent rounded-full"
         />
-        <p className="font-serif italic text-amber-600/60 animate-pulse">Yeni bir boyut açılıyor...</p>
+        <p className="text-[13px] font-medium text-amber-600/60 animate-pulse">Evren hazırlanıyor...</p>
       </div>
     );
   }
@@ -284,12 +318,12 @@ export default function SocialDiscoverScreen({
     const isBoosted = boostTime > Date.now();
 
     // Theme colors based on gender
-    const glowClass = isBoosted ? 'shadow-[0_0_25px_rgba(245,158,11,0.6)] border-2 border-amber-400' : 
+    const glowClass = isBoosted ? 'border-2 border-amber-400 shadow-sm' : 
       isFemale 
-      ? 'shadow-[0_0_15px_rgba(244,63,94,0.15)] border-rose-100/50' 
+      ? 'shadow-sm border-rose-100/30' 
       : isMale 
-        ? 'shadow-[0_0_15px_rgba(79,70,229,0.15)] border-indigo-100/50' 
-        : 'shadow-[0_0_15px_rgba(168,85,247,0.15)] border-purple-100/50';
+        ? 'shadow-sm border-indigo-100/30' 
+        : 'shadow-sm border-purple-100/30';
 
     const cardWidth = isGrid ? 'w-full' : isFeatured ? 'w-40' : 'w-32'; 
     const cardAspect = 'aspect-[3/4.5]';
@@ -301,8 +335,10 @@ export default function SocialDiscoverScreen({
         className={`${cardWidth} ${cardAspect} bg-white rounded-[24px] overflow-hidden relative ${glowClass} ${!isBoosted ? 'border' : ''} cursor-pointer group flex-shrink-0`}
       >
         <img 
-          src={user.social?.photos?.[0] || user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+          src={user.social?.photos?.[0] || (!isExternalPhotoUrl(user.photoURL) ? user.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300" 
+          loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer" 
         />
         
@@ -312,13 +348,13 @@ export default function SocialDiscoverScreen({
         {/* Top Indicators */}
         <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start z-10">
           {isBoosted && (
-            <div className="bg-gradient-to-r from-amber-500 to-amber-600 px-1.5 py-0.5 rounded-md border border-amber-300/30 flex items-center gap-1 shadow-md shadow-amber-500/20">
+            <div className="bg-gradient-to-r from-amber-500 to-amber-600 px-1.5 py-0.5 rounded-md border border-amber-300/30 flex items-center gap-1 shadow-sm">
               <Zap className="w-2.5 h-2.5 text-white fill-white" />
               <span className="text-white text-[8px] font-black uppercase tracking-widest">Öne Çıkan</span>
             </div>
           )}
           {level && (
-            <div className="bg-black/40 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-white/10">
+            <div className="bg-black/30 backdrop-blur-sm px-1.5 py-0.5 rounded-lg border border-white/10">
               <span className="text-white text-[8px] font-black uppercase">Lv.{level}</span>
             </div>
           )}
@@ -326,7 +362,7 @@ export default function SocialDiscoverScreen({
 
         <div className="absolute top-2.5 right-2.5 flex items-center">
           {user.social?.isOnline && (
-            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white shadow-[0_0_8px_#10B981]" />
+            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />
           )}
         </div>
 
@@ -391,7 +427,7 @@ export default function SocialDiscoverScreen({
       <div className="w-full shrink-0" style={{ height: "calc(env(safe-area-inset-top, 1rem) + 64px)" }} />
       
       {/* 1. STICKY FILTER BAR */}
-      <div className="sticky z-40 bg-[#F9F9F9]/90 backdrop-blur-md shadow-sm border-b border-slate-200/50" style={{ top: "calc(env(safe-area-inset-top, 1rem) + 64px)" }}>
+      <div className="sticky z-40 bg-[#F9F9F9]/90 backdrop-blur-sm border-b border-slate-200/50" style={{ top: "calc(env(safe-area-inset-top, 1rem) + 64px)" }}>
         <div className="px-4 py-3 flex items-center justify-between">
           <h1 className="text-xl font-black tracking-tighter text-slate-900 ml-2">Keşfet</h1>
           <div className="flex bg-slate-200/80 rounded-full p-1 border border-slate-300/50">
@@ -419,9 +455,30 @@ export default function SocialDiscoverScreen({
         </div>
       </div>
 
+      {/* DISCOVER LIMIT WARNING */}
+      {(() => {
+        const rm = currentUser?.social?.discoverLikesRemaining ?? 15;
+        if (rm > 3) return null;
+        return (
+          <div className="mx-4 mt-4 bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+            <div>
+              <h3 className="text-rose-600 font-bold text-xs uppercase tracking-wider mb-0.5">
+                {rm === 0 ? "Günlük Keşfet Beğeni Hakkın Bitti!" : "Keşfet Beğeni Hakkın Bitiyor"}
+              </h3>
+              <p className="text-rose-500/80 text-[10px] font-medium">
+                {rm === 0 ? "Yarın tekrar gel veya cüzdandan sınırsız Swipe al." : `Sadece ${rm} bedava beğeni hakkın kaldı.`}
+              </p>
+            </div>
+            <button onClick={() => onNavigate('wallet')} className="bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-md">
+              Cüzdan
+            </button>
+          </div>
+        );
+      })()}
+
       {allUsers.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 text-center mt-12 gap-4">
-          <div className="w-16 h-16 bg-gradient-to-tr from-amber-400 to-amber-600 rounded-3xl flex items-center justify-center shadow-xl shadow-amber-500/20 rotate-12">
+          <div className="w-16 h-16 bg-slate-900 rounded-3xl flex items-center justify-center shadow-lg shadow-slate-900/5 rotate-12">
             <Sparkles className="w-8 h-8 text-white" />
           </div>
           <h3 className="text-xl font-black text-slate-900 mt-4">Henüz Kimse Yok</h3>
@@ -432,28 +489,29 @@ export default function SocialDiscoverScreen({
           
           {/* GÜNÜN PARLAYANLARI */}
           {layers.parlayanlar.length > 0 && (
-            <div className="sticky top-0 z-40 bg-white/60 backdrop-blur-xl pt-4 pb-4 border-b border-black/5 -mx-6 px-6">
+            <div className="sticky top-0 z-40 bg-white/30 backdrop-blur-sm pt-4 pb-4 border-b border-black/5 -mx-6 px-6">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-                  <h2 className="text-[14px] font-black uppercase tracking-[0.2em] text-slate-900 leading-none">Günün Parlayanları</h2>
+                  <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                  <h2 className="text-[13px] font-black uppercase tracking-[0.2em] text-slate-900 leading-none">Günün Parlayanları</h2>
                 </div>
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]" />
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </div>
               <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-2 pt-1 -mx-6 px-6">
                 
-                {/* PROMO CARD */}
+                {/* PROMO CARD - Öne Çık */}
                 <motion.div 
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => toast("VIP Vitrin yakında aktif olacak!")}
-                  className="flex-shrink-0 w-40 aspect-[3/4.5] bg-gradient-to-br from-slate-900 to-slate-800 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer"
+                  onClick={() => setShowBoostModal(true)}
+                  className="flex-shrink-0 w-40 aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-4 text-center border border-slate-800 cursor-pointer"
                 >
-                  <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
-                    <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent" />
+                  <div className="w-11 h-11 bg-white/5 rounded-full flex items-center justify-center mb-3 border border-white/5 shadow-inner">
+                    <Zap className="w-6 h-6 text-amber-400 fill-amber-400" />
                   </div>
-                  <h4 className="text-white font-black text-[10px] leading-tight mb-2">Burada Öne Çıkmak İster misin?</h4>
-                  <button className="bg-amber-500 text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
-                    VIP Ol
+                  <h4 className="text-white font-black text-[11px] leading-tight mb-3">Burada Öne Çıkmak İster misin?</h4>
+                  <button className="bg-amber-500 hover:bg-amber-400 text-white text-[9px] font-black px-4 py-2 rounded-full uppercase tracking-widest shadow-lg shadow-amber-500/20 active:scale-95 transition-all">
+                    Öne Çık
                   </button>
                 </motion.div>
 
@@ -479,7 +537,7 @@ export default function SocialDiscoverScreen({
           {layers.aktifOlanlar.length > 0 && (
             <div>
               <div className="px-6 mb-3 flex items-center gap-2">
-                <div className="w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#F9F9F9] shadow-[0_0_8px_#10B981] animate-pulse" />
+                <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full border border-[#F9F9F9] animate-pulse" />
                 <h2 className="text-[12px] font-black uppercase tracking-[0.2em] text-slate-900">Şu An Aktif</h2>
               </div>
               <div className="flex items-center gap-3 overflow-x-auto no-scrollbar px-6 pb-2">
@@ -518,7 +576,7 @@ export default function SocialDiscoverScreen({
                 </p>
                 <button 
                   onClick={() => setGenderFilter('all')}
-                  className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95"
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
                 >
                   Herkes'i Göster
                 </button>
@@ -528,13 +586,13 @@ export default function SocialDiscoverScreen({
             <div className="grid grid-cols-2 gap-3">
               {layers.anaAkis.map((u, i) => {
                 const promo = (i > 0 && i % 4 === 0) ? (
-                   <motion.div key={`promo-${i}`} onClick={() => toast("VIP Vitrin yakında aktif olacak!")} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer">
-                     <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
-                       <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                   <motion.div key={`promo-${i}`} onClick={() => setShowBoostModal(true)} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-sm flex flex-col items-center justify-center p-3 text-center border border-slate-800 cursor-pointer">
+                     <div className="w-9 h-9 bg-white/5 rounded-full flex items-center justify-center mb-2">
+                       <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
                      </div>
-                     <h4 className="text-white font-black text-[11px] leading-tight mb-2 px-2">Burada Öne Çıkmak İster misin?</h4>
-                     <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
-                       VIP Ol
+                     <h4 className="text-white font-black text-[11px] leading-tight mb-2 px-2">Profilini VIP Vitrine Taşı</h4>
+                     <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
+                       Öne Çık
                      </button>
                    </motion.div>
                 ) : null;
@@ -551,13 +609,13 @@ export default function SocialDiscoverScreen({
 
               {/* Az kart varsa araya manuel bir promo sıkıştır */}
               {layers.anaAkis.length > 0 && layers.anaAkis.length < 4 && (
-                 <motion.div onClick={() => toast("VIP Vitrin yakında aktif olacak!")} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-lg flex flex-col items-center justify-center p-3 text-center border border-slate-700 cursor-pointer">
-                   <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
-                     <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+                 <motion.div onClick={() => setShowBoostModal(true)} className="aspect-[3/4.5] bg-slate-900 rounded-[24px] overflow-hidden relative shadow-sm flex flex-col items-center justify-center p-3 text-center border border-slate-800 cursor-pointer">
+                   <div className="w-9 h-9 bg-white/5 rounded-full flex items-center justify-center mb-2">
+                     <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
                    </div>
                    <h4 className="text-white font-black text-[11px] leading-tight mb-2 px-2">Profilini Parlat</h4>
-                   <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.5)]">
-                     VIP Ol
+                   <button className="bg-amber-500 text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">
+                     Öne Çık
                    </button>
                  </motion.div>
               )}
@@ -571,11 +629,10 @@ export default function SocialDiscoverScreen({
               <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Evren Döngüsü Tamamlandı</h3>
             </div>
             <motion.button 
-              whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleRefreshClick}
               disabled={isProcessing}
-              className="w-full py-4 bg-slate-900 text-white rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-slate-900/10 disabled:opacity-80"
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl flex items-center justify-center gap-2 border border-slate-800 shadow-sm disabled:opacity-80"
             >
               <RefreshCw className={`w-4 h-4 text-amber-400 ${isProcessing ? 'animate-spin' : ''}`} />
               <span className="text-xs font-black uppercase tracking-[0.1em]">
@@ -588,6 +645,79 @@ export default function SocialDiscoverScreen({
           </div>
         </div>
       )}
+
+      {/* BOOST PURCHASE MODAL */}
+      <AnimatePresence>
+        {showBoostModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBoostModal(false)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 pb-10 flex flex-col items-center text-center">
+                <div className="w-20 h-20 bg-amber-100 rounded-[30px] flex items-center justify-center mb-6 shadow-sm border border-amber-200/50">
+                  <Zap className="w-10 h-10 text-amber-500 fill-amber-500" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 mb-2">VIP Vitrin'e Çık!</h3>
+                <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed px-4">
+                  Profilini öne çıkar ve 10 kat daha fazla etkileşim al. Parlayanlar listesinde en üstte görün! ✨
+                </p>
+
+                <div className="w-full space-y-4">
+                  <button 
+                    onClick={() => handlePurchaseBoost('weekly')}
+                    disabled={isProcessing}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white p-5 rounded-3xl flex items-center justify-between group transition-all active:scale-[0.98]"
+                  >
+                    <div className="text-left">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-amber-400">Gelişmiş</span>
+                      <span className="text-sm font-black">7 Gün Boyunca</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Fiyat</span>
+                      <span className="text-lg font-black text-amber-400">{boostConfig?.weekly?.price || 49.99} Coin</span>
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={() => handlePurchaseBoost('monthly')}
+                    disabled={isProcessing}
+                    className="w-full bg-slate-50 hover:bg-slate-100 text-slate-900 p-5 rounded-3xl flex items-center justify-between border border-slate-200 group transition-all active:scale-[0.98]"
+                  >
+                    <div className="text-left">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-indigo-500">Kral Paketi</span>
+                      <span className="text-sm font-black">30 Gün Boyunca</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Fiyat</span>
+                      <span className="text-lg font-black text-indigo-600">{boostConfig?.monthly?.price || 149.99} Coin</span>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="mt-8 flex flex-col items-center gap-2">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bakiyen: {currentUser.mainCoins || 0} Coin</p>
+                  <button 
+                    onClick={() => setShowBoostModal(false)}
+                    className="text-slate-400 hover:text-slate-600 text-[10px] font-black uppercase tracking-widest py-2"
+                  >
+                    Belki Daha Sonra
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* PROFILE POPUP */}
       <AnimatePresence>

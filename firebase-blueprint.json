@@ -331,6 +331,23 @@
         "readyAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "status", "createdAt", "readyAt"]
+    },
+    "CompatibilityPeek": {
+      "title": "Compatibility Peek",
+      "description": "Stores notifications for when a user is curious about another's compatibility.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "fromUserName": { "type": "string" },
+        "fromUserPhoto": { "type": "string" },
+        "fromUserAge": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["fromUserId", "toUserId", "createdAt"]
     }
   },
   "firestore": {
@@ -397,6 +414,10 @@
     "/compatibilityRequests/{id}": {
       "schema": "CompatibilityRequest",
       "description": "Pending compatibility analysis requests"
+    },
+    "/compatibilityPeeks/{id}": {
+      "schema": "CompatibilityPeek",
+      "description": "Records of users who analyzed someone else's compatibility"
     }
   }
 }

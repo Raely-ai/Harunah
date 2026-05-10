@@ -13,7 +13,8 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        ("email" in request.auth.token && (request.auth.token.email == "hpferdicakir@gmail.com" || request.auth.token.email == "falcimahlas@gmail.com")) || 
+        request.auth.token.get('email', '') == "hpferdicakir@gmail.com" || 
+        request.auth.token.get('email', '') == "falcimahlas@gmail.com" || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
       );
     }
@@ -71,9 +72,7 @@ service cloud.firestore {
 
     // Interaction Requests: Sender and Receiver can read. Writes only via Functions.
     match /interactionRequests/{requestId} {
-      allow get: if isAuthenticated() && isNotBanned() && (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId);
-      allow list: if isAuthenticated() && isNotBanned() && request.auth.uid == resource.data.fromUserId;
-      allow list: if isAuthenticated() && isNotBanned() && request.auth.uid == resource.data.toUserId;
+      allow read: if isAuthenticated() && isNotBanned() && (resource.data.toUserId == request.auth.uid || resource.data.fromUserId == request.auth.uid || isAdmin());
       allow write: if false;
     }
 
@@ -85,9 +84,7 @@ service cloud.firestore {
 
     // Swipes: Read by owner (fromUserId) or receiver (toUserId). Writes only via Functions.
     match /swipes/{swipeId} {
-      allow get: if isAuthenticated() && isNotBanned() && (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId);
-      allow list: if isAuthenticated() && isNotBanned() && request.auth.uid == resource.data.fromUserId;
-      allow list: if isAuthenticated() && isNotBanned() && request.auth.uid == resource.data.toUserId;
+      allow read: if isAuthenticated() && isNotBanned() && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && isNotBanned() && request.resource.data.fromUserId == request.auth.uid;
       allow update, delete: if false;
     }
@@ -136,6 +133,12 @@ service cloud.firestore {
       allow read: if isOwner(resource.data.userId) || isAdmin();
       allow create: if isOwner(request.resource.data.userId);
       allow update, delete: if false;
+    }
+
+    match /compatibilityPeeks/{id} {
+      allow read: if request.auth != null && resource.data.toUserId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.toUserId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if false;
     }
 
     // Default deny for everything else

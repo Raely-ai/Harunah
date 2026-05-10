@@ -285,7 +285,14 @@ export const socialService = {
     if (!uid) return;
     try {
       const userRef = doc(db, "users", uid);
-      await updateDoc(userRef, { [`social.${field}`]: value, "social.updatedAt": serverTimestamp() });
+      const updates: any = { [`social.${field}`]: value, "social.updatedAt": serverTimestamp() };
+      
+      // Keep photoURL in sync with the first profile photo
+      if (field === 'photos' && Array.isArray(value)) {
+        updates['photoURL'] = value.length > 0 ? value[0] : "";
+      }
+      
+      await updateDoc(userRef, updates);
     } catch (error: any) {
       console.error("socialService: Error updating social field:", error);
       toast.error(error.message || "Güncelleme başarısız.");
@@ -365,6 +372,7 @@ export const socialService = {
       // Ensure specific structure requested: social nested object
       const payload = {
         ...data,
+        photoURL: (data.photos && data.photos.length > 0) ? data.photos[0] : (data.social?.photos && data.social.photos.length > 0 ? data.social.photos[0] : ""),
         social: {
           ...(data.social || {}),
           nickname: data.nickname || data.social?.nickname || "",
@@ -610,6 +618,20 @@ export const socialService = {
     const result = await callFunction('unmuteUser', { targetUid });
     if (result.status === 'SUCCESS') toast.success("Susturma kaldırıldı.");
     return result;
+  },
+
+  async getUserProfile(uid: string): Promise<UserProfile | null> {
+    if (!uid) return null;
+    try {
+      const snap = await getDoc(doc(db, "users", uid));
+      if (snap.exists()) {
+        return normalizeUserProfile(snap.data(), snap.id);
+      }
+      return null;
+    } catch (error) {
+      console.error("socialService: getUserProfile error:", error);
+      return null;
+    }
   },
 
   // 6. Refresh Discover (Optimized Search)

@@ -29,7 +29,7 @@ import {
   Crown
 } from 'lucide-react';
 import { cacheManager } from '../lib/cacheManager';
-import { UserProfile, AppTab } from '../types';
+import { UserProfile, AppTab, isExternalPhotoUrl } from '../types';
 import { isSocialProfileReady } from '../lib/socialUtils';
 import PhotoGallery from "./PhotoGallery";
 import NicknameEditor from "./NicknameEditor";
@@ -313,11 +313,11 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
 
     // Visual configuration based on level
     const levelConfig = {
-      1: { color: 'text-slate-500', from: 'from-slate-400', to: 'to-slate-600', glow: 'shadow-[0_0_15px_-3px_rgba(100,116,139,0.4)]', bg: 'bg-slate-50', icon: 'bg-slate-100/50' },
-      2: { color: 'text-emerald-500', from: 'from-emerald-400', to: 'to-emerald-600', glow: 'shadow-[0_0_15px_-3px_rgba(16,185,129,0.4)]', bg: 'bg-emerald-50', icon: 'bg-emerald-100/50' },
-      3: { color: 'text-sky-500', from: 'from-sky-400', to: 'to-sky-600', glow: 'shadow-[0_0_15px_-3px_rgba(14,165,233,0.5)]', bg: 'bg-sky-50', icon: 'bg-sky-100/50' },
-      4: { color: 'text-violet-500', from: 'from-violet-400', to: 'to-fuchsia-600', glow: 'shadow-[0_0_20px_-3px_rgba(139,92,246,0.5)]', bg: 'bg-violet-50', icon: 'bg-violet-100/50' },
-      5: { color: 'text-amber-500', from: 'from-amber-400', to: 'to-orange-600', glow: 'shadow-[0_0_25px_-3px_rgba(245,158,11,0.6)]', bg: 'bg-amber-50', icon: 'bg-amber-100/50' }
+      1: { color: 'text-slate-500', from: 'from-slate-400', to: 'to-slate-600', glow: 'shadow-sm', bg: 'bg-slate-50', icon: 'bg-slate-100/50' },
+      2: { color: 'text-emerald-500', from: 'from-emerald-400', to: 'to-emerald-600', glow: 'shadow-sm', bg: 'bg-emerald-50', icon: 'bg-emerald-100/50' },
+      3: { color: 'text-sky-500', from: 'from-sky-400', to: 'to-sky-600', glow: 'shadow-sm', bg: 'bg-sky-50', icon: 'bg-sky-100/50' },
+      4: { color: 'text-violet-500', from: 'from-violet-400', to: 'to-fuchsia-600', glow: 'shadow-md', bg: 'bg-violet-50', icon: 'bg-violet-100/50' },
+      5: { color: 'text-amber-500', from: 'from-amber-400', to: 'to-orange-600', glow: 'shadow-md', bg: 'bg-amber-50', icon: 'bg-amber-100/50' }
     }[currentLevel]!;
 
     return {
@@ -526,6 +526,9 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
   const verificationStatus = localUser.social?.verificationStatus || 'none';
   const isVerified = localUser.social?.verified || localUser.isVerified;
 
+  const boostTime = localUser.boostExpiresAt ? new Date(localUser.boostExpiresAt).getTime() : 0;
+  const isBoosted = boostTime > Date.now();
+
   const settings = localUser.social?.settings || { 
     whoCanMessage: 'everyone', 
     whoCanAddFriend: 'everyone', 
@@ -574,12 +577,35 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
           </div>
         )}
 
+        {isBoosted && !isPreviewMode && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-10 bg-gradient-to-r from-amber-500 to-amber-600 p-4 rounded-3xl border border-amber-400 shadow-lg shadow-amber-500/20 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-white">
+                <Zap className="w-6 h-6 fill-white" />
+              </div>
+              <div>
+                <h4 className="text-white font-black text-sm uppercase tracking-wider">Şu An Öne Çıkıyorsun!</h4>
+                <p className="text-[10px] text-white/80 font-bold uppercase tracking-widest">Günün Parlayanları Vitrinindesin ✨</p>
+              </div>
+            </div>
+            <div className="px-3 py-1 bg-black/20 rounded-xl">
+              <span className="text-[9px] text-white font-black uppercase whitespace-nowrap">
+                {Math.ceil((boostTime - Date.now()) / (1000 * 60 * 60 * 24))} Gün Kaldı
+              </span>
+            </div>
+          </motion.div>
+        )}
+
       {/* 1. TOP PROFILE SECTION */}
       <div className="flex flex-col items-center mb-10">
         <div className="relative group cursor-pointer" onClick={() => !isPreviewMode && setEditingField('basicInfo')}>
-          <div className="w-32 h-32 rounded-[2.8rem] bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-500 p-1 shadow-2xl ring-4 ring-white transition-transform duration-500 group-hover:scale-105">
+          <div className="w-32 h-32 rounded-[2.8rem] bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-500 p-1 shadow-lg ring-2 ring-white transition-transform duration-500 group-hover:scale-105">
             <img 
-              src={localUser.social?.photos?.[0] || localUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${localUser.uid}`} 
+              src={localUser.social?.photos?.[0] || (!isExternalPhotoUrl(localUser.photoURL) ? localUser.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${localUser.uid}`} 
               className="w-full h-full object-cover rounded-[2.6rem]"
               referrerPolicy="no-referrer"
             />
@@ -590,7 +616,7 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
             )}
           </div>
           {localUser.subscription?.status === 'active' && (
-            <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-amber-400 rounded-2xl flex items-center justify-center border-4 border-white shadow-lg">
+            <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-amber-400 rounded-2xl flex items-center justify-center border-2 border-white shadow-md">
               <Sparkles className="w-5 h-5 text-amber-900" />
             </div>
           )}
@@ -621,7 +647,7 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
                   key="badge-online"
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-100/50 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-50 border border-emerald-100/50 shadow-sm"
                 >
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[9px] font-black text-emerald-600 uppercase tracking-wider">Aktif</span>
@@ -739,16 +765,16 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Keşfet Kartın</h3>
           </div>
           <div className="flex justify-center">
-            <div className="w-56 aspect-[3/4.2] bg-white rounded-[2.5rem] overflow-hidden shadow-2xl relative border border-slate-100 ring-8 ring-white">
+            <div className="w-56 aspect-[3/4.2] bg-white rounded-[2.5rem] overflow-hidden shadow-lg relative border border-slate-100 ring-4 ring-white">
               <img 
-                src={localUser.social?.photos?.[0] || localUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${localUser.uid}`} 
+                src={localUser.social?.photos?.[0] || (!isExternalPhotoUrl(localUser.photoURL) ? localUser.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${localUser.uid}`} 
                 className="w-full h-full object-cover" 
                 referrerPolicy="no-referrer" 
               />
               <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
                 <h4 className="text-lg font-black text-white truncate">{localUser.social?.nickname || localUser.displayName}, {calculateAge(localUser.birthDate)}</h4>
                 <div className="flex items-center gap-1.5 mt-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10B981]" />
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm" />
                   <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Uyumlu Enerji</span>
                 </div>
               </div>
@@ -762,9 +788,9 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
         {/* SOCIAL PROOF / ANALYTICS SECTION (UI ONLY) */}
         {!isPreviewMode && (
           <section>
-            <div className="bg-gradient-to-br from-slate-900 to-indigo-950 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
-               <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
-               <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl" />
+            <div className="bg-gradient-to-br from-slate-900 to-indigo-950 p-8 rounded-[3rem] shadow-lg relative overflow-hidden">
+               <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-[80px]" />
+               <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-[80px]" />
                
                <div className="relative z-10">
                  <div className="flex items-center gap-3 mb-6">
@@ -888,32 +914,6 @@ export default function ProfileView({ user, onSettings, onLogout, onDeleteAccoun
                     }`}
                   >
                     {option.charAt(0).toUpperCase() + option.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2 mb-4 px-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Karşılaşma Tercihleri</h3>
-            </div>
-            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-              <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4 block text-center">Kimi Görmek İstiyorsun?</span>
-              <div className="grid grid-cols-3 gap-2">
-                {(['erkek', 'kadın', 'arkadaş'] as const).map((option) => (
-                  <button
-                    key={option}
-                    disabled={isPreviewMode}
-                    onClick={() => handleUpdateLookingFor(option)}
-                    className={`py-3.5 px-2 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                      (localUser.social?.lookingFor || 'arkadaş') === option
-                        ? 'bg-rose-500 text-white border-rose-600 shadow-lg shadow-rose-200'
-                        : `bg-white text-slate-400 border-slate-100 ${isPreviewMode ? '' : 'hover:bg-slate-50'}`
-                    }`}
-                  >
-                    {option === 'erkek' ? 'Erkekler' : option === 'kadın' ? 'Kadınlar' : 'Herkes'}
                   </button>
                 ))}
               </div>

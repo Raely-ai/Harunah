@@ -279,7 +279,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
       
       {/* EXPLANATION NOTICE */}
       <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+32px)] inset-x-0 flex justify-center z-10 pointer-events-none px-4">
-        <p className="text-[9px] text-slate-400 font-medium text-center bg-white/60 backdrop-blur-md px-3 py-1 rounded-full shadow-sm border border-slate-200/50">
+        <p className="text-[9px] text-slate-400 font-medium text-center bg-white/40 backdrop-blur-sm px-3 py-1 rounded-full border border-slate-200/50">
           Karşılaşma'da sana varsayılan olarak karşı cins profiller gösterilir. Daha geniş keşif için Keşfet'i kullan.
         </p>
       </div>
@@ -314,7 +314,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
           <AnimatePresence mode="popLayout">
             <motion.div
               key={activeUser.uid}
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ 
                 scale: 1, 
                 opacity: 1, 
@@ -323,24 +323,24 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                 rotate: exitDirection === 'left' ? -30 : exitDirection === 'right' ? 30 : 0
               }}
               exit={{ opacity: 0, scale: 0.5 }}
-              transition={{ type: "spring", damping: 25, stiffness: 120 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               className={`absolute inset-0 w-full h-full overflow-hidden bg-white group cursor-pointer ${
                 activeUser.social?.verified 
-                  ? 'shadow-[0_0_50px_-12px_rgba(14,165,233,0.4)] border border-sky-500/20' 
-                  : 'shadow-2xl'
+                  ? 'border border-sky-500/20 shadow-sm' 
+                  : 'shadow-md shadow-black/5'
               }`}
               onClick={() => setSelectedProfile(activeUser)}
             >
               {/* TOP LIMIT INDICATORS */}
               {!selectedProfile && (
                 <div className="absolute top-4 left-0 right-0 z-20 flex justify-center items-center gap-3 pointer-events-none">
-                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/20 backdrop-blur-sm rounded-full border border-white/10">
                     <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
                     <span className="text-[10px] font-black text-white tabular-nums tracking-widest">
                       {getRemainingSwipes(liveUser)} / {getDailySwipeLimit(liveUser)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
+                  <div className="flex items-center gap-2 px-4 py-1.5 bg-black/20 backdrop-blur-sm rounded-full border border-white/10">
                     <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                     <span className="text-[10px] font-black text-white tabular-nums tracking-widest">
                       {superLikes}
@@ -352,7 +352,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
               {/* PHOTO BOX */}
               <div className="absolute inset-0 z-0 bg-slate-100">
                 {activeUser.social?.verified && (
-                   <div className="absolute inset-0 bg-gradient-to-br from-sky-500/20 via-transparent to-transparent z-[1] pointer-events-none mix-blend-overlay" />
+                   <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 via-transparent to-transparent z-[1] pointer-events-none mix-blend-overlay" />
                 )}
                 <OptimizedImage 
                   src={activeUser.social?.photos?.[0] || activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`} 
@@ -369,7 +369,7 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                 <div className="absolute top-5 right-5 z-10">
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowReportModal(true); }}
-                    className="p-2.5 bg-black/30 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all border border-white/10"
+                    className="p-2.5 bg-black/10 backdrop-blur-sm rounded-full text-white/70 hover:text-white transition-all border border-white/10"
                   >
                     <Flag className="w-3.5 h-3.5" />
                   </button>
@@ -386,18 +386,18 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                       {activeUser.social?.nickname || activeUser.nickname}, {activeUser.age || 25}
                       {activeUser.social?.verified && <BlueTick size={12} />}
                       {activeUser.level && (
-                        <div className="px-1.5 py-0.5 bg-indigo-500/80 backdrop-blur-sm rounded-md text-[8px] font-black text-white uppercase tracking-wider shadow-md">
+                        <div className="px-1.5 py-0.5 bg-indigo-500/80 rounded-md text-[8px] font-black text-white uppercase tracking-wider">
                           LVL {activeUser.level}
                         </div>
                       )}
                     </h2>
-                    <div className="px-2 py-0.5 bg-amber-500/90 backdrop-blur-sm rounded-lg text-[9px] font-black text-white uppercase tracking-widest shadow-md">
+                    <div className="px-2 py-0.5 bg-amber-500/90 rounded-lg text-[9px] font-black text-white uppercase tracking-widest">
                       {activeUser.zodiacSign || "Mistik"}
                     </div>
                   </div>
 
                   {/* ELEGANT COMPATIBILITY STRIP */}
-                  <div className="flex items-center justify-between p-3 bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl">
+                  <div className="flex items-center justify-between p-3 bg-black/10 backdrop-blur-sm border border-white/10 rounded-2xl">
                     <div className="flex flex-col items-center flex-1 border-r border-white/10">
                       <div className="flex items-center gap-1">
                         <Heart className="w-3 h-3 text-rose-500 fill-rose-500" />
@@ -426,9 +426,9 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                     {/* PASS (X) */}
                     <div className="flex flex-col items-center gap-1">
                       <motion.button 
-                        whileTap={{ scale: 0.9 }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); handleSwipe('pass'); }}
-                        className="w-14 h-14 bg-black/40 backdrop-blur-md border border-white/20 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all shadow-lg"
+                        className="w-14 h-14 bg-black/20 backdrop-blur-sm border border-white/20 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all shadow-sm"
                       >
                         <X className="w-6 h-6" />
                       </motion.button>
@@ -438,12 +438,11 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                     {/* SUPER LIKE (STAR) */}
                     <div className="flex flex-col items-center gap-1">
                       <motion.button 
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={(e) => { e.stopPropagation(); handleSwipe('super_like'); }}
-                        className="w-16 h-16 bg-gradient-to-tr from-amber-500 to-yellow-400 rounded-full flex items-center justify-center text-white shadow-lg shadow-amber-500/20 border-2 border-white/20 transition-all"
+                        className="w-16 h-16 bg-amber-500 rounded-full flex items-center justify-center text-white shadow-md border-2 border-white/20 transition-all"
                       >
-                        <Sparkles className="w-7 h-7 drop-shadow-md" />
+                        <Sparkles className="w-7 h-7" />
                       </motion.button>
                       <div className="flex flex-col items-center">
                         <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">SÜPER LİKE</span>
@@ -454,11 +453,11 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
                     {/* LIKE (HEART) */}
                     <div className="flex flex-col items-center gap-1">
                       <motion.button 
-                        whileTap={{ scale: 0.9 }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); handleSwipe('like'); }}
-                        className="w-14 h-14 bg-gradient-to-tr from-rose-600 to-pink-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-rose-600/20 border border-white/10 transition-all"
+                        className="w-14 h-14 bg-rose-600 rounded-full flex items-center justify-center text-white shadow-md border border-white/10 transition-all"
                       >
-                        <Heart className="w-6 h-6 fill-white drop-shadow-md" />
+                        <Heart className="w-6 h-6 fill-white" />
                       </motion.button>
                       <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">BEĞEN</span>
                     </div>
@@ -473,8 +472,14 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
       {/* REPORT MODAL */}
       <AnimatePresence>
         {showReportModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-2xl">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.98 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.98 }} 
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-xs bg-white rounded-[2.5rem] overflow-hidden shadow-md"
+            >
               <div className="p-8 text-center border-b border-black/5">
                 <div className="w-16 h-16 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                   <ShieldAlert className="w-8 h-8" />

@@ -72,13 +72,13 @@ export default function MatchingProfilePopup({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md overflow-y-auto"
     >
       {/* HEADER ACTIONS */}
       <div className="sticky top-0 z-50 p-4 flex justify-end">
         <button 
           onClick={onClose}
-          className="p-3 bg-white/10 backdrop-blur-md rounded-full text-white border border-white/20 shadow-2xl active:scale-90 transition-all"
+          className="p-3 bg-white/10 backdrop-blur-sm rounded-full text-white border border-white/20 shadow-lg active:scale-95 transition-all"
         >
           <X className="w-6 h-6" />
         </button>
@@ -86,7 +86,7 @@ export default function MatchingProfilePopup({
 
       <div className="max-w-md mx-auto px-4 pb-24">
         {/* PHOTO GALLERY */}
-        <div className="relative aspect-[3/4] w-full rounded-[2.5rem] overflow-hidden shadow-2xl bg-neutral-900 group">
+        <div className="relative aspect-[3/4] w-full rounded-[2.5rem] overflow-hidden shadow-lg bg-neutral-900 group">
           <AnimatePresence mode="wait">
             <motion.div
               key={activePhotoIndex}
@@ -109,7 +109,7 @@ export default function MatchingProfilePopup({
               {photos.map((_, idx) => (
                 <div 
                   key={idx} 
-                  className={`h-1 flex-1 rounded-full bg-white transition-all duration-300 ${idx === activePhotoIndex ? 'opacity-100 shadow-[0_0_10px_white]' : 'opacity-30'}`} 
+                  className={`h-1 flex-1 rounded-full bg-white transition-all duration-300 ${idx === activePhotoIndex ? 'opacity-100 shadow-sm' : 'opacity-30'}`} 
                 />
               ))}
             </div>
@@ -133,13 +133,13 @@ export default function MatchingProfilePopup({
             
             {/* MISTIK TAGS */}
             <div className="flex flex-wrap gap-3">
-              <div className={`px-4 py-2 bg-gradient-to-br from-amber-500/20 to-orange-500/20 backdrop-blur-md rounded-2xl border border-amber-500/30 flex items-center gap-2 shadow-lg ${auraInfo.glow}`}>
+              <div className={`px-4 py-2 bg-gradient-to-br from-amber-500/20 to-orange-500/20 backdrop-blur-sm rounded-2xl border border-amber-500/30 flex items-center gap-2 shadow-sm ${auraInfo.glow}`}>
                 <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
                 <span className="text-xs font-black text-amber-100 uppercase tracking-widest">
                   {user.zodiacSign || 'Koç'}
                 </span>
               </div>
-              <div className={`px-4 py-2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 backdrop-blur-md rounded-2xl border border-blue-500/30 flex items-center gap-2 shadow-lg ${auraInfo.glow}`}>
+              <div className={`px-4 py-2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 backdrop-blur-sm rounded-2xl border border-blue-500/30 flex items-center gap-2 shadow-sm ${auraInfo.glow}`}>
                 <Sparkles className={`w-4 h-4 ${auraInfo.color}`} />
                 <span className={`text-xs font-black uppercase tracking-widest ${auraInfo.color}`}>
                   {auraInfo.name}
@@ -187,7 +187,7 @@ export default function MatchingProfilePopup({
                     initial={{ width: 0 }}
                     animate={{ width: `${compatibility.love}%` }}
                     transition={{ duration: 1, ease: "easeOut" }}
-                    className="h-full bg-gradient-to-r from-rose-600 to-pink-500 shadow-[0_0_15px_rgba(225,29,72,0.5)]"
+                    className="h-full bg-gradient-to-r from-rose-600 to-pink-500 shadow-sm"
                   />
                 </div>
               </div>
@@ -206,7 +206,7 @@ export default function MatchingProfilePopup({
                     initial={{ width: 0 }}
                     animate={{ width: `${compatibility.friendship}%` }}
                     transition={{ duration: 1, delay: 0.1, ease: "easeOut" }}
-                    className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 shadow-[0_0_15px_rgba(37,99,235,0.5)]"
+                    className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 shadow-sm"
                   />
                 </div>
               </div>
@@ -225,15 +225,15 @@ export default function MatchingProfilePopup({
                     initial={{ width: 0 }}
                     animate={{ width: `${compatibility.understanding}%` }}
                     transition={{ duration: 1, delay: 0.2, ease: "easeOut" }}
-                    className="h-full bg-gradient-to-r from-amber-600 to-orange-500 shadow-[0_0_15px_rgba(217,119,6,0.5)]"
+                    className="h-full bg-gradient-to-r from-amber-600 to-orange-500 shadow-sm"
                   />
                 </div>
               </div>
             </div>
 
             {/* DYNAMIC ASTRO COMMENT */}
-            <div className="mt-8 p-6 bg-white/5 border border-white/10 rounded-[2rem] relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl rounded-full" />
+            <div className="mt-8 p-6 bg-white/5 border border-white/10 rounded-[2rem] relative overflow-hidden group shadow-sm">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-2xl rounded-full" />
               <div className="relative space-y-1">
                 <Sparkles className="w-5 h-5 text-amber-400 mb-2 opacity-50" />
                 <p className="text-lg font-serif italic text-white/90 leading-relaxed">

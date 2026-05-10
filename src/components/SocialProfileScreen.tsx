@@ -33,6 +33,10 @@ export default function SocialProfileScreen({ currentUser, onNavigate }: SocialP
   const [localUser, setLocalUser] = useState(currentUser);
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    setLocalUser(currentUser);
+  }, [currentUser]);
+
   const updateLocalUser = (field: string, value: any) => {
     setLocalUser(prev => ({
       ...prev,

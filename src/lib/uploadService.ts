@@ -26,14 +26,28 @@ export const uploadPhoto = async (file: File, userId: string): Promise<string> =
 
 export const deletePhotoByUrl = async (url: string): Promise<void> => {
   if (!url) return;
+  
+  // Skip deletion if it's not a Firebase Storage URL (e.g. external Google photo)
+  const isStorageUrl = url.includes('firebasestorage.googleapis.com') || 
+                       url.includes('storage.googleapis.com') || 
+                       url.startsWith('gs://');
+                       
+  if (!isStorageUrl) {
+    console.log("Skipping storage deletion for non-storage URL:", url);
+    return;
+  }
+
   try {
     const storageRef = ref(storage, url);
     await deleteObject(storageRef);
     console.log("Storage photo deleted successfully:", url);
-  } catch (error) {
+  } catch (error: any) {
+    // If it's a 404 (not found), we can consider it "deleted" anyway
+    if (error.code === 'storage/object-not-found') {
+      console.warn("Photo not found in storage, skipping deletion:", url);
+      return;
+    }
     console.error("Error deleting photo from storage:", error);
-    // Even if storage deletion fails (e.g. file already gone), we might want to continue
-    // but here we throw to let the caller know if they want to stop Firestore update
     throw error;
   }
 };

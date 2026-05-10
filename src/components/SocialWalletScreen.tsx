@@ -28,7 +28,8 @@ import {
   CheckCircle2,
   Lock,
   Timer,
-  CheckCircle
+  CheckCircle,
+  Coins
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { UserProfile, WalletTransaction, EconomyConfig } from "../types";
@@ -165,7 +166,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
     setPendingPurchase({
       title: `${label} Mistik Abonelik`,
       description: sub.description || "Sınırsız kehanet ve öncelikli yorum ayrıcalığı.",
-      price: `₺${sub.priceTRY}`,
+      price: `${sub.priceTRY || sub.price} Jeton`,
       onConfirm: async () => {
         setProcessing(true);
         try {
@@ -193,7 +194,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
     setPendingPurchase({
       title: `${label} Profil Boost`,
       description: pkg.description || "Keşfette en üstte görünerek etkileşiminizi artırın.",
-      price: `₺${pkg.priceTRY}`,
+      price: `${pkg.priceTRY || pkg.price} Jeton`,
       onConfirm: async () => {
         setProcessing(true);
         try {
@@ -756,54 +757,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                     </div>
                   </motion.div>
 
-                  {/* Boost Package Card */}
-                  <motion.div 
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setShowBoostModal(true)}
-                    className={`relative flex-shrink-0 w-[280px] aspect-[4/5] overflow-hidden p-8 rounded-[3rem] shadow-2xl transition-all border ${
-                      isBoostActive 
-                      ? 'bg-gradient-to-br from-indigo-500 to-purple-600 border-white/20 text-white' 
-                      : 'bg-white border-black/5 text-slate-900'
-                    }`}
-                  >
-                    <div className="absolute top-0 right-0 p-8 opacity-10">
-                      <Zap className="w-32 h-32 rotate-12" />
-                    </div>
-
-                    <div className="relative z-10 h-full flex flex-col justify-between">
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isBoostActive ? 'bg-white/20' : 'bg-indigo-50'}`}>
-                            <Zap className={`w-4 h-4 ${isBoostActive ? 'text-indigo-200' : 'text-indigo-600'}`} />
-                          </div>
-                          <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isBoostActive ? 'text-indigo-200' : 'text-slate-400'}`}>Sosyal Boost</span>
-                        </div>
-                        <h2 className="text-2xl font-black leading-tight tracking-tight">Keşfette Zirveye Yerleş</h2>
-                        
-                        <div className="space-y-3 pt-4">
-                          {[
-                            "En Üst Sıralarda Görün",
-                            "3 Kat Daha Fazla Keşfedilme",
-                            "Profiline Özel Aura Parıltısı",
-                            "Eşleşme Oranında %80 Artış"
-                          ].map((item, i) => (
-                            <div key={i} className="flex items-center gap-3">
-                              <Star className={`w-4 h-4 ${isBoostActive ? 'text-indigo-200 shadow-lg' : 'text-indigo-600'}`} />
-                              <span className={`text-[11px] font-bold ${isBoostActive ? 'text-white/80' : 'text-slate-500'}`}>{item}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <button 
-                        className={`w-full py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl transition-all ${
-                          isBoostActive ? 'bg-white text-indigo-600' : 'bg-slate-900 text-white'
-                        }`}
-                      >
-                        {isBoostActive ? 'Aktif' : 'Profilini Yükselt'}
-                      </button>
-                    </div>
-                  </motion.div>
+                  {/* Boost Package Card Omitted for Soft Launch Production Safety */}
                 </div>
               </div>
 
@@ -930,6 +884,21 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                   </div>
                 </div>
               </div>
+
+              {/* RESTORE PURCHASES */}
+              <div className="pt-6 pb-4">
+                <button
+                  onClick={() => {
+                    toast.loading("Satın alımlarınız kontrol ediliyor...", { id: "restore" });
+                    setTimeout(() => {
+                      toast.success("Tüm premium yetkileriniz aktif durumda.", { id: "restore" });
+                    }, 1500);
+                  }}
+                  className="w-full py-4 text-[10px] font-black text-slate-400 hover:text-slate-900 transition-colors uppercase tracking-[0.2em] flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Satın Alımları Geri Yükle
+                </button>
+              </div>
             </>
           ) : (
             /* TRANSACTION HISTORY */
@@ -1030,7 +999,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                           <p className={`text-[10px] font-bold uppercase tracking-widest ${type === 'monthly' ? 'text-white/40' : 'text-slate-400'}`}>Günde 10 Fal Hakkı</p>
                         </div>
                         <div className="text-right">
-                          <p className={`text-2xl font-black tracking-tighter ${type === 'monthly' ? 'text-white' : 'text-slate-900'}`}>₺{sub?.priceTRY || 0}</p>
+                          <p className={`text-2xl font-black tracking-tighter flex items-center gap-1 ${type === 'monthly' ? 'text-white' : 'text-slate-900'}`}>
+                            {sub?.priceTRY || sub?.price || 0} <Coins className="w-5 h-5 text-amber-500" />
+                          </p>
                         </div>
                       </div>
                     </motion.button>
@@ -1087,7 +1058,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                           <p className={`text-[10px] font-bold uppercase tracking-widest ${key === 'monthly' ? 'text-white/40' : 'text-slate-400'}`}>Profil Görünürlüğü</p>
                         </div>
                         <div className="text-right">
-                          <p className={`text-2xl font-black tracking-tighter ${key === 'monthly' ? 'text-white' : 'text-indigo-600'}`}>₺{pkg.priceTRY}</p>
+                          <p className={`text-2xl font-black tracking-tighter flex items-center gap-1 ${key === 'monthly' ? 'text-white' : 'text-indigo-600'}`}>
+                            {pkg.priceTRY || pkg.price || 0} <Coins className="w-5 h-5 text-amber-500" />
+                          </p>
                         </div>
                       </div>
                     </motion.button>

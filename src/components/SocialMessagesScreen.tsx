@@ -24,7 +24,8 @@ import {
   User,
   AlertCircle,
   AlertTriangle,
-  Phone
+  Phone,
+  Sparkles
 } from "lucide-react";
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import OptimizedImage from './OptimizedImage';
@@ -44,7 +45,7 @@ import {
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType, storage } from "../lib/firebase";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message, normalizeUserProfile } from "../types";
+import { UserProfile, InteractionRequest as InteractionRequestType, Chat, Message, normalizeUserProfile, CompatibilityPeek, isExternalPhotoUrl } from "../types";
 import { format, formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { toSafeDate, formatSafeDate } from "../lib/dateUtils";
@@ -76,10 +77,11 @@ export default function SocialMessagesScreen({
   setActiveChatId?: (id: string | null) => void
 }) {
   const { unseenLikersCount } = useBadges();
-  const [activeTab, setActiveTab] = useState<'chats' | 'requests' | 'likers'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'requests' | 'likers' | 'peeks'>('chats');
   const [chats, setChats] = useState<(Chat & { otherUser: UserProfile })[]>([]);
   const [requests, setRequests] = useState<InteractionRequestType[]>([]);
   const [likers, setLikers] = useState<{ id: string, user: UserProfile, createdAt: any }[]>([]);
+  const [peeks, setPeeks] = useState<CompatibilityPeek[]>([]);
   const [selectedChat, setSelectedChat] = useState<(Chat & { otherUser: UserProfile }) | null>(null);
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
 
@@ -139,7 +141,7 @@ export default function SocialMessagesScreen({
 
     const handleSwitchTab = (e: any) => {
       const { tab } = e.detail;
-      if (['chats', 'requests', 'likers'].includes(tab)) {
+      if (['chats', 'requests', 'likers', 'peeks'].includes(tab)) {
         setActiveTab(tab as any);
       }
     };
@@ -172,6 +174,7 @@ export default function SocialMessagesScreen({
   const CHAT_LIST_CACHE_KEY = "socialChatList";
   const REQUESTS_CACHE_KEY = "socialRequestsList";
   const LIKERS_CACHE_KEY = "socialLikersList";
+  const PEEKS_CACHE_KEY = "socialPeeksList";
 
   // Sync chat open state with parent and Presence update
   useEffect(() => {
@@ -213,15 +216,18 @@ export default function SocialMessagesScreen({
     const cachedChats = cacheManager.get<(Chat & { otherUser: UserProfile })[]>(CHAT_LIST_CACHE_KEY);
     const cachedRequests = cacheManager.get<InteractionRequestType[]>(REQUESTS_CACHE_KEY);
     const cachedLikers = cacheManager.get<{ id: string, user: UserProfile, createdAt: any }[]>(LIKERS_CACHE_KEY);
+    const cachedPeeks = cacheManager.get<CompatibilityPeek[]>(PEEKS_CACHE_KEY);
 
     if (cachedChats) setChats(cachedChats);
     if (cachedRequests) setRequests(cachedRequests);
     if (cachedLikers) setLikers(cachedLikers);
+    if (cachedPeeks) setPeeks(cachedPeeks);
     
     // If we have cached data for the current tab, we can stop "hard" loading
     const hasDataForTab = (activeTab === 'chats' && cachedChats?.length) || 
                          (activeTab === 'requests' && cachedRequests?.length) || 
-                         (activeTab === 'likers' && cachedLikers?.length);
+                         (activeTab === 'likers' && cachedLikers?.length) ||
+                         (activeTab === 'peeks' && cachedPeeks?.length);
     
     if (hasDataForTab) setIsLoading(false);
   }, [activeTab]);
@@ -243,6 +249,7 @@ export default function SocialMessagesScreen({
     let unsubChats: () => void = () => {};
     let unsubRequests: () => void = () => {};
     let unsubLikers: () => void = () => {};
+    let unsubPeeks: () => void = () => {};
 
     // 1. CHATS LISTENER
     const setupChatsListener = () => {
@@ -398,7 +405,7 @@ export default function SocialMessagesScreen({
                         ...req,
                         senderSnapshot: {
                            nickname: uData.social?.nickname || uData.nickname || 'Bilinmiyor',
-                           photoURL: uData.social?.photos?.[0] || uData.photoURL,
+                           photoURL: uData.social?.photos?.[0] || (!isExternalPhotoUrl(uData.photoURL) ? uData.photoURL : ""),
                            social: uData.social
                         }
                      } as InteractionRequestType;
@@ -491,9 +498,52 @@ export default function SocialMessagesScreen({
       }
     };
 
+    const setupPeeksListener = () => {
+      if (!currentUser.uid) {
+        console.warn("Peeks listener aborted: No current user UID");
+        return;
+      }
+
+      try {
+        console.log("SETTING_UP_PEEKS_LISTENER", currentUser.uid);
+        const q = query(
+          collection(db, "compatibilityPeeks"),
+          where("toUserId", "==", currentUser.uid),
+          limit(50)
+        );
+
+        unsubPeeks = onSnapshot(q, (snapshot) => {
+          console.log("PEEKS_SNAPSHOT_RECEIVED", { size: snapshot.size });
+          const peekList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CompatibilityPeek));
+          // Sort in memory to avoid composite index requirement
+          peekList.sort((a, b) => {
+            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+            return dateB.getTime() - dateA.getTime();
+          });
+          setPeeks(peekList);
+          cacheManager.set(PEEKS_CACHE_KEY, peekList, 600, true);
+          setIsLoading(false);
+        }, (err) => {
+          console.error("Peeks listener error:", err);
+          setIsLoading(false);
+          // If the user hits a permission error, we still want to move out of the hard loading state
+          if (err.message.includes("permissions")) {
+            console.warn("Permission denied for compatibilityPeeks. Check rules and query filters.");
+            // We only report this to the backend if strictly instructed, but here we'll do it for diagnosis
+            handleFirestoreError(err, OperationType.LIST, "compatibilityPeeks");
+          }
+        });
+      } catch (err) {
+        console.error("Peeks setup error:", err);
+        setIsLoading(false);
+      }
+    };
+
     setupChatsListener();
     setupRequestsListener();
     setupLikersListener();
+    setupPeeksListener();
 
     // Safety timeout to ensure loading never gets stuck
     const loadingTimeout = setTimeout(() => {
@@ -506,6 +556,7 @@ export default function SocialMessagesScreen({
       unsubChats();
       unsubRequests();
       unsubLikers();
+      unsubPeeks();
     };
   }, [currentUser.uid, isSocialProfileReady(currentUser)]);
 
@@ -693,7 +744,7 @@ export default function SocialMessagesScreen({
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-white to-slate-50 text-body relative overflow-hidden">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-40 bg-white/70 backdrop-blur-md border-b border-black/5 pt-[env(safe-area-inset-top,1rem)]">
+      <div className="sticky top-0 z-40 bg-white/40 backdrop-blur-sm border-b border-black/5 pt-[env(safe-area-inset-top,1rem)]">
         <header className="px-4 py-5 flex items-center justify-between">
           <div className="flex flex-col">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Mesajlar</h1>
@@ -710,50 +761,66 @@ export default function SocialMessagesScreen({
               className="absolute inset-y-1 rounded-xl bg-white shadow-sm z-0"
               initial={false}
               animate={{
-                left: activeTab === 'chats' ? '4px' : activeTab === 'requests' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 1px)',
-                width: 'calc(33.33% - 4px)',
+                left: activeTab === 'chats' ? '4px' : activeTab === 'requests' ? 'calc(25% + 2px)' : activeTab === 'likers' ? 'calc(50% + 1px)' : 'calc(75% + 1px)',
+                width: 'calc(25% - 4px)',
               }}
-              transition={{ type: "spring", bounce: 0.1, duration: 0.5 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.2 }}
             />
 
             <button 
               onClick={() => setActiveTab('chats')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-semibold transition-all duration-300 ${
                 activeTab === 'chats' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <MessageCircle className="w-3.5 h-3.5" />
+              <MessageCircle className="w-3 h-3" />
               <span>Sohbetler</span>
             </button>
 
             <button 
               onClick={() => setActiveTab('requests')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-semibold transition-all duration-300 ${
                 activeTab === 'requests' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <UserPlus className="w-3.5 h-3.5" />
+              <UserPlus className="w-3 h-3" />
               <span>İstekler</span>
               {(requests.length > 0) && (
-                <div className="absolute top-1.5 right-2 w-2 h-2">
+                <div className="absolute top-1.5 right-1 w-1.5 h-1.5">
                   <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-75" />
-                  <span className="relative block w-2 h-2 rounded-full bg-rose-500 border border-white" />
+                  <span className="relative block w-1.5 h-1.5 rounded-full bg-rose-500 border border-white" />
                 </div>
               )}
             </button>
 
             <button 
               onClick={() => setActiveTab('likers')}
-              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all duration-300 ${
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-semibold transition-all duration-300 ${
                 activeTab === 'likers' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <Heart className="w-3.5 h-3.5" />
+              <Heart className="w-3 h-3" />
               <span>Beğeniler</span>
               {(unseenLikersCount > 0) && (
-                <div className="absolute top-1.5 right-2 w-2 h-2">
+                <div className="absolute top-1.5 right-1 w-1.5 h-1.5">
                   <span className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-75" />
-                  <span className="relative block w-2 h-2 rounded-full bg-rose-500 border border-white" />
+                  <span className="relative block w-1.5 h-1.5 rounded-full bg-rose-500 border border-white" />
+                </div>
+              )}
+            </button>
+
+            <button 
+              onClick={() => setActiveTab('peeks')}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-semibold transition-all duration-300 ${
+                activeTab === 'peeks' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Analizler</span>
+              {peeks.some(p => !p.read) && (
+                <div className="absolute top-1.5 right-1 w-1.5 h-1.5">
+                  <span className="absolute inset-0 rounded-full bg-indigo-500 animate-ping opacity-75" />
+                  <span className="relative block w-1.5 h-1.5 rounded-full bg-indigo-500 border border-white" />
                 </div>
               )}
             </button>
@@ -795,7 +862,7 @@ export default function SocialMessagesScreen({
                 <div className="flex flex-col items-center justify-center py-32 px-10 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full" />
-                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl">
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-md">
                       <MessageCircle className="w-10 h-10 text-indigo-500/20" />
                     </div>
                   </div>
@@ -839,7 +906,7 @@ export default function SocialMessagesScreen({
                 <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
                   <div className="relative">
                     <div className="absolute inset-0 bg-amber-500/5 blur-3xl rounded-full" />
-                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-xl text-amber-500/20">
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-md text-amber-500/20">
                       <UserPlus className="w-10 h-10" />
                     </div>
                   </div>
@@ -852,8 +919,8 @@ export default function SocialMessagesScreen({
                 requests.map(request => {
                   const isVerified = (request.senderSnapshot as any)?.social?.verified;
                   return (
-                  <div key={request.id} className={`bg-white rounded-[2.5rem] p-6 border ${isVerified ? 'border-sky-500/30 ring-4 ring-sky-500/5 shadow-sky-500/10' : 'border-black/5'} shadow-sm flex flex-col gap-6 relative overflow-hidden`}>
-                    {isVerified && <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 to-transparent pointer-events-none" />}
+                  <div key={request.id} className={`bg-white rounded-[2.5rem] p-6 border ${isVerified ? 'border-sky-500/20 shadow-sky-500/5' : 'border-black/5'} shadow-sm flex flex-col gap-6 relative overflow-hidden`}>
+                    {isVerified && <div className="absolute inset-0 bg-sky-500/[0.02] pointer-events-none" />}
                     <div className="flex gap-5 relative z-10">
                       <div className={`w-16 h-16 rounded-[1.25rem] overflow-hidden bg-slate-100 flex-shrink-0 border-2 ${isVerified ? 'border-sky-500/30 p-0.5' : 'border-black/5'}`}>
                         <div className="w-full h-full rounded-2xl overflow-hidden relative">
@@ -889,7 +956,7 @@ export default function SocialMessagesScreen({
                       <button 
                         onClick={() => handleAcceptRequest(request)} 
                         disabled={isProcessing}
-                        className="flex-1 py-4 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-slate-900/10 disabled:opacity-50"
+                        className="flex-1 py-4 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-md shadow-slate-900/5 disabled:opacity-50"
                       >
                         Kabul Et
                       </button>
@@ -897,6 +964,104 @@ export default function SocialMessagesScreen({
                   </div>
                   );
                 })
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'peeks' && (
+            <motion.div 
+              key="peeks"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-4 pt-2 space-y-4"
+            >
+              {isLoading ? (
+                <div className="flex justify-center py-20">
+                  <div className="w-8 h-8 border-2 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
+                </div>
+              ) : peeks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full" />
+                    <div className="relative w-24 h-24 rounded-[2.5rem] bg-white flex items-center justify-center border border-black/5 shadow-md text-indigo-500/20">
+                      <Sparkles className="w-10 h-10" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">Henüz Meraklı Biri Yok</h3>
+                    <p className="text-[13px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">Seninle uyumunu analiz eden kişiler burada görünür ✨</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 px-2 pb-2">
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Analiz Edenler</span>
+                  </div>
+                  {peeks.map(peek => (
+                    <div 
+                      key={peek.id}
+                      onClick={async () => {
+                        try {
+                          await updateDoc(doc(db, "compatibilityPeeks", peek.id), { read: true });
+                        } catch (err) {
+                          if (err instanceof Error && err.message.includes("permissions")) {
+                            handleFirestoreError(err, OperationType.UPDATE, `compatibilityPeeks/${peek.id}`);
+                          }
+                          console.error("Error marking peek as read:", err);
+                        }
+                        
+                        socialService.getUserProfile(peek.fromUserId).then(profile => {
+                          if (profile) setSelectedLiker(profile);
+                        });
+                      }}
+                      className="bg-white rounded-3xl p-4 border border-black/5 shadow-sm flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group"
+                    >
+                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 relative">
+                        <OptimizedImage 
+                          src={peek.fromUserPhoto || `https://api.dicebear.com/7.x/avataaars/svg?seed=${peek.fromUserId}`} 
+                          alt={peek.fromUserName}
+                          className="w-full h-full object-cover"
+                        />
+                        {!peek.read && (
+                          <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-indigo-500 rounded-full border-2 border-white ring-1 ring-indigo-500/20" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h4 className="font-bold text-slate-900 truncate text-[14px]">
+                            {peek.fromUserName}{peek.fromUserAge ? `, ${peek.fromUserAge}` : ''}
+                          </h4>
+                        </div>
+                        <p className="text-[12px] font-medium text-indigo-500/80 leading-tight">Uyumunuzu merak etti ✨</p>
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-300 uppercase tracking-tight">
+                        {peek.createdAt ? formatSafeDate(peek.createdAt, "HH:mm") : ''}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Priority Message CTA */}
+                  <div className="mt-8 p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2.5rem] text-white shadow-xl shadow-indigo-500/10 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all" />
+                    <div className="relative z-10 items-center justify-between flex gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-black uppercase tracking-widest text-indigo-200">Buzları Erit ✨</h4>
+                        <p className="text-lg font-bold leading-tight">Ona öncelikli bir mesaj gönder!</p>
+                        <p className="text-[11px] text-white/60 font-medium max-w-[200px] leading-relaxed">Öncelikli mesajlar listenin en üstünde yer alır ve dikkat çeker.</p>
+                      </div>
+                      <button 
+                        onClick={() => activeTab === 'peeks' && peeks[0] && socialService.getUserProfile(peeks[0].fromUserId).then(profile => {
+                             if (profile) setSelectedLiker(profile);
+                        })}
+                        className="h-12 w-12 rounded-2xl bg-white text-indigo-600 flex items-center justify-center shadow-lg active:scale-95 transition-all flex-shrink-0"
+                      >
+                        <Send className="w-6 h-6" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </motion.div>
           )}
@@ -935,7 +1100,7 @@ export default function SocialMessagesScreen({
                         onClick={() => setSelectedLiker(liker.user)}
                       >
                         <img 
-                          src={liker?.user?.social?.photos?.[0] || liker?.user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liker?.user?.uid || 'default'}`} 
+                          src={liker?.user?.social?.photos?.[0] || (!isExternalPhotoUrl(liker?.user?.photoURL) ? liker?.user?.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liker?.user?.uid || 'default'}`} 
                           alt="User"
                           className="w-full h-full object-cover"
                           referrerPolicy="no-referrer"
@@ -1011,16 +1176,16 @@ function ChatListItem({ chat, onClick, currentUser }: { chat: Chat & { otherUser
     <motion.button
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`w-full pl-6 pr-5 flex items-center gap-4 transition-colors duration-150 text-left group hover:bg-black/[0.02] active:bg-black/[0.04] relative ${
+      className={`w-full pl-6 pr-5 flex items-center gap-4 transition-colors duration-150 text-left group active:bg-black/[0.04] relative ${
         unreadCount > 0 ? '' : ''
       }`}
     >
       <div className="relative flex-shrink-0 w-12 h-12 my-3.5">
         <div className={`w-12 h-12 rounded-full overflow-hidden bg-slate-100 border transition-all duration-300 ${
-          unreadCount > 0 ? 'border-indigo-300 shadow-lg shadow-indigo-500/10' : 'border-slate-200'
+          unreadCount > 0 ? 'border-indigo-200 shadow-md shadow-indigo-500/5' : 'border-slate-200'
         }`}>
           <OptimizedImage 
-            src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
+            src={otherUser?.social?.photos?.[0] || (!isExternalPhotoUrl(otherUser?.photoURL) ? otherUser?.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
             alt={otherUser?.social?.nickname || otherUser?.nickname || 'Sohbet'}
             className="w-full h-full object-cover block"
           />
@@ -1505,11 +1670,11 @@ function ChatDetail({
       className="fixed inset-0 z-[100] bg-white flex flex-col h-[100svh] overflow-hidden"
     >
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 py-4 flex items-center justify-between shrink-0 z-30 sticky top-0 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+      <header className="bg-white/60 backdrop-blur-sm border-b border-slate-100 px-4 py-4 flex items-center justify-between shrink-0 z-30 sticky top-0 shadow-sm">
         <div className="flex items-center gap-2">
           <button 
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-black/5 text-[#1A1A2E] transition-all active:scale-90"
+            className="p-2 rounded-full hover:bg-black/5 text-[#1A1A2E] transition-all active:scale-[0.96]"
           >
             <ChevronLeft className="w-7 h-7" strokeWidth={1.5} />
           </button>
@@ -1521,7 +1686,7 @@ function ChatDetail({
             <div className="relative">
               <div className="w-11 h-11 rounded-full overflow-hidden bg-slate-200 ring-2 ring-white shadow-sm transition-transform group-hover:scale-105">
                 <OptimizedImage 
-                  src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
+                  src={otherUser?.social?.photos?.[0] || (!isExternalPhotoUrl(otherUser?.photoURL) ? otherUser?.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
                   alt={otherUser?.social?.nickname || otherUser?.nickname || 'Sohbet'}
                   className="w-full h-full object-cover"
                 />
@@ -1561,21 +1726,21 @@ function ChatDetail({
         <div className="flex items-center gap-1 relative">
           <button 
             onClick={() => toast.info("Bu özellik yakında aktif olacak", { position: 'top-center' })}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 active:scale-90 transition-all duration-200 ease-out"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 active:scale-[0.96] transition-all duration-200 ease-out"
           >
             <Phone className="w-5 h-5" />
           </button>
           
           <button 
             onClick={() => toast.info("Bu özellik yakında aktif olacak", { position: 'top-center' })}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 active:scale-90 transition-all duration-200 ease-out"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 active:scale-[0.96] transition-all duration-200 ease-out"
           >
             <Video className="w-5 h-5" />
           </button>
 
           <button 
             onClick={() => setShowActionMenu(!showActionMenu)}
-            className="p-2.5 rounded-full hover:bg-black/5 text-[#1A1A2E]/40 transition-all active:scale-90"
+            className="p-2.5 rounded-full hover:bg-black/5 text-[#1A1A2E]/40 transition-all active:scale-[0.96]"
           >
             <MoreVertical className="w-5 h-5" />
           </button>
@@ -1591,7 +1756,7 @@ function ChatDetail({
                   initial={{ opacity: 0, scale: 0.95, y: 10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                  className="absolute top-full right-0 mt-2 w-56 bg-white rounded-3xl shadow-2xl border border-black/5 overflow-hidden z-50 py-2"
+                  className="absolute top-full right-0 mt-2 w-56 bg-white rounded-3xl shadow-xl border border-black/5 overflow-hidden z-50 py-2"
                 >
                   <button 
                     onClick={() => {
@@ -1659,8 +1824,8 @@ function ChatDetail({
       >
         {/* Subtle Aura Background Elements */}
         <div className="fixed inset-0 pointer-events-none z-0">
-          <div className="absolute top-1/4 right-0 w-64 h-64 bg-indigo-50/50 blur-[120px] rounded-full" />
-          <div className="absolute bottom-1/4 left-0 w-64 h-64 bg-purple-50/50 blur-[120px] rounded-full" />
+          <div className="absolute top-1/4 right-0 w-64 h-64 bg-indigo-50/30 blur-[80px] rounded-full" />
+          <div className="absolute bottom-1/4 left-0 w-64 h-64 bg-purple-50/30 blur-[80px] rounded-full" />
         </div>
         {/* Blocked Banner */}
         {(isBlockedByMe || isBlockedByOther) && (
@@ -1757,7 +1922,7 @@ function ChatDetail({
                       {isLastInGroup && (
                         <div className="w-8 h-8 rounded-full overflow-hidden border border-white shadow-sm">
                           <OptimizedImage 
-                            src={otherUser?.social?.photos?.[0] || otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
+                            src={otherUser?.social?.photos?.[0] || (!isExternalPhotoUrl(otherUser?.photoURL) ? otherUser?.photoURL : "") || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherUser?.uid || 'chat'}`} 
                             alt="avatar"
                             className="w-full h-full object-cover"
                           />
@@ -1771,10 +1936,10 @@ function ChatDetail({
                     <AnimatePresence>
                       {activeMessageId === msg.id && (
                         <motion.div 
-                          initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                          className={`absolute bottom-full mb-3 z-20 bg-white border border-slate-100 rounded-2xl p-1.5 shadow-2xl flex gap-1 ${isMe ? 'right-0' : 'left-0'}`}
+                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                          className={`absolute bottom-full mb-3 z-20 bg-white border border-slate-50 rounded-2xl p-1.5 shadow-xl flex gap-1 ${isMe ? 'right-0' : 'left-0'}`}
                         >
                           {isMe && !msg.mediaUrl && (
                             <button 
@@ -1801,13 +1966,13 @@ function ChatDetail({
                           ? 'p-0 bg-transparent shadow-none ring-0 border-0' 
                           : `px-3.5 py-2 text-[15px] leading-[1.45] tracking-tight ${
                               isMe 
-                                ? `bg-gradient-to-br from-[#2F2F46] to-[#5B4B8A] text-white font-normal shadow-sm ${
+                                ? `bg-[#2F2F46] text-white font-normal shadow-sm ${
                                     isFirstInGroup && isLastInGroup ? 'rounded-2xl' :
                                     isFirstInGroup ? 'rounded-t-2xl rounded-bl-2xl rounded-br-[4px]' :
                                     isLastInGroup ? 'rounded-b-2xl rounded-tl-2xl rounded-tr-[4px]' :
                                     'rounded-l-2xl rounded-r-[4px]'
                                   }` 
-                                : `bg-white text-slate-800 font-normal shadow-sm border border-black/[0.04] ${
+                                : `bg-white text-slate-800 font-normal shadow-sm border border-black/[0.02] ${
                                     isFirstInGroup && isLastInGroup ? 'rounded-2xl' :
                                     isFirstInGroup ? 'rounded-t-2xl rounded-br-2xl rounded-bl-[4px]' :
                                     isLastInGroup ? 'rounded-b-2xl rounded-tr-2xl rounded-tl-[4px]' :
@@ -1868,7 +2033,7 @@ function ChatDetail({
                         {isMe && (
                           <div className="flex items-center">
                             {msg.status === 'seen' ? (
-                              <CheckCheck className="w-3.5 h-3.5 text-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.3)] opacity-90" />
+                              <CheckCheck className="w-3.5 h-3.5 text-indigo-400 opacity-90" />
                             ) : msg.status === 'delivered' ? (
                               <CheckCheck className="w-3.5 h-3.5 text-slate-400 opacity-90" />
                             ) : (
@@ -1919,10 +2084,10 @@ function ChatDetail({
         <AnimatePresence>
           {editingMessage && (
             <motion.div 
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-full left-4 right-4 mb-4 p-4 bg-[#1A1A2E] border border-white/10 rounded-[2rem] shadow-2xl flex items-center gap-4 text-white z-50"
+              exit={{ opacity: 0, y: 8 }}
+              className="absolute bottom-full left-4 right-4 mb-4 p-4 bg-[#1A1A2E] border border-white/10 rounded-[2rem] shadow-xl flex items-center gap-4 text-white z-50"
             >
               <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
                 <Edit2 className="w-5 h-5 text-white" />
@@ -1978,7 +2143,7 @@ function ChatDetail({
                   fileInputRef.current.click();
                 }
               }}
-              className="p-2.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200 ease-out active:scale-90"
+              className="p-2.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200 ease-out active:scale-[0.96]"
             >
               <ImageIcon className="w-6 h-6" />
             </button>
@@ -2027,9 +2192,9 @@ function ChatDetail({
           <button
             type="submit"
             disabled={(!newMessage.trim() && !mediaFile) || isSending || isBlockedByMe || isBlockedByOther}
-            className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 ease-out disabled:opacity-50 flex-shrink-0 hover:scale-105 active:scale-90 ${
+            className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 ease-out disabled:opacity-50 flex-shrink-0 hover:scale-105 active:scale-[0.96] ${
               newMessage.trim() || mediaFile 
-                ? 'bg-gradient-to-br from-[#2F2F46] to-[#5B4B8A] text-white shadow-md shadow-[#5B4B8A]/30' 
+                ? 'bg-[#2F2F46] text-white shadow-md shadow-slate-900/5' 
                 : 'bg-slate-100 text-slate-300 shadow-none'
             }`}
           >
@@ -2066,14 +2231,14 @@ function ChatDetail({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
               onClick={() => setShowReportModal(false)}
             />
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.98, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-black/5 flex items-center justify-between">
                 <h3 className="text-lg font-bold text-heading">Kullanıcıyı Şikayet Et</h3>

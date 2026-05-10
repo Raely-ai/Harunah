@@ -4,6 +4,7 @@ import { auth } from "../lib/firebase";
 import { calculateMysticProfile } from "../lib/mysticProfileHelper";
 import { walletService } from "../lib/walletService";
 import { socialService } from "../lib/socialService";
+import { isExternalPhotoUrl } from "../types";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -60,7 +61,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
     birthDate: initialData?.birthDate || "",
     gender: initialData?.social?.gender || initialData?.gender || "",
     interests: initialData?.social?.interests || initialData?.interests || [] as string[],
-    photos: initialData?.social?.photos || initialData?.photos || [] as string[],
+    photos: (initialData?.social?.photos || []).filter((p: string) => !isExternalPhotoUrl(p)) as string[],
     bio: initialData?.social?.bio || initialData?.bio || ""
   });
 
