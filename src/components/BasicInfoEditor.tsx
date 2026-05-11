@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { X, User, Calendar } from 'lucide-react';
+import { X, User } from 'lucide-react';
 import { socialService } from '../lib/socialService';
 import { toast } from 'sonner';
+import BirthDateInput from './BirthDateInput';
+import { validateBirthDate, isoToDisplayDate } from '../lib/dateUtils';
 
 interface BasicInfoEditorProps {
   uid: string;
@@ -27,16 +29,11 @@ export default function BasicInfoEditor({ uid, currentData, onClose, onUpdate }:
     if (!nickname.trim()) return;
 
     // Age control
-    const birth = new Date(birthDate);
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-      age--;
-    }
+    const displayDate = isoToDisplayDate(birthDate);
+    const validation = validateBirthDate(displayDate);
 
-    if (age < 18) {
-      toast.error("Lasya'yı kullanmak için 18 yaşından büyük olmalısın.");
+    if (!validation.isValid) {
+      toast.error(validation.error);
       return;
     }
 
@@ -93,16 +90,10 @@ export default function BasicInfoEditor({ uid, currentData, onClose, onUpdate }:
             {/* Birth Date */}
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Doğum Tarihin</label>
-              <div className="relative">
-                <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="date"
-                  value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                  required
-                />
-              </div>
+              <BirthDateInput 
+                value={birthDate}
+                onChange={setBirthDate}
+              />
             </div>
 
             {/* Gender */}

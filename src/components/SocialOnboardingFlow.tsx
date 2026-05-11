@@ -7,6 +7,8 @@ import { socialService } from "../lib/socialService";
 import { isExternalPhotoUrl } from "../types";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import BirthDateInput from "./BirthDateInput";
+import { validateBirthDate, calculateAge, isoToDisplayDate } from "../lib/dateUtils";
 import { 
   Heart, 
   Users, 
@@ -27,6 +29,7 @@ interface SocialOnboardingFlowProps {
   onBack: () => void;
   initialData?: any;
   isFastTrack?: boolean;
+  isRequired?: boolean;
 }
 
 const INTERESTS = [
@@ -49,8 +52,25 @@ const DEFAULT_AVATARS = {
   kadın: "https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka&backgroundColor=ffdfbf"
 };
 
-export default function SocialOnboardingFlow({ onComplete, onBack, initialData, isFastTrack = false }: SocialOnboardingFlowProps) {
+export default function SocialOnboardingFlow({ 
+  onComplete, 
+  onBack, 
+  initialData, 
+  isFastTrack: isFastTrackProp = false,
+  isRequired = false
+}: SocialOnboardingFlowProps) {
+  // Stabilize isFastTrack to prevent step-shifting during async profile loads
+  const [isFastTrack] = useState(isFastTrackProp);
   const [step, setStep] = useState(1);
+
+  // Unified logical step mapping
+  const currentLogicalStep = isFastTrack ? (
+    step === 1 ? 2 :
+    step === 2 ? 3 :
+    step === 3 ? 4 :
+    step === 4 ? 8 : step
+  ) : step;
+
   const [loading, setLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,23 +105,20 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
   };
 
   const nextStep = async () => {
-    console.log("nextStep: start", { step });
-    if (step === 1 && !formData.intent) return toast.error("Lütfen bir niyet seçin.");
-    if (step === 2 && (!formData.nickname || formData.nickname.trim().length < 2)) return toast.error("Lütfen geçerli bir takma ad girin (en az 2 karakter).");
-    if (step === 3) {
-      if (!formData.birthDate) return toast.error("Lütfen doğum tarihinizi seçin.");
-      const birth = new Date(formData.birthDate);
-      const now = new Date();
-      let age = now.getFullYear() - birth.getFullYear();
-      const m = now.getMonth() - birth.getMonth();
-      if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
-        age--;
+    if (currentLogicalStep === 1 && !formData.intent) return toast.error("Lütfen bir niyet seçin.");
+    if (currentLogicalStep === 2 && (!formData.nickname || formData.nickname.trim().length < 2)) return toast.error("Lütfen bir takma ad girin.");
+    if (currentLogicalStep === 3) {
+      if (!formData.birthDate) return toast.error("Lütfen geçerli bir doğum tarihi girin.");
+      
+      const displayDate = isoToDisplayDate(formData.birthDate);
+      const validation = validateBirthDate(displayDate);
+      if (!validation.isValid) {
+        return toast.error(validation.error);
       }
-      if (age < 18) return toast.error("Sosyal özellikleri kullanmak için 18 yaşından büyük olmalısınız.");
     }
-    if (step === 4 && !formData.gender) return toast.error("Lütfen cinsiyetinizi seçin.");
-    if (step === 5 && formData.interests.length < 5) return toast.error("En az 5 ilgi alanı seçmelisiniz.");
-    if (step === 7 && formData.bio.trim().length < 10) return toast.error("Lütfen kendinizden biraz daha bahsedin (en az 10 karakter).");
+    if (currentLogicalStep === 4 && !formData.gender) return toast.error("Lütfen cinsiyetinizi seçin.");
+    if (currentLogicalStep === 5 && formData.interests.length < 5) return toast.error("En az 5 ilgi alanı seçmelisiniz.");
+    if (currentLogicalStep === 7 && formData.bio.trim().length < 10) return toast.error("Lütfen kendinizden biraz daha bahsedin (en az 10 karakter).");
 
     if (step < totalSteps) {
       setStep(step + 1);
@@ -151,24 +168,14 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
   };
 
   const isStepValid = () => {
-    const currentStep = isFastTrack ? (
-      step === 1 ? 2 :
-      step === 2 ? 3 :
-      step === 3 ? 4 :
-      step === 4 ? 8 : step
-    ) : step;
-
-    switch (currentStep) {
+    switch (currentLogicalStep) {
       case 1: return !!formData.intent;
       case 2: return formData.nickname.trim().length >= 2;
       case 3: {
         if (!formData.birthDate) return false;
-        const birth = new Date(formData.birthDate);
-        const now = new Date();
-        let age = now.getFullYear() - birth.getFullYear();
-        const m = now.getMonth() - birth.getMonth();
-        if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
-        return age >= 18;
+        const displayDate = isoToDisplayDate(formData.birthDate);
+        const validation = validateBirthDate(displayDate);
+        return validation.isValid;
       }
       case 4: return !!formData.gender;
       case 5: return formData.interests.length >= 5;
@@ -180,20 +187,7 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
   };
 
   const renderStep = () => {
-    // Fast Track Mapping
-    // 1: Nickname (Original Step 2)
-    // 2: BirthDate (Original Step 3)
-    // 3: Gender (Original Step 4)
-    // 4: Completion (Original Step 8)
-    
-    const currentStep = isFastTrack ? (
-      step === 1 ? 2 :
-      step === 2 ? 3 :
-      step === 3 ? 4 :
-      step === 4 ? 8 : step
-    ) : step;
-
-    switch (currentStep) {
+    switch (currentLogicalStep) {
       case 1:
         return (
           <div className="space-y-6">
@@ -251,19 +245,13 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
           <div className="space-y-6">
             <div className="text-center space-y-2">
               <h2 className="text-2xl font-serif font-bold text-heading">Doğum tarihin?</h2>
-              <p className="text-body text-sm">Enerji analizinin temelidir. (18+ yaş zorunludur)</p>
+              <p className="text-body text-sm">Enerji analizinin temelidir. (18-80 yaş arası)</p>
             </div>
-            <div className="relative">
-              <input
-                type="date"
-                value={formData.birthDate}
-                onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                className="w-full bg-white border-2 border-black/5 rounded-2xl p-5 text-lg text-heading focus:border-indigo-600 outline-none transition-all text-center [color-scheme:light] shadow-sm"
-              />
-              <div className="absolute top-1/2 -translate-y-1/2 right-5 opacity-20 pointer-events-none">
-                <Calendar className="w-5 h-5 text-muted" />
-              </div>
-            </div>
+            <BirthDateInput 
+              value={formData.birthDate}
+              onChange={(val) => setFormData({ ...formData, birthDate: val })}
+              className="p-5 text-lg"
+            />
           </div>
         );
       case 4:
@@ -404,12 +392,16 @@ export default function SocialOnboardingFlow({ onComplete, onBack, initialData, 
 
       {/* Header */}
       <header className="relative z-10 p-4 flex items-center justify-between flex-shrink-0">
-        <button 
-          onClick={prevStep}
-          className="w-10 h-10 rounded-xl bg-white border border-black/5 flex items-center justify-center text-muted hover:text-heading transition-colors shadow-sm"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
+        {(!isRequired || step > 1) ? (
+          <button 
+            onClick={prevStep}
+            className="w-10 h-10 rounded-xl bg-white border border-black/5 flex items-center justify-center text-muted hover:text-heading transition-colors shadow-sm"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        ) : (
+          <div className="w-10 h-10" />
+        )}
         <div className="flex gap-1">
           {[...Array(totalSteps)].map((_, i) => (
             <div 

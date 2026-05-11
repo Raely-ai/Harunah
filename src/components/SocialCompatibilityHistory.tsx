@@ -37,8 +37,9 @@ import {
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { uploadPhoto } from '../lib/uploadService';
 import { UserProfile, CompatibilityHistory } from '../types';
-import { toSafeDate } from '../lib/dateUtils';
+import { toSafeDate, isoToDisplayDate, validateBirthDate } from '../lib/dateUtils';
 import { toast } from 'sonner';
+import BirthDateInput from './BirthDateInput';
 import { walletService } from '../lib/walletService';
 
 interface SocialCompatibilityHistoryProps {
@@ -169,6 +170,13 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
   const handleManualAnalysis = async () => {
     if (!person2.name || !person2.birthDate || !person2.photo) {
       toast.error("Lütfen karşı tarafın bilgilerini eksiksiz doldurun.");
+      return;
+    }
+
+    const displayDate = isoToDisplayDate(person2.birthDate);
+    const validation = validateBirthDate(displayDate);
+    if (!validation.isValid) {
+      toast.error(validation.error);
       return;
     }
 
@@ -345,11 +353,10 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
                       />
                     </div>
                     <div className="border-b border-slate-200 py-[2px] sm:py-1 relative">
-                      <input 
-                        type="date" 
+                      <BirthDateInput 
                         value={person2.birthDate}
-                        onChange={(e) => setPerson2(prev => ({ ...prev, birthDate: e.target.value }))}
-                        className="w-full bg-transparent text-[9px] sm:text-[10px] font-bold text-slate-500 border-none focus:ring-0 p-0 text-center tracking-widest uppercase [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                        onChange={(val) => setPerson2(prev => ({ ...prev, birthDate: val }))}
+                        className="!bg-transparent border-none focus:ring-0 p-0 text-center tracking-widest uppercase !h-auto !py-0"
                       />
                     </div>
                   </div>

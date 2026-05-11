@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Coffee, CreditCard, Moon, Cloud, Sparkles, LogOut, User, Loader2, History, ChevronRight, CheckCircle2, Clock, AlertCircle, Wallet, ArrowUpRight, Heart, Zap, Settings, ShieldAlert, Ban, Eye } from "lucide-react";
 import { useAuthState } from "react-firebase-hooks/auth";
@@ -59,8 +59,16 @@ function AppContent() {
   // Social login results are handled directly in components or via Auth state change
   const [authScreen, setAuthScreen] = useState<AuthScreen>('welcome');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
-  const [activeFortune, setActiveFortune] = useState<FortuneType | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // Profile status for onboarding gate
+  const isSocialOnboardingRequired = useMemo(() => {
+    if (!user || isProfileLoading || !userProfile) return false;
+    return !(!!userProfile.birthDate && !!(userProfile.gender || userProfile.social?.gender));
+  }, [user, isProfileLoading, userProfile]);
+
+  const [activeFortune, setActiveFortune] = useState<FortuneType | null>(null);
   const [activeReading, setActiveReading] = useState<FortuneReading | null>(null);
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
@@ -68,7 +76,6 @@ function AppContent() {
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [economyConfig, setEconomyConfig] = useState<EconomyConfig | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [previewUser, setPreviewUser] = useState<UserProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -583,6 +590,11 @@ function AppContent() {
   };
 
   const handleNavigate = (tab: AppTab) => {
+    // If onboarding is required, don't allow navigating away
+    if (isSocialOnboardingRequired && tab !== 'social-onboarding') {
+      return;
+    }
+    
     playSound('click');
     setActiveTab(tab);
     window.scrollTo(0, 0);
@@ -1119,8 +1131,12 @@ function AppContent() {
               <SocialOnboardingFlow 
                 initialData={activeProfile}
                 onBack={() => handleNavigate('home')}
-                onComplete={() => handleNavigate('home')}
-                isFastTrack={!activeProfile.gender || !activeProfile.birthDate}
+                onComplete={() => {
+                  // Direct tab change to home on completion
+                  setActiveTab('home');
+                }}
+                isFastTrack={isSocialOnboardingRequired}
+                isRequired={isSocialOnboardingRequired}
               />
             </motion.div>
           )}
@@ -1139,7 +1155,7 @@ function AppContent() {
         <BottomNav 
           activeTab={activeTab} 
           onTabChange={handleNavigate} 
-          className={['social-onboarding'].includes(activeTab) ? 'hidden' : ''}
+          className={(['social-onboarding'].includes(activeTab) || isSocialOnboardingRequired) ? 'hidden' : ''}
           userRole={activeProfile?.role}
         />
       )}

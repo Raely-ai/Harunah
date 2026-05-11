@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import BirthDateInput from "./BirthDateInput";
 import { 
   ArrowRight, 
   Sparkles, 
@@ -268,15 +269,11 @@ export default function AdvancedFlow({ type, userProfile, config, economyConfig,
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">Doğum Tarihi</label>
-                        <div className="relative group/input">
-                          <Calendar className={`absolute left-8 top-1/2 -translate-y-1/2 w-5 h-5 text-muted/40 group-focus-within/input:text-${theme.primary} transition-colors`} />
-                          <input 
-                            type="date"
-                            value={formData.dogumTarihi}
-                            onChange={(e) => setFormData({ ...formData, dogumTarihi: e.target.value })}
-                            className={`w-full ${theme.inputBg} border border-black/5 rounded-[1.5rem] pl-16 pr-8 py-6 text-heading font-medium focus:outline-none focus:border-${theme.primary}/30 focus:bg-white focus:${theme.glow} transition-all duration-500`}
-                          />
-                        </div>
+                        <BirthDateInput 
+                          value={formData.dogumTarihi}
+                          onChange={(val) => setFormData({ ...formData, dogumTarihi: val })}
+                          className="!py-6 !pl-16 bg-black/[0.02] border-black/5 rounded-[1.5rem]"
+                        />
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted ml-4">İlişki Durumu</label>
