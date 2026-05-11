@@ -813,7 +813,7 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
     console.error("claimDailyLoginReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     const msg = error instanceof Error ? error.message : String(error);
-    throw new functions.https.HttpsError('internal', `Günlük ödül işlenirken hata oluştu: ${msg}`);
+    throw new functions.https.HttpsError('failed-precondition', `Günlük ödül işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -870,7 +870,7 @@ export const claimVerificationReward = functions.region('us-central1').https.onC
     console.error("claimVerificationReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     const msg = error instanceof Error ? error.message : String(error);
-    throw new functions.https.HttpsError('internal', `Onay ödülü işlenirken hata oluştu: ${msg}`);
+    throw new functions.https.HttpsError('failed-precondition', `Onay ödülü işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -922,6 +922,6 @@ export const claimFreeCompatibilityReward = functions.region('us-central1').http
     console.error("claimFreeCompatibilityReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     const msg = error instanceof Error ? error.message : String(error);
-    throw new functions.https.HttpsError('internal', `Uyum analizi ödülü işlenirken hata oluştu: ${msg}`);
+    throw new functions.https.HttpsError('failed-precondition', `Uyum analizi ödülü işlenirken hata oluştu: ${msg}`);
   }
 });

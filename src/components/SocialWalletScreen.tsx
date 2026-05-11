@@ -666,7 +666,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       <Ticket className="w-8 h-8 fill-amber-500/20" />
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{localUser.mainCoins || 0}</p>
+                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{Math.max(0, localUser.mainCoins || 0)}</p>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Jeton (J)</p>
                     </div>
                   </div>
@@ -679,7 +679,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                       <Zap className="w-8 h-8 fill-indigo-600/20" />
                     </div>
                     <div className="text-center">
-                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{localUser.energy || 0}</p>
+                      <p className="text-2xl font-black text-slate-900 tracking-tighter">{Math.max(0, localUser.energy || 0)}</p>
                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enerji (E)</p>
                     </div>
                   </div>
@@ -832,7 +832,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
                     <div key={item.type} className="relative flex-shrink-0 w-48 bg-white rounded-[2.5rem] border border-black/5 shadow-sm p-6 flex flex-col gap-6">
                       {/* Count Badge */}
                       <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-slate-100 text-[9px] font-black text-slate-500 uppercase tracking-tighter">
-                        {item.count} Adet
+                        {Math.max(0, item.count)} Adet
                       </div>
 
                       <div className="flex flex-col gap-3">

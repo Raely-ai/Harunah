@@ -3,6 +3,25 @@ import * as admin from "firebase-admin";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 import { getEconomyConfig } from "./wallet";
 
+/**
+ * Shared helper to calculate total compatibility tokens and determine which field to decrement.
+ * Priority: compatibilityCount > analysisCount > social.compatibilityCredits
+ */
+function getCompatibilityBalance(user: any) {
+  const cCount = Math.max(0, Number(user?.compatibilityCount || 0));
+  const aCount = Math.max(0, Number(user?.analysisCount || 0));
+  const sCount = Math.max(0, Number(user?.social?.compatibilityCredits || 0));
+  
+  const total = cCount + aCount + sCount;
+  let field: string | null = null;
+  
+  if (cCount > 0) field = 'compatibilityCount';
+  else if (aCount > 0) field = 'analysisCount';
+  else if (sCount > 0) field = 'social.compatibilityCredits';
+  
+  return { total, field };
+}
+
 // 1. Complete Social Onboarding
 export const completeSocialOnboarding = functions.region('us-central1').https.onCall(async (data, context) => {
   console.log("AUDIT: completeSocialOnboarding started. Data received:", JSON.stringify(data));
@@ -501,12 +520,13 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
         } else {
             // Normal like
             if (source === 'discover') {
-                const currentRemaining = fromData.social?.discoverLikesRemaining ?? fromData.discoverLikesRemaining ?? 15;
+                const currentRemaining = Math.max(0, Number(fromData.social?.discoverLikesRemaining ?? fromData.discoverLikesRemaining ?? 15));
                 if (!isFreeOnboardingSwipe) {
                     if (currentRemaining <= 0) {
                         throw new functions.https.HttpsError('failed-precondition', 'discover_like_limit_reached');
                     }
-                    swipeUpdate['social.discoverLikesRemaining'] = FieldValue.increment(-1);
+                    // Explicitly set to social path and ensure no negative
+                    swipeUpdate['social.discoverLikesRemaining'] = Math.max(0, currentRemaining - 1);
                 }
             } else {
                 if (!isFreeOnboardingSwipe) {
@@ -1342,10 +1362,10 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
 
       let paymentType: 'count' | 'coins' = 'coins';
 
-      const compCount = user.compatibilityCount ?? user.analysisCount ?? user.social?.compatibilityCredits ?? 0;
+      const { total: compCount, field: fieldToDecrement } = getCompatibilityBalance(user);
 
-      if (compCount > 0) {
-        transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      if (compCount > 0 && fieldToDecrement) {
+        transaction.update(userRef, { [fieldToDecrement]: FieldValue.increment(-1) });
         paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
         transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });
@@ -1517,10 +1537,10 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
 
       let paymentType: 'count' | 'coins' = 'coins';
 
-      const compCount = user.compatibilityCount ?? user.analysisCount ?? user.social?.compatibilityCredits ?? 0;
+      const { total: compCount, field: fieldToDecrement } = getCompatibilityBalance(user);
 
-      if (compCount > 0) {
-        transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
+      if (compCount > 0 && fieldToDecrement) {
+        transaction.update(userRef, { [fieldToDecrement]: FieldValue.increment(-1) });
         paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
         transaction.update(userRef, { mainCoins: FieldValue.increment(-compatPrice) });

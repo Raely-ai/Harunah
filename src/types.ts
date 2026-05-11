@@ -269,6 +269,7 @@ export interface UserProfile {
     lifetimeSwipes?: number;
     receivedOnboarding10mReward?: boolean;
     onboardingDiscoverBonusClaimed?: boolean;
+    compatibilityCredits?: number;
   };
 
   // Notification & FCM

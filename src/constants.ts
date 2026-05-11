@@ -72,7 +72,7 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     adRewardEnergy: 10,
     maxDailyAds: 5,
     adRewardExpiryDays: 7,
-    dailyLoginRewardEnergy: 20,
+    dailyLoginRewardEnergy: 5,
     dailyLoginExpiryDays: 7,
     customRewards: []
   },

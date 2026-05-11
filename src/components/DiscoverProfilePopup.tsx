@@ -593,7 +593,8 @@ export default function DiscoverProfilePopup({
               )}
               <span className="text-[8px] font-black tracking-tighter uppercase whitespace-nowrap">
                 {isAnalyzing ? 'Taranıyor...' : 
-                 (currentUser.compatibilityCount || 0) > 0 ? 'UYUM GÖR (1 Hak)' : `UYUM ANALİZİ (${compatPrice} J)`}
+                 (Math.max(0, currentUser.compatibilityCount || 0) + Math.max(0, currentUser.analysisCount || 0) + Math.max(0, currentUser.social?.compatibilityCredits || 0)) > 0 
+                 ? 'UYUM GÖR (1 Hak)' : `UYUM ANALİZİ (${compatPrice} J)`}
               </span>
             </button>
 
