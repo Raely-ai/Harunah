@@ -154,11 +154,22 @@ export const socialService = {
     if (!toUserId) return 'INVALID_TARGET';
     try {
       const result = await callFunction('sendPriorityMessageRequest', { targetUserId: toUserId });
-      return result.success ? 'SUCCESS' : (result.status || 'TECHNICAL_ERROR');
+      if (result.success) return 'SUCCESS';
+      
+      const status = result.status || '';
+      if (status === 'ALREADY_REQUESTED' || status === 'ALREADY_INTERACTED') return 'ALREADY_REQUESTED';
+      if (status === 'INSUFFICIENT_FUNDS' || status === 'INSUFFICIENT_BALANCE') return 'INSUFFICIENT_FUNDS';
+      if (status === 'INVALID_TARGET') return 'INVALID_TARGET';
+      
+      return 'TECHNICAL_ERROR';
     } catch (error: any) {
       console.error("socialService: Error in sendPriorityMessageRequest:", error);
-      if (error.message?.includes('Bir istek zaten var') || error.code === 'already-exists') return 'ALREADY_REQUESTED';
-      if (error.message?.includes('Yetersiz') || error.code === 'failed-precondition') return 'INSUFFICIENT_FUNDS';
+      const code = error.code || '';
+      const message = error.message || '';
+      
+      if (code.includes('already-exists') || message.includes('Bir istek zaten var')) return 'ALREADY_REQUESTED';
+      if (code.includes('failed-precondition') || message.includes('Yetersiz bakiye')) return 'INSUFFICIENT_FUNDS';
+      
       return 'TECHNICAL_ERROR';
     }
   },

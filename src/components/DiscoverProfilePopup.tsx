@@ -550,29 +550,11 @@ export default function DiscoverProfilePopup({
 
         {/* ACTION BAR */}
         <div className="absolute bottom-0 inset-x-0 p-6 bg-white/60 backdrop-blur-sm border-t border-slate-50 z-[60]">
-          <div className="grid grid-cols-3 gap-3">
-            {/* BUTTON A: Analiz */}
-            <button 
-              onClick={handleCompatibility}
-              disabled={isAnalyzing}
-              className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-slate-100 rounded-3xl gap-1 text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-50"
-            >
-              {isAnalyzing ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Heart className="w-5 h-5 fill-current" />
-              )}
-              <span className="text-[8px] font-black tracking-tighter uppercase whitespace-nowrap">
-                {isAnalyzing ? 'Taranıyor...' : 
-                 (currentUser.compatibilityCount || 0) > 0 ? 'UYUM GÖR (1 Hak)' : `UYUM ANALİZİ (${compatPrice} J)`}
-              </span>
-            </button>
-
-            {/* BUTTON B: Priority Message */}
+          <div className="grid grid-cols-1 gap-3 mb-3">
             <button 
               onClick={handlePriorityMessage}
               disabled={isMessaging}
-              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-md shadow-slate-900/5 disabled:opacity-80 transition-transform active:scale-[0.98] relative overflow-hidden group"
+              className="flex flex-col items-center justify-center p-3 bg-slate-900 border border-slate-800 rounded-3xl gap-1 text-white shadow-md shadow-slate-900/5 disabled:opacity-80 transition-transform active:scale-[0.98] relative overflow-hidden group w-full"
             >
               {isMessaging && (
                  <motion.div 
@@ -589,15 +571,32 @@ export default function DiscoverProfilePopup({
               )}
               <div className="flex flex-col items-center relative z-20 text-center">
                 <span className="text-[8px] font-black tracking-tighter uppercase">
-                  {isMessaging ? 'Gidiyor...' : 'ÖNCELİKLİ MESAJ İSTEĞİ (50 J)'}
+                  {isMessaging ? 'Gidiyor...' : 'ÖNCELİKLİ MESAJ İSTEĞİ'}
                 </span>
                 <span className="text-[6px] text-amber-400/80 uppercase tracking-widest mt-0.5">
-                  Mesajın karşı tarafın en üstünde görünür
+                  50 Jeton
                 </span>
               </div>
             </button>
+          </div>
 
-            {/* BUTTON C: Free Like */}
+          <div className="grid grid-cols-2 gap-3">
+            <button 
+              onClick={handleCompatibility}
+              disabled={isAnalyzing}
+              className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-slate-100 rounded-3xl gap-1 text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-50"
+            >
+              {isAnalyzing ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Heart className="w-5 h-5 fill-current" />
+              )}
+              <span className="text-[8px] font-black tracking-tighter uppercase whitespace-nowrap">
+                {isAnalyzing ? 'Taranıyor...' : 
+                 (currentUser.compatibilityCount || 0) > 0 ? 'UYUM GÖR (1 Hak)' : `UYUM ANALİZİ (${compatPrice} J)`}
+              </span>
+            </button>
+
             <button 
               onClick={handleFreeLike}
               disabled={isLiking || hasLikedOptimistic}

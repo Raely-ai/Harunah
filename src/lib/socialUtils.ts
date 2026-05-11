@@ -75,7 +75,16 @@ export const isSocialProfileReady = (user: UserProfile | null | undefined): bool
   if (user.uid === 'guest') return false;
 
   const isCompleted = user.social?.profileCompleted === true;
-  const hasBasicInfo = !!(user.gender || user.social?.gender) && !!user.birthDate;
+  
+  // Stricter Criteria: Require Bio and Interests for Auto-Complete
+  // This prevents the flicker when background fast-track sync is running
+  const hasEnoughInterests = (user?.social?.interests || []).length >= 5;
+  const hasEnoughBio = (user?.social?.bio || '').length >= 10;
+  const hasNickname = (user?.social?.nickname || '').length >= 2;
+  const hasBirthDate = !!user?.birthDate;
+  const hasGender = !!(user?.social?.gender || user?.gender);
+  
+  const isActuallyComplete = hasNickname && hasGender && hasBirthDate && hasEnoughInterests && hasEnoughBio;
 
-  return isCompleted || hasBasicInfo;
+  return isCompleted || isActuallyComplete;
 };

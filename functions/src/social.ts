@@ -39,10 +39,7 @@ export const completeSocialOnboarding = functions.region('us-central1').https.on
     }
 
     const finalLookingFor = lookingFor || (gender === 'erkek' ? 'kadın' : 'erkek');
-    const finalPhotos = Array.isArray(photos) ? photos : [];
-    const finalInterests = Array.isArray(interests) ? interests : [];
     const finalBio = String(bio || "");
-    const finalAge = (typeof age === 'number' && !isNaN(age)) ? age : Number(age) || 0;
 
     console.log("AUDIT: Fast Track Hardened fields:", { 
       nickname, gender, lookingFor: finalLookingFor, birthDate, 
@@ -335,6 +332,7 @@ export const refreshDiscover = functions.region('us-central1').https.onCall(asyn
       .filter(d => {
         const data = d.data();
         if (data.type !== 'pass') return true; // always exclude likes/superlikes
+        if (mode === 'discover') return false; // Bug 5 fix: Do NOT exclude passes from Discover
         const createdAt = data.createdAt?.toMillis?.() || 0;
         if (createdAt && createdAt < thirtyDaysAgo) return false; // forget old passes
         return true;
@@ -503,7 +501,7 @@ export const sendLike = functions.region('us-central1').https.onCall(async (data
         } else {
             // Normal like
             if (source === 'discover') {
-                const currentRemaining = fromData.social?.discoverLikesRemaining ?? fromData.discoverLikesRemaining ?? 0;
+                const currentRemaining = fromData.social?.discoverLikesRemaining ?? fromData.discoverLikesRemaining ?? 15;
                 if (!isFreeOnboardingSwipe) {
                     if (currentRemaining <= 0) {
                         throw new functions.https.HttpsError('failed-precondition', 'discover_like_limit_reached');
@@ -586,55 +584,80 @@ export const sendPriorityMessageRequest = functions.region('us-central1').https.
      const requestRef = db.collection("interactionRequests").doc(`req_${fromUserId}_${targetUserId}`);
 
     let fromUserName = "Biri";
-    await db.runTransaction(async (transaction) => {
+    let fromUserPhoto = "";
+
+    const result = await db.runTransaction(async (transaction) => {
         const fromSnap = await transaction.get(fromUserRef);
-        if (!fromSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
+        if (!fromSnap.exists) return { success: false, status: 'USER_NOT_FOUND' };
+        
         const fromData = fromSnap.data() as any;
         fromUserName = fromData.social?.nickname || fromData.displayName || "Biri";
+        fromUserPhoto = fromData.social?.photos?.[0] || fromData.photoURL || "";
 
         // Check Coins
         if ((fromData.mainCoins || 0) < priorityMessagePrice) {
-            throw new functions.https.HttpsError('failed-precondition', 'Yetersiz bakiye.');
+            return { success: false, status: 'INSUFFICIENT_FUNDS' };
         }
 
         // Check existing chat/request
         const reqSnap = await transaction.get(requestRef);
-        if (reqSnap.exists) throw new functions.https.HttpsError('already-exists', 'Bir istek zaten var.');
+        if (reqSnap.exists) {
+            const reqData = reqSnap.data();
+            if (reqData?.status === 'pending') {
+                return { success: false, status: 'ALREADY_REQUESTED' };
+            }
+            return { success: false, status: 'ALREADY_INTERACTED' };
+        }
         
         // Deduct Coins
         transaction.update(fromUserRef, { mainCoins: FieldValue.increment(-priorityMessagePrice) });
 
         // Update Request
-        const now = FieldValue.serverTimestamp();
+        const now = new Date().toISOString();
         transaction.set(requestRef, { 
             id: requestRef.id, fromUserId, toUserId: targetUserId, status: 'pending', type: 'priority_message_request', priority: true, createdAt: now 
         });
 
         transaction.set(db.collection("notifications").doc(), {
-            userId: targetUserId, fromUserId, type: 'priority_message_request',
+            userId: targetUserId, 
+            fromUserId, 
+            fromUserName,
+            fromUserPhoto,
+            type: 'priority_message_request',
             title: "Öncelikli Mesaj İsteği 🚀",
             message: `${fromUserName} sana öncelikli bir mesaj isteği gönderdi!`,
-            read: false, createdAt: now
+            data: { fromUserId },
+            read: false, 
+            createdAt: now
         });
-     });
 
-    // Send Push
-    await sendPushToUser(targetUserId, {
-        title: "Öncelikli mesaj isteğin var 💌",
-        body: `${fromUserName} sana öne çıkan bir mesaj isteği gönderdi.`,
-        data: {
-            type: "priority_message_request",
-            fromUserId,
-            requestId: `req_${fromUserId}_${targetUserId}`,
-            targetTab: "messages",
-            targetSubTab: "requests"
-        }
+        return { success: true };
     });
 
-    return { success: true };
+    if (result.success) {
+        // Send Push
+        await sendPushToUser(targetUserId, {
+            title: "Öncelikli mesaj isteğin var 💌",
+            body: `${fromUserName} sana öne çıkan bir mesaj isteği gönderdi.`,
+            category: 'social',
+            senderId: fromUserId,
+            imageUrl: fromUserPhoto,
+            data: {
+                type: "priority_message_request",
+                fromUserId,
+                requestId: `req_${fromUserId}_${targetUserId}`,
+                targetTab: "messages",
+                targetSubTab: "requests"
+            }
+        }).catch(e => console.error("Push failed:", e));
+    }
+
+    return result;
   } catch (error: any) {
       console.error("sendPriorityMessageRequest error:", error);
-      throw error;
+      if (error instanceof functions.https.HttpsError) throw error;
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new functions.https.HttpsError('internal', `İstek gönderilirken hata oluştu: ${msg}`);
   }
 });
 
@@ -683,9 +706,9 @@ export const claimProfileCompletionReward = functions.region('us-central1').http
       // 3. Update User and Log Transaction
       const now = new Date().toISOString();
       transaction.update(userRef, {
-        energy: admin.firestore.FieldValue.increment(rewardAmount),
+        energy: FieldValue.increment(rewardAmount),
         "social.completionRewardClaimed": true,
-        "social.updatedAt": admin.firestore.FieldValue.serverTimestamp()
+        "social.updatedAt": now
       });
 
       const txRef = db.collection("walletTransactions").doc();
@@ -706,7 +729,8 @@ export const claimProfileCompletionReward = functions.region('us-central1').http
   } catch (error: any) {
     console.error("claimProfileCompletionReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Ödül işlenirken bir hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Profil tamamlama ödülü işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -1190,8 +1214,8 @@ export const createChat = functions.region('us-central1').https.onCall(async (da
 // 22. Compatibility Analysis
 async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, cacheKey?: string) {
   const now = new Date().toISOString();
-  const openai = getOpenAI();
   try {
+    const openai = getOpenAI();
     const response = await openai.chat.completions.create({ 
       model: "gpt-4o-mini", 
       response_format: { type: "json_object" },
@@ -1263,7 +1287,7 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       title: 'Uyum Analizi Hazırlanıyor... ✨', 
       message: 'Frekans analizin birazdan sonuçlanacak. Sonucunu Frekans Arşivi\'nde görebilirsin.', 
       read: false, 
-      createdAt: FieldValue.serverTimestamp() 
+      createdAt: new Date().toISOString() 
     });
     await batch.commit();
     await sendPushToUser(userId, { 
@@ -1280,7 +1304,7 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
   }
 }
 
-export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
+export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 120 }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -1318,7 +1342,9 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
 
       let paymentType: 'count' | 'coins' = 'coins';
 
-      if ((user.compatibilityCount || 0) > 0) {
+      const compCount = user.compatibilityCount ?? user.analysisCount ?? user.social?.compatibilityCredits ?? 0;
+
+      if (compCount > 0) {
         transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
         paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
@@ -1370,6 +1396,8 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         targetUserId
       );
     } catch (aiError: any) {
+      console.error("runDiscoverCompatibilityAnalysis AI Error:", aiError);
+      const aiMsg = aiError instanceof Error ? aiError.message : String(aiError);
       await db.runTransaction(async (t) => {
         if (usersData.paymentType === 'count') {
           t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
@@ -1386,11 +1414,11 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
             balanceType: 'main',
             createdAt: new Date().toISOString(),
             status: 'completed',
-            description: `Uyum Analizi İadesi (Hata)`
+            description: `Uyum Analizi İadesi (AI Hatası)`
           });
         }
       });
-      throw new functions.https.HttpsError('internal', 'Uyum analizi şu an hazırlanamadı. Hakkın/jetonun iade edildi.');
+      throw new functions.https.HttpsError('internal', `Uyum analizi hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
     }
     
     // NEW: Notify the target user that someone is curious (Compatibility Peek)
@@ -1420,7 +1448,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
           fromUserName: fromUser.name,
           fromUserPhoto: fromUser.photo,
           fromUserAge: fromUser.age,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: new Date().toISOString(),
           source: "discover",
           read: false
         });
@@ -1433,7 +1461,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
           title: 'Birisi uyumunu merak etti ✨',
           message: 'Enerjin birinin dikkatini çekti! Kimin seninle uyumunu merak ettiğini gör.',
           read: false,
-          createdAt: FieldValue.serverTimestamp(),
+          createdAt: new Date().toISOString(),
           metadata: {
             fromUserId: userId,
             peekId: peekId
@@ -1465,7 +1493,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
   }
 });
 
-export const runManualCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 60 }).https.onCall(async (data, context) => {
+export const runManualCompatibilityAnalysis = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 120 }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -1489,7 +1517,9 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
 
       let paymentType: 'count' | 'coins' = 'coins';
 
-      if ((user.compatibilityCount || 0) > 0) {
+      const compCount = user.compatibilityCount ?? user.analysisCount ?? user.social?.compatibilityCredits ?? 0;
+
+      if (compCount > 0) {
         transaction.update(userRef, { compatibilityCount: FieldValue.increment(-1) });
         paymentType = 'count';
       } else if ((user.mainCoins || 0) >= compatPrice) {
@@ -1520,6 +1550,8 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
     try {
       analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
     } catch (aiError: any) {
+      console.error("runManualCompatibilityAnalysis AI Error:", aiError);
+      const aiMsg = aiError instanceof Error ? aiError.message : String(aiError);
       await db.runTransaction(async (t) => {
         if (paymentData.paymentType === 'count') {
           t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
@@ -1536,11 +1568,11 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
             balanceType: 'main',
             createdAt: new Date().toISOString(),
             status: 'completed',
-            description: `Uyum Analizi İadesi (Hata)`
+            description: `Manuel Analiz İadesi (AI Hatası)`
           });
         }
       });
-      throw new functions.https.HttpsError('internal', 'Uyum analizi şu an hazırlanamadı. Hakkın/jetonun iade edildi.');
+      throw new functions.https.HttpsError('internal', `Analiz hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
     }
     return { 
       success: true, 
@@ -1631,7 +1663,7 @@ export const claimOnboardingDiscoverBonus = functions.region('us-central1').http
         "social.onboardingDiscoverBonusClaimed": true,
         "social.discoverLikesRemaining": 65,
         "social.discoverLikesLastReset": now.toISOString(),
-        "social.updatedAt": FieldValue.serverTimestamp()
+        "social.updatedAt": now.toISOString()
       });
       
       return { success: true, amount: 65 };
@@ -1639,7 +1671,8 @@ export const claimOnboardingDiscoverBonus = functions.region('us-central1').http
   } catch (error: any) {
     console.error("claimOnboardingDiscoverBonus error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', 'Bonus alınırken hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Bonus alınırken hata oluştu: ${msg}`);
   }
 });
 
@@ -1661,7 +1694,7 @@ export const claim10MinuteReward = functions.region('us-central1').https.onCall(
       transaction.update(userRef, {
         "social.receivedOnboarding10mReward": true,
         "compatibilityCount": FieldValue.increment(1),
-        "social.updatedAt": FieldValue.serverTimestamp()
+        "social.updatedAt": new Date().toISOString()
       });
 
       return { success: true };
@@ -1669,7 +1702,8 @@ export const claim10MinuteReward = functions.region('us-central1').https.onCall(
   } catch (error: any) {
     console.error("claim10MinuteReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', 'Ödül alınırken hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Ödül alınırken hata oluştu: ${msg}`);
   }
 });
 
@@ -1698,7 +1732,7 @@ export const resetDailyDiscoverLikes = functions.region('us-central1').https.onC
       transaction.update(userRef, {
         "social.discoverLikesRemaining": 15,
         "social.discoverLikesLastReset": now.toISOString(),
-        "social.updatedAt": FieldValue.serverTimestamp()
+        "social.updatedAt": now.toISOString()
       });
 
       return { success: true, amount: 15 };
@@ -1706,7 +1740,8 @@ export const resetDailyDiscoverLikes = functions.region('us-central1').https.onC
   } catch (error: any) {
     console.error("resetDailyDiscoverLikes error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', 'Yenileme sırasında hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Yenileme sırasında hata oluştu: ${msg}`);
   }
 });
 

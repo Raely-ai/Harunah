@@ -200,10 +200,12 @@ export const walletService = {
     return await callFunction('buyFortuneSubscription', { type });
   },
 
-  async getTransactions(userId: string, limitCount: number = 20): Promise<WalletTransaction[]> {
+  async getTransactions(userId: string, forceRefresh: boolean = false, limitCount: number = 20): Promise<WalletTransaction[]> {
     const CACHE_KEY = `walletTransactions_${userId}`;
-    const cached = cacheManager.get<WalletTransaction[]>(CACHE_KEY);
-    if (cached) return cached;
+    if (!forceRefresh) {
+      const cached = cacheManager.get<WalletTransaction[]>(CACHE_KEY);
+      if (cached) return cached;
+    }
 
     const q = query(
       collection(db, "walletTransactions"),

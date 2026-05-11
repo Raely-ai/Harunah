@@ -107,7 +107,7 @@ function AppContent() {
       } else if (data?.screen === 'history' || data?.screen === 'fortunes' || data?.type === 'reading') {
         handleNavigate('history');
       } else if (data?.type === 'like' || data?.type === 'super_like') {
-        handleNavigate('social-intro');
+        handleNavigate('messages');
       }
     };
 
@@ -233,6 +233,8 @@ function AppContent() {
       const cachedProfile = cacheManager.get<UserProfile>(CACHE_KEY);
       if (cachedProfile) {
         setUserProfile(cachedProfile);
+        const hasBaseProfile = !!cachedProfile.birthDate && !!(cachedProfile.gender || cachedProfile.social?.gender);
+        if (!hasBaseProfile) setActiveTab('social-onboarding');
         setIsProfileLoading(false);
       } else {
         setIsProfileLoading(true);
@@ -245,6 +247,10 @@ function AppContent() {
         if (snapshot.exists()) {
           const data = snapshot.data();
           const profile = normalizeUserProfile(data, snapshot.id);
+          const hasBaseProfile = !!profile.birthDate && !!(profile.gender || profile.social?.gender);
+          if (!hasBaseProfile) {
+            setActiveTab(current => current === 'social-onboarding' ? current : 'social-onboarding');
+          }
           setUserProfile(profile);
           cacheManager.set(CACHE_KEY, profile, 600, true); // Cache persistently for 10 mins
           setIsProfileLoading(false);
@@ -315,6 +321,7 @@ function AppContent() {
           } catch (setErr: any) {
             const msg = setErr.message?.toLowerCase() || "";
             if (msg.includes("quota") || msg.includes("unavailable") || msg.includes("failed to fetch")) setQuotaExceeded(true);
+            setIsProfileLoading(false);
           }
         }
       }, (err: any) => {
@@ -859,7 +866,7 @@ function AppContent() {
 
   // Removed duplicate activeProfile and loading return
 
-  if (showSplash) {
+  if (showSplash || loading || (user && isProfileLoading)) {
     return <SplashScreen />;
   }
 
@@ -1100,28 +1107,6 @@ function AppContent() {
 
         {/* Non-persistent tabs (Onboarding etc) */}
         <AnimatePresence mode="wait">
-          {activeTab === 'social-intro' && (
-            <motion.div
-              key="social-intro"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="fixed inset-0 h-[100dvh] z-[70] bg-[#F6F4F8]"
-            >
-              <SocialIntroScreen 
-                onBack={() => handleNavigate('home')}
-                onContinue={async () => {
-                  if (isSocialProfileReady(activeProfile)) {
-                    handleNavigate('home');
-                  } else {
-                    handleNavigate('social-onboarding');
-                  }
-                }}
-              />
-            </motion.div>
-          )}
-
           {activeTab === 'social-onboarding' && (
             <motion.div
               key="social-onboarding"
@@ -1133,7 +1118,7 @@ function AppContent() {
             >
               <SocialOnboardingFlow 
                 initialData={activeProfile}
-                onBack={() => handleNavigate('social-intro')}
+                onBack={() => handleNavigate('home')}
                 onComplete={() => handleNavigate('home')}
                 isFastTrack={!activeProfile.gender || !activeProfile.birthDate}
               />
@@ -1154,7 +1139,7 @@ function AppContent() {
         <BottomNav 
           activeTab={activeTab} 
           onTabChange={handleNavigate} 
-          className={['social-intro', 'social-onboarding'].includes(activeTab) ? 'hidden' : ''}
+          className={['social-onboarding'].includes(activeTab) ? 'hidden' : ''}
           userRole={activeProfile?.role}
         />
       )}

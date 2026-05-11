@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminManagePromoCode = exports.adminUpdateReport = exports.adminUpdateConfig = exports.adminUpdateUser = exports.adminAdjustWallet = exports.adminSetWallet = exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.adminBroadcastNotification = void 0;
+exports.adminManageTestUsers = exports.adminCreateTestUsers = exports.adminManagePromoCode = exports.adminUpdateReport = exports.adminUpdateConfig = exports.adminUpdateUser = exports.adminAdjustWallet = exports.adminSetWallet = exports.adminModerationAction = exports.getAdminChatMessages = exports.getAdminUserChats = exports.adminGrantWalletReward = exports.adminBroadcastNotification = void 0;
 const functions = __importStar(require("firebase-functions"));
 const base_1 = require("./base");
 exports.adminBroadcastNotification = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -78,6 +78,23 @@ exports.adminBroadcastNotification = functions.region('us-central1').https.onCal
                         ...Object.fromEntries(Object.entries(extraData || {}).map(([k, v]) => [k, String(v)])),
                         screen: String(screen || 'home'),
                         category: 'system'
+                    },
+                    android: {
+                        priority: 'high',
+                        notification: {
+                            sound: 'default',
+                            channelId: 'lasya_default_channel',
+                            priority: 'high',
+                            defaultSound: true
+                        }
+                    },
+                    apns: {
+                        payload: {
+                            aps: {
+                                sound: 'default',
+                                badge: 1
+                            }
+                        }
                     }
                 });
                 results.successCount += response.successCount;
@@ -493,6 +510,175 @@ exports.adminManagePromoCode = functions.region('us-central1').https.onCall(asyn
     catch (error) {
         console.error("adminManagePromoCode error:", error);
         throw new functions.https.HttpsError('internal', error.message || 'Promosyon kodu işlemi sırasında hata oluştu.');
+    }
+});
+exports.adminCreateTestUsers = functions.region('us-central1').https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    try {
+        const adminSnap = await base_1.db.collection("users").doc(context.auth.uid).get();
+        const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') ||
+            (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+        if (!isAdmin) {
+            throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
+        }
+        const { maleCount = 20, femaleCount = 20 } = data;
+        const totalCount = maleCount + femaleCount;
+        if (totalCount > 50) {
+            throw new functions.https.HttpsError('invalid-argument', 'Tek seferde en fazla 50 kullanıcı oluşturulabilir.');
+        }
+        const turkishMaleNames = ['Ahmet', 'Mehmet', 'Can', 'Burak', 'Emre', 'Ali', 'Yusuf', 'Eren', 'Ozan', 'Tarkan', 'Mert', 'Kaan', 'Arda', 'Cem', 'Tolga', 'Barış', 'Kemal', 'Serkan', 'Oğuz', 'Gökhan', 'Hakan', 'Erdem', 'Volkan', 'Koray'];
+        const turkishFemaleNames = ['Ayşe', 'Fatma', 'Merve', 'Elif', 'Zeynep', 'Büşra', 'Ceren', 'Damla', 'Ece', 'Gizem', 'Pelin', 'Selin', 'Derya', 'Bahar', 'Gamze', 'Aslı', 'İrem', 'Ebru', 'Cansu', 'Gözde', 'Hande', 'Melis', 'Sinem', 'Tuğçe'];
+        const cities = ['İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Antalya', 'Adana', 'Konya', 'Kayseri', 'Eskişehir', 'Samsun'];
+        const bios = [
+            'Hayatı sevmeyi öğreniyorum. Kahve aşığı.',
+            'Yeni insanlar tanımayı severim.',
+            'Müzik, kitaplar ve kediler.',
+            'Gezmeyi seviyorum, yeni maceralara her zaman açığım.',
+            'Doğa yürüyüşleri ve kamp yapmak vazgeçilmezim.',
+            'Sadece samimiyet.',
+            'Sinema ve tiyatro aşığı.',
+            'İyi yemek ve iyi insan.',
+            'Spontane yaşamayı severim.'
+        ];
+        const results = { created: 0, failed: 0 };
+        const auth = require('firebase-admin').auth();
+        const batch = base_1.db.batch();
+        const timestamp = Date.now();
+        for (let i = 0; i < totalCount; i++) {
+            const isMale = i < maleCount;
+            const gender = isMale ? 'erkek' : 'kadın';
+            const namePool = isMale ? turkishMaleNames : turkishFemaleNames;
+            const randomName = namePool[Math.floor(Math.random() * namePool.length)];
+            const randomCity = cities[Math.floor(Math.random() * cities.length)];
+            const randomBio = bios[Math.floor(Math.random() * bios.length)];
+            const age = Math.floor(Math.random() * 20) + 18;
+            const email = `test_${isMale ? 'male' : 'female'}_${timestamp}_${i}@lasya.test`;
+            const password = `TestPass!${Math.floor(Math.random() * 1000000)}`;
+            try {
+                const userRecord = await auth.createUser({
+                    email,
+                    password,
+                    displayName: randomName,
+                    emailVerified: true,
+                    disabled: false,
+                });
+                const userRef = base_1.db.collection('users').doc(userRecord.uid);
+                batch.set(userRef, {
+                    email,
+                    role: 'user',
+                    uid: userRecord.uid,
+                    createdAt: base_1.FieldValue.serverTimestamp(),
+                    updatedAt: base_1.FieldValue.serverTimestamp(),
+                    isTestUser: true,
+                    createdByAdminSeed: true,
+                    lastActivity: new Date().toISOString(),
+                    social: {
+                        nickname: randomName,
+                        age: age,
+                        gender: gender,
+                        city: randomCity,
+                        bio: randomBio,
+                        lookingFor: isMale ? ['kadın'] : ['erkek'],
+                        zodiac: 'Koç',
+                        relationshipStatus: 'bekar',
+                        photos: [`https://api.dicebear.com/7.x/avataaars/svg?seed=${userRecord.uid}`],
+                        enabled: true,
+                        visible: true,
+                        profileCompleted: true,
+                        onboardingDiscoverBonusClaimed: true,
+                        completionRewardClaimed: true
+                    }
+                });
+                results.created++;
+            }
+            catch (err) {
+                console.error("Error creating test user:", err);
+                results.failed++;
+            }
+        }
+        if (results.created > 0) {
+            await batch.commit();
+        }
+        return { success: true, message: `${results.created} test kullanıcısı başarıyla oluşturuldu. ${results.failed} başarısız.`, results };
+    }
+    catch (error) {
+        console.error("adminCreateTestUsers error:", error);
+        throw new functions.https.HttpsError('internal', error.message || 'Bir hata oluştu.');
+    }
+});
+exports.adminManageTestUsers = functions.region('us-central1').https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+    try {
+        const adminSnap = await base_1.db.collection("users").doc(context.auth.uid).get();
+        const isAdmin = (adminSnap.exists && adminSnap.data()?.role === 'admin') ||
+            (context.auth.token.email === "hpferdicakir@gmail.com" && context.auth.token.email_verified === true);
+        if (!isAdmin) {
+            throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
+        }
+        const { action } = data;
+        if (!['hide', 'show', 'delete'].includes(action)) {
+            throw new functions.https.HttpsError('invalid-argument', 'Geçersiz işlem.');
+        }
+        const testUsersSnap = await base_1.db.collection("users").where("isTestUser", "==", true).get();
+        if (testUsersSnap.empty) {
+            return { success: true, message: "İşlem yapılacak test kullanıcısı bulunamadı." };
+        }
+        let modifiedCount = 0;
+        const auth = require('firebase-admin').auth();
+        const chunks = [];
+        let currentChunk = [];
+        testUsersSnap.docs.forEach(doc => {
+            currentChunk.push(doc);
+            if (currentChunk.length === 500) {
+                chunks.push(currentChunk);
+                currentChunk = [];
+            }
+        });
+        if (currentChunk.length > 0)
+            chunks.push(currentChunk);
+        for (const chunk of chunks) {
+            const batch = base_1.db.batch();
+            const uidsToDelete = [];
+            for (const doc of chunk) {
+                if (action === 'hide') {
+                    batch.update(doc.ref, { "social.visible": false });
+                    modifiedCount++;
+                }
+                else if (action === 'show') {
+                    batch.update(doc.ref, { "social.visible": true });
+                    modifiedCount++;
+                }
+                else if (action === 'delete') {
+                    batch.delete(doc.ref);
+                    uidsToDelete.push(doc.id);
+                }
+            }
+            await batch.commit();
+            if (action === 'delete' && uidsToDelete.length > 0) {
+                try {
+                    await auth.deleteUsers(uidsToDelete);
+                    modifiedCount += uidsToDelete.length;
+                }
+                catch (e) {
+                    console.error("Auth delete error batch", e);
+                    for (const uid of uidsToDelete) {
+                        try {
+                            await auth.deleteUser(uid);
+                        }
+                        catch (ex) { }
+                    }
+                    modifiedCount += uidsToDelete.length;
+                }
+            }
+        }
+        const actionText = action === 'hide' ? 'gizlendi' : action === 'show' ? 'gösterildi' : 'silindi';
+        return { success: true, message: `${modifiedCount} test kullanıcısı başarıyla ${actionText}.` };
+    }
+    catch (error) {
+        console.error("adminManageTestUsers error:", error);
+        throw new functions.https.HttpsError('internal', error.message || 'Bir hata oluştu.');
     }
 });
 //# sourceMappingURL=admin.js.map

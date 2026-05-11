@@ -163,7 +163,7 @@ export const createFortuneReading = functions.region('us-central1').https.onCall
 });
 
 // 2. Process Fortune AI
-export const processFortuneAI = functions.region('us-central1').https.onCall(async (data, context) => {
+export const processFortuneAI = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"], timeoutSeconds: 120 }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   const userId = context.auth.uid;
   
@@ -287,7 +287,7 @@ export const upgradeFortunePriority = functions.region('us-central1').https.onCa
 });
 
 // 4. Generate Daily Message
-export const generateDailyMessage = functions.region('us-central1').https.onCall(async (data, context) => {
+export const generateDailyMessage = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
   
   try {

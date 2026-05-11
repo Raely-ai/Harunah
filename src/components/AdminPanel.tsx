@@ -382,11 +382,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <button 
                     onClick={async () => {
                       try {
-                        setIsLoading(true);
+                        setLoading(true);
                         await adminService.createTestUsers(20, 20);
-                        await loadData();
+                        await fetchData(true);
                       } finally {
-                        setIsLoading(false);
+                        setLoading(false);
                       }
                     }}
                     className="flex-1 md:flex-none px-4 py-2.5 bg-amber-500 text-black text-xs font-bold rounded-xl hover:bg-amber-400 transition-all flex items-center justify-center gap-2"
@@ -397,11 +397,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <button 
                     onClick={async () => {
                       try {
-                        setIsLoading(true);
+                        setLoading(true);
                         await adminService.manageTestUsers('hide');
-                        await loadData();
+                        await fetchData(true);
                       } finally {
-                        setIsLoading(false);
+                        setLoading(false);
                       }
                     }}
                     className="flex-1 md:flex-none px-4 py-2.5 bg-white/10 text-white text-xs font-bold rounded-xl hover:bg-white/20 transition-all flex items-center justify-center gap-2"
@@ -412,11 +412,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <button 
                     onClick={async () => {
                       try {
-                        setIsLoading(true);
+                        setLoading(true);
                         await adminService.manageTestUsers('show');
-                        await loadData();
+                        await fetchData(true);
                       } finally {
-                        setIsLoading(false);
+                        setLoading(false);
                       }
                     }}
                     className="flex-1 md:flex-none px-4 py-2.5 bg-white/10 text-white text-xs font-bold rounded-xl hover:bg-white/20 transition-all flex items-center justify-center gap-2"
@@ -428,11 +428,11 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     onClick={async () => {
                       if (window.confirm("Tüm test kullanıcıları KALICI OLARAK silinecek. Onaylıyor musunuz?")) {
                         try {
-                          setIsLoading(true);
+                          setLoading(true);
                           await adminService.manageTestUsers('delete');
-                          await loadData();
+                          await fetchData(true);
                         } finally {
-                          setIsLoading(false);
+                          setLoading(false);
                         }
                       }
                     }}

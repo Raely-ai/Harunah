@@ -43,13 +43,14 @@ exports.createFortuneReading = functions.region('us-central1').https.onCall(asyn
         if (!context.auth)
             throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
         const userId = context.auth.uid;
-        const { type, formData, questions, priorityMode } = data || {};
+        const { type, formData, questions, priorityMode, cards } = data || {};
         if (!type || !formData)
             throw new functions.https.HttpsError('invalid-argument', 'Eksik veri.');
         const sanitizedFormData = {
             adSoyad: formData.adSoyad || "",
             dogumTarihi: formData.dogumTarihi || "",
-            iliskiDurumu: formData.iliskiDurumu || ""
+            iliskiDurumu: formData.iliskiDurumu || "",
+            cards: Array.isArray(cards) ? cards : []
         };
         if (['water', 'ebced', 'yildizname', 'havas'].includes(type)) {
             sanitizedFormData.motherName = formData.motherName || "";
@@ -208,9 +209,13 @@ exports.processFortuneAI = functions.region('us-central1').https.onCall(async (d
             adsoyad: reading.formData.adSoyad || "Canım", dogumtarihi: reading.formData.dogumTarihi || "Bilinmiyor",
             iliskidurumu: reading.formData.iliskiDurumu || "Bilinmiyor", anneadi: reading.formData.motherName || "Bilinmiyor",
             babaadi: reading.formData.fatherName || "Bilinmiyor", sorular: Array.isArray(reading.questions) ? reading.questions.join(", ") : "Genel yorum",
-            tur: reading.type, isim: reading.formData.adSoyad?.split(" ")[0] || "Canım"
+            tur: reading.type, isim: reading.formData.adSoyad?.split(" ")[0] || "Canım",
+            kartlar: (Array.isArray(reading.formData.cards) && reading.formData.cards.length > 0) ? reading.formData.cards.join(", ") : ""
         };
         let systemPrompt = `Sen Ahlas adında, karizmatik, gizemli ve hafif flörtöz bir erkek falcısın... ` + aiConfig.systemPrompt;
+        if (reading.type === 'tarot' && !placeholders.kartlar) {
+            systemPrompt += " Bu bir Tarot açılımıdır. Kullanıcı manuel kart seçmedi, bu yüzden 3 kartı sezgisel olarak sen belirle. Belirlediğin kartların isimlerini yorumun başında belirt ve her birini doğal bir şekilde yorumla.";
+        }
         let templatePrompt = aiConfig.templatePrompt;
         Object.entries(placeholders).forEach(([key, value]) => {
             const regex = new RegExp(`{${key}}`, 'g');

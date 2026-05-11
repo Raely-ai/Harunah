@@ -687,8 +687,8 @@ export const adminManageTestUsers = functions.region('us-central1').https.onCall
     const auth = require('firebase-admin').auth();
 
     // Max limit chunk array per batch limits
-    const chunks = [];
-    let currentChunk = [];
+    const chunks: any[] = [];
+    let currentChunk: any[] = [];
     testUsersSnap.docs.forEach(doc => {
       currentChunk.push(doc);
       if (currentChunk.length === 500) {

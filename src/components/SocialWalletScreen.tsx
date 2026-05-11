@@ -80,7 +80,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
   }, [currentUser.uid]);
 
   const refreshData = async () => {
-    const txData = await walletService.getTransactions(currentUser.uid);
+    const txData = await walletService.getTransactions(currentUser.uid, true);
     setTransactions(txData);
   };
 
@@ -278,6 +278,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         setLocalUser(prev => ({ ...prev, energy: (prev.energy || 0) + result.rewardAmount, lastDailyRewardAt: new Date().toISOString() }));
         refreshData();
       }
+    } catch (error: any) {
+      console.error("Daily reward claim error:", error);
+      toast.error(error.message || "Ödül alınırken bir hata oluştu.");
     } finally {
       setProcessing(false);
     }
@@ -302,6 +305,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         }));
         refreshData();
       }
+    } catch (error: any) {
+      console.error("Profile reward claim error:", error);
+      toast.error(error.message || "Ödül alınırken bir hata oluştu.");
     } finally {
       setProcessing(false);
     }
@@ -322,6 +328,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         setLocalUser(prev => ({ ...prev, energy: (prev.energy || 0) + result.rewardAmount, verificationRewardClaimed: true }));
         refreshData();
       }
+    } catch (error: any) {
+      console.error("Verification reward claim error:", error);
+      toast.error(error.message || "Ödül alınırken bir hata oluştu.");
     } finally {
       setProcessing(false);
     }
@@ -336,6 +345,9 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
         setLocalUser(prev => ({ ...prev, compatibilityCount: (prev.compatibilityCount || 0) + 1, lastFreeCompatibilityAt: new Date().toISOString() }));
         refreshData();
       }
+    } catch (error: any) {
+      console.error("Free compatibility claim error:", error);
+      toast.error(error.message || "Ödül alınırken bir hata oluştu.");
     } finally {
       setProcessing(false);
     }

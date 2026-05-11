@@ -51,12 +51,21 @@ export async function refundTransaction(userId: string, amount: number, balanceT
 
 function toMillisSafe(value: any): number {
   if (!value) return 0;
-  if (typeof value === 'number') return value;
-  if (value.toDate && typeof value.toDate === 'function') return value.toDate().getTime();
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === 'string') {
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) return date.getTime();
+  try {
+    if (typeof value === 'number') return value;
+    if (value.toDate && typeof value.toDate === 'function') return value.toDate().getTime();
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === 'string') {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) return date.getTime();
+    }
+    // Handle plain objects that look like Timestamps { _seconds, _nanoseconds } or { seconds, nanoseconds }
+    if (typeof value === 'object') {
+      const s = value._seconds || value.seconds;
+      if (typeof s === 'number') return s * 1000;
+    }
+  } catch (e) {
+    console.error("toMillisSafe error:", e);
   }
   return 0;
 }
@@ -68,9 +77,9 @@ export const watchAdReward = functions.region('us-central1').https.onCall(async 
     const economy = await getEconomyConfig();
     if (!economy) throw new functions.https.HttpsError('internal', 'Sistem yapılandırması bulunamadı.');
     
-    const adRewardEnergy = economy.rewards?.adRewardEnergy || 10;
-    const maxDailyAds = economy.rewards?.maxDailyAds || 5;
-    const adRewardExpiryDays = economy.rewards?.adRewardExpiryDays || 7;
+    const adRewardEnergy = Number(economy.rewards?.adRewardEnergy || 10);
+    const maxDailyAds = Number(economy.rewards?.maxDailyAds || 5);
+    const adRewardExpiryDays = Number(economy.rewards?.adRewardExpiryDays || 7);
     
     const userRef = db.collection("users").doc(userId);
     
@@ -126,7 +135,8 @@ export const watchAdReward = functions.region('us-central1').https.onCall(async 
   } catch (error: any) {
     console.error("watchAdReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Reklam ödülü işlenirken hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Reklam ödülü işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -760,7 +770,7 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
   
   try {
     const economy = await getEconomyConfig();
-    const rewardAmount = economy?.rewards?.dailyLoginRewardEnergy || 20;
+    const rewardAmount = Number(economy?.rewards?.dailyLoginRewardEnergy || 20);
 
     const userRef = db.collection("users").doc(userId);
 
@@ -770,7 +780,8 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
       const userData = userSnap.data() as any;
 
       const lastClaimTime = toMillisSafe(userData.lastDailyRewardAt);
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
       const lastClaimDate = lastClaimTime ? new Date(lastClaimTime).toISOString().split('T')[0] : "";
       
       if (lastClaimDate === today) {
@@ -779,7 +790,7 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
 
       transaction.update(userRef, {
         energy: FieldValue.increment(rewardAmount),
-        lastDailyRewardAt: admin.firestore.FieldValue.serverTimestamp()
+        lastDailyRewardAt: now.toISOString()
       });
 
       const txRef = db.collection("walletTransactions").doc();
@@ -790,7 +801,8 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
         source: 'daily_login',
         amount: rewardAmount,
         balanceType: 'energy',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: now.toISOString(),
+        remainingAmount: rewardAmount,
         status: 'active',
         description: 'Günlük giriş ödülü'
       });
@@ -800,7 +812,8 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
   } catch (error: any) {
     console.error("claimDailyLoginReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Ödül işlenirken hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Günlük ödül işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -811,7 +824,7 @@ export const claimVerificationReward = functions.region('us-central1').https.onC
 
   try {
     const economy = await getEconomyConfig();
-    const rewardAmount = economy?.rewards?.verifiedRewardEnergy || 100;
+    const rewardAmount = Number(economy?.rewards?.verifiedRewardEnergy || 100);
 
     const userRef = db.collection("users").doc(userId);
 
@@ -835,6 +848,7 @@ export const claimVerificationReward = functions.region('us-central1').https.onC
         "social.verificationRewardClaimed": true
       });
 
+      const now = new Date().toISOString();
       const txRef = db.collection("walletTransactions").doc();
       transaction.set(txRef, {
         id: txRef.id,
@@ -843,7 +857,9 @@ export const claimVerificationReward = functions.region('us-central1').https.onC
         source: 'profile_verification',
         amount: rewardAmount,
         balanceType: 'energy',
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        expiresAt: null,
+        remainingAmount: rewardAmount,
         status: 'active',
         description: 'Onaylı profil ödülü'
       });
@@ -853,7 +869,8 @@ export const claimVerificationReward = functions.region('us-central1').https.onC
   } catch (error: any) {
     console.error("claimVerificationReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Onay ödülü işlenirken hata oluştu: ${msg}`);
   }
 });
 
@@ -864,7 +881,7 @@ export const claimFreeCompatibilityReward = functions.region('us-central1').http
 
   try {
     const economy = await getEconomyConfig();
-    const cooldownHours = economy?.rewards?.freeCompatibilityCooldownHours || 48;
+    const cooldownHours = Number(economy?.rewards?.freeCompatibilityCooldownHours || 48);
 
     const userRef = db.collection("users").doc(userId);
 
@@ -880,9 +897,10 @@ export const claimFreeCompatibilityReward = functions.region('us-central1').http
 
       transaction.update(userRef, {
         compatibilityCount: FieldValue.increment(1),
-        lastFreeCompatibilityAt: admin.firestore.FieldValue.serverTimestamp()
+        lastFreeCompatibilityAt: new Date().toISOString()
       });
 
+      const now = new Date().toISOString();
       const txRef = db.collection("walletTransactions").doc();
       transaction.set(txRef, {
         id: txRef.id,
@@ -891,10 +909,11 @@ export const claimFreeCompatibilityReward = functions.region('us-central1').http
         source: 'free_compatibility',
         amount: 1,
         balanceType: 'energy',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: now,
         status: 'active',
         description: 'Ücretsiz Uyum Analizi Hakkı',
-        expiresAt: null
+        expiresAt: null,
+        remainingAmount: 1
       });
 
       return { success: true };
@@ -902,6 +921,7 @@ export const claimFreeCompatibilityReward = functions.region('us-central1').http
   } catch (error: any) {
     console.error("claimFreeCompatibilityReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message || 'Hata oluştu.');
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new functions.https.HttpsError('internal', `Uyum analizi ödülü işlenirken hata oluştu: ${msg}`);
   }
 });
