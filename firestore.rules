@@ -37,7 +37,7 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isNotBanned();
       allow update: if isOwner(userId) && isNotBanned() && 
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mainCoins', 'energy', 'subscription', 'isBanned', 'superLikes', 'refreshCount', 'compatibilityCount', 'boostExpiresAt', 'socialSubscription', 'discoverLikesRemaining', 'discoverLikesLastReset']) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'mainCoins', 'energy', 'subscription', 'isBanned', 'superLikes', 'refreshCount', 'compatibilityCount', 'boostExpiresAt', 'socialSubscription', 'discoverLikesRemaining', 'discoverLikesLastReset', 'isTestUser', 'createdByAdminSeed']) &&
         (!('social' in request.resource.data) || (
           (!('completionRewardClaimed' in request.resource.data.social) || request.resource.data.social.completionRewardClaimed == resource.data.social.get('completionRewardClaimed', false)) &&
           (!('onboardingDiscoverBonusClaimed' in request.resource.data.social) || request.resource.data.social.onboardingDiscoverBonusClaimed == resource.data.social.get('onboardingDiscoverBonusClaimed', false)) &&

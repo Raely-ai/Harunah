@@ -529,9 +529,8 @@ export default function SocialMessagesScreen({
           setIsLoading(false);
           // If the user hits a permission error, we still want to move out of the hard loading state
           if (err.message.includes("permissions")) {
-            console.warn("Permission denied for compatibilityPeeks. Check rules and query filters.");
-            // We only report this to the backend if strictly instructed, but here we'll do it for diagnosis
-            handleFirestoreError(err, OperationType.LIST, "compatibilityPeeks");
+            console.warn("Permission denied for compatibilityPeeks. Continuing without peeks.");
+            setPeeks([]);
           }
         });
       } catch (err) {
@@ -1007,9 +1006,10 @@ export default function SocialMessagesScreen({
                           await updateDoc(doc(db, "compatibilityPeeks", peek.id), { read: true });
                         } catch (err) {
                           if (err instanceof Error && err.message.includes("permissions")) {
-                            handleFirestoreError(err, OperationType.UPDATE, `compatibilityPeeks/${peek.id}`);
+                            console.warn("Permission denied when marking peek as read.", err);
+                          } else {
+                            console.error("Error marking peek as read:", err);
                           }
-                          console.error("Error marking peek as read:", err);
                         }
                         
                         socialService.getUserProfile(peek.fromUserId).then(profile => {

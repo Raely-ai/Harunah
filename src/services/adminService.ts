@@ -343,6 +343,28 @@ export const adminService = {
       handleFirestoreError(error, OperationType.WRITE, "admin/broadcast");
       throw error;
     }
+  },
+
+  async createTestUsers(maleCount: number, femaleCount: number): Promise<any> {
+    try {
+      const result = await callFunction('adminCreateTestUsers', { maleCount, femaleCount });
+      toast.success(result?.message || "Test kullanıcıları oluşturuldu.");
+      return result;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "admin/createTestUsers");
+      throw error;
+    }
+  },
+
+  async manageTestUsers(action: 'hide' | 'show' | 'delete'): Promise<any> {
+    try {
+      const result = await callFunction('adminManageTestUsers', { action });
+      toast.success(result?.message || `Test kullanıcıları işlemi (${action}) tamamlandı.`);
+      return result;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, "admin/manageTestUsers");
+      throw error;
+    }
   }
 };
 

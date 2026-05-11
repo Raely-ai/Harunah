@@ -13,7 +13,7 @@ import {
   User, MapPin, Heart, MessageCircle, Globe, Flag, ShieldAlert, Gavel,
   Shield, Eye, EyeOff, ShoppingBag, Crown, Filter, ArrowRight,
   MoreVertical, UserPlus, UserMinus, Lock, Unlock, Check, Minus, Info,
-  Ticket
+  Ticket, Database
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -369,6 +369,85 @@ const AdminPanel: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
         {activeTab === 'users' && (
           <div className="space-y-6 max-w-7xl mx-auto">
+            {/* Test User Creation UI */}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-6 relative overflow-hidden backdrop-blur-md">
+              <div className="flex flex-col md:flex-row gap-6 items-center justify-between relative z-10">
+                <div>
+                  <h3 className="text-xl font-bold text-amber-500 flex items-center gap-2">
+                    <UserPlus className="w-5 h-5" /> Test Kullanıcı Araçları
+                  </h3>
+                  <p className="text-sm text-white/50 mt-1">Sistem testleri için otomatik onaylı, rastgele sosyal profiller oluşturun.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <button 
+                    onClick={async () => {
+                      try {
+                        setIsLoading(true);
+                        await adminService.createTestUsers(20, 20);
+                        await loadData();
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-amber-500 text-black text-xs font-bold rounded-xl hover:bg-amber-400 transition-all flex items-center justify-center gap-2"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    20E + 20K Oluştur
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        setIsLoading(true);
+                        await adminService.manageTestUsers('hide');
+                        await loadData();
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-white/10 text-white text-xs font-bold rounded-xl hover:bg-white/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <EyeOff className="w-4 h-4" />
+                    Test Profillerini Gizle
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        setIsLoading(true);
+                        await adminService.manageTestUsers('show');
+                        await loadData();
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-white/10 text-white text-xs font-bold rounded-xl hover:bg-white/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Görünür Yap
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (window.confirm("Tüm test kullanıcıları KALICI OLARAK silinecek. Onaylıyor musunuz?")) {
+                        try {
+                          setIsLoading(true);
+                          await adminService.manageTestUsers('delete');
+                          await loadData();
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }
+                    }}
+                    className="flex-1 md:flex-none px-4 py-2.5 bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Test Kullanıcılarını Sil
+                  </button>
+                </div>
+              </div>
+              <div className="absolute top-0 right-0 p-8 opacity-20 pointer-events-none">
+                <Database className="w-32 h-32 text-amber-500" />
+              </div>
+            </div>
+
             {/* Search & Stats */}
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
               <div className="relative flex-1 w-full">
