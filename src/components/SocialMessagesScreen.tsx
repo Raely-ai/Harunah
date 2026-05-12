@@ -679,63 +679,18 @@ export default function SocialMessagesScreen({
 
   const isSocialEnabled = isSocialProfileReady(currentUser);
 
+  useEffect(() => {
+    if (!isLoading && !isSocialEnabled) {
+      onNavigate('social-onboarding');
+    }
+  }, [isLoading, isSocialEnabled, onNavigate]);
+
   // Loading safety to prevent flicker
-  if (isLoading && !isSocialEnabled) {
+  if (isLoading || !isSocialEnabled) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-[#F6F4F8] p-6 space-y-4">
         <div className="w-12 h-12 border-4 border-black/5 border-t-indigo-500 rounded-full animate-spin" />
-        <p className="text-slate-500 text-sm font-medium">Sohbetler hazırlanıyor...</p>
-      </div>
-    );
-  }
-
-  if (!isSocialEnabled) {
-    return (
-      <div className="flex flex-col h-full bg-[#F6F4F8] text-body relative overflow-hidden">
-        {/* Header */}
-        <header className="header-gradient backdrop-blur-3xl border-b border-black/5 px-4 py-5 flex flex-col gap-1 z-10">
-          <h1 className="text-2xl font-serif font-bold text-heading tracking-tight">Mesajlar</h1>
-          <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Sohbetler, istekler ve beğeniler</p>
-        </header>
-
-        {/* Blurred Mock Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar blur-[25px] opacity-40 pointer-events-none">
-          {/* Tabs Mock */}
-          <div className="px-4 py-3 bg-black/5 border-b border-black/5">
-            <div className="flex bg-black/[0.03] p-1 rounded-2xl border border-black/5">
-              <div className="flex-1 h-10 bg-white/50 rounded-xl" />
-              <div className="flex-1 h-10 rounded-xl" />
-              <div className="flex-1 h-10 rounded-xl" />
-            </div>
-          </div>
-
-          {/* Search Mock */}
-          <div className="px-4 py-3 border-b border-black/5">
-            <div className="h-10 bg-black/[0.03] rounded-xl" />
-          </div>
-
-          {/* Chat List Mock */}
-          <div className="divide-y divide-black/5">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="p-5 flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-black/10 flex-shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="flex justify-between">
-                    <div className="h-4 w-24 bg-black/10 rounded" />
-                    <div className="h-3 w-10 bg-black/5 rounded" />
-                  </div>
-                  <div className="h-3 w-full bg-black/5 rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Overlay */}
-        <SocialDisabledView 
-          onNavigate={onNavigate} 
-          title="Sohbet Başlatmak İçin Hazır Mısın?" 
-        />
+        {isLoading && <p className="text-slate-500 text-sm font-medium">Sohbetler hazırlanıyor...</p>}
       </div>
     );
   }

@@ -235,11 +235,11 @@ export const walletService = {
     }
   },
 
-  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached?: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
-    return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
+  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string, customFocus?: string): Promise<{ success: boolean; analysis?: any; cached?: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
+    return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType, customFocus });
   },
   
-  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
+  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string, customFocus?: string }): Promise<{ success: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
     return await callFunction('runManualCompatibilityAnalysis', data);
   },
 

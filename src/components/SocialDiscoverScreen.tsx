@@ -25,6 +25,7 @@ import { socialService } from "../lib/socialService";
 import { walletService } from "../lib/walletService";
 import DiscoverProfilePopup from "./DiscoverProfilePopup";
 import { BlueTick } from "./BlueTick";
+import SocialVisibilityWarning from "./SocialVisibilityWarning";
 
 interface SocialDiscoverScreenProps {
   currentUser: UserProfile;
@@ -426,6 +427,8 @@ export default function SocialDiscoverScreen({
       {/* Spacer for fixed top bar */}
       <div className="w-full shrink-0" style={{ height: "calc(env(safe-area-inset-top, 1rem) + 64px)" }} />
       
+      <SocialVisibilityWarning user={currentUser} onNavigate={onNavigate} />
+
       {/* 1. STICKY FILTER BAR */}
       <div className="sticky z-40 bg-[#F9F9F9]/90 backdrop-blur-sm border-b border-slate-200/50" style={{ top: "calc(env(safe-area-inset-top, 1rem) + 64px)" }}>
         <div className="px-4 py-3 flex items-center justify-between">

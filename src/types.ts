@@ -119,6 +119,7 @@ export interface CompatibilityHistory {
   summaryShort: string;
   summaryLong: string;
   aiComment?: string;
+  customFocus?: string;
   createdAt: string;
   cacheKey: string;
   revealed?: boolean;

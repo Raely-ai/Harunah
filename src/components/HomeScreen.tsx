@@ -113,14 +113,17 @@ export default function HomeScreen({
 
   // Determine readiness using the improved helper
   const isSocialEnabled = isSocialProfileReady(userProfile);
-  const hasSocialObject = !!userProfile.social;
 
-  // Final safety check to prevent flickering while social object is being initialized
-  if (!hasSocialObject && !isSocialEnabled) {
+  useEffect(() => {
+    if (!isSocialEnabled) {
+      onNavigate('social-onboarding');
+    }
+  }, [isSocialEnabled, onNavigate]);
+
+  if (!isSocialEnabled) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 space-y-4">
-        <div className="w-12 h-12 border-4 border-black/5 border-t-amber-500 rounded-full animate-spin" />
-        <p className="text-muted text-sm font-medium">Sosyal yapılandırma...</p>
+      <div className="flex flex-col items-center justify-center h-full p-6 bg-[#F6F4F8]">
+        <div className="w-12 h-12 border-4 border-black/5 border-t-indigo-500 rounded-full animate-spin" />
       </div>
     );
   }
@@ -200,15 +203,11 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                {isSocialEnabled ? (
-                  <SocialMatchScreen 
-                    currentUser={userProfile} 
-                    onNavigate={onNavigate}
-                    isActive={activeTopTab === 'match'}
-                  />
-                ) : (
-                  <SocialDisabledView onNavigate={onNavigate} />
-                )}
+                <SocialMatchScreen 
+                  currentUser={userProfile} 
+                  onNavigate={onNavigate}
+                  isActive={activeTopTab === 'match'}
+                />
               </div>
             </motion.div>
           )}
@@ -222,21 +221,17 @@ export default function HomeScreen({
               transition={{ duration: 0.2 }}
               className="h-full w-full"
             >
-              <div className={`relative h-full w-full ${isSocialEnabled ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-                {isSocialEnabled ? (
-                  <div className="h-full w-full pb-32">
-                    <SocialDiscoverScreen 
-                      key={`discover-${refreshKey}`}
-                      currentUser={userProfile} 
-                      onNavigate={onNavigate}
-                      config={config}
-                      onRefresh={handleRefreshDiscover}
-                      isActive={activeTopTab === 'discover'}
-                    />
-                  </div>
-                ) : (
-                  <SocialDisabledView onNavigate={onNavigate} />
-                )}
+              <div className="relative h-full w-full overflow-y-auto">
+                <div className="h-full w-full pb-32">
+                  <SocialDiscoverScreen 
+                    key={`discover-${refreshKey}`}
+                    currentUser={userProfile} 
+                    onNavigate={onNavigate}
+                    config={config}
+                    onRefresh={handleRefreshDiscover}
+                    isActive={activeTopTab === 'discover'}
+                  />
+                </div>
               </div>
             </motion.div>
           )}
@@ -251,17 +246,13 @@ export default function HomeScreen({
               className="h-full w-full"
             >
               <div className="relative h-full w-full">
-                {isSocialEnabled ? (
-                  <SocialCompatibilityHistory 
-                    currentUser={userProfile} 
-                    onBack={() => setActiveTopTab('match')}
-                    isTab={true}
-                    isActive={activeTopTab === 'compatibility'}
-                    isMock={false}
-                  />
-                ) : (
-                  <SocialDisabledView onNavigate={onNavigate} />
-                )}
+                <SocialCompatibilityHistory 
+                  currentUser={userProfile} 
+                  onBack={() => setActiveTopTab('match')}
+                  isTab={true}
+                  isActive={activeTopTab === 'compatibility'}
+                  isMock={false}
+                />
               </div>
             </motion.div>
           )}

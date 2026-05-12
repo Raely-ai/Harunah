@@ -76,15 +76,35 @@ export const isSocialProfileReady = (user: UserProfile | null | undefined): bool
 
   const isCompleted = user.social?.profileCompleted === true;
   
-  // Stricter Criteria: Require Bio and Interests for Auto-Complete
-  // This prevents the flicker when background fast-track sync is running
-  const hasEnoughInterests = (user?.social?.interests || []).length >= 5;
-  const hasEnoughBio = (user?.social?.bio || '').length >= 10;
-  const hasNickname = (user?.social?.nickname || '').length >= 2;
-  const hasBirthDate = !!user?.birthDate;
+  // Basic Criteria: Require Nickname, Gender, BirthDate
+  const userNickname = user?.social?.nickname || user?.nickname || user?.displayName || '';
+  const hasNickname = userNickname.length >= 2;
+  const hasBirthDate = !!(user?.birthDate || user?.social?.birthDate);
   const hasGender = !!(user?.social?.gender || user?.gender);
   
-  const isActuallyComplete = hasNickname && hasGender && hasBirthDate && hasEnoughInterests && hasEnoughBio;
+  const isActuallyComplete = hasNickname && hasGender && hasBirthDate;
 
   return isCompleted || isActuallyComplete;
+};
+
+export const getSocialProfileMissingFields = (user: UserProfile | null | undefined): string[] => {
+  if (!user) return ['Hesap Bilgileri'];
+  const missing: string[] = [];
+
+  const hasEnoughBio = (user.social?.bio || '').length >= 10;
+  if (!hasEnoughBio) missing.push("Kısa bio");
+
+  const hasEnoughInterests = (user.social?.interests || []).length >= 5;
+  if (!hasEnoughInterests) missing.push("İlgi alanları");
+
+  const hasPhotos = (user.social?.photos || []).length > 0;
+  if (!hasPhotos) missing.push("Fotoğraf");
+
+  if (user.social?.visible === false) {
+    missing.push("Profil görünürlüğü (Kapalı)");
+  } else if (!user.social?.profileCompleted && missing.length === 0) {
+     missing.push("Profil onayı");
+  }
+
+  return missing;
 };

@@ -37,6 +37,7 @@ import { matchingService } from "../services/matchingService";
 import OptimizedImage from "./OptimizedImage";
 import MatchingProfilePopup from "./MatchingProfilePopup";
 import { BlueTick } from "./BlueTick";
+import SocialVisibilityWarning from "./SocialVisibilityWarning";
 
 export default function SocialMatchScreen({ currentUser, onNavigate, isActive }: { currentUser: UserProfile, onNavigate: (tab: any) => void, isActive?: boolean }) {
   const uid = currentUser?.uid || "";
@@ -278,8 +279,9 @@ export default function SocialMatchScreen({ currentUser, onNavigate, isActive }:
     <div className="flex-1 flex flex-col relative w-full h-full bg-[#FAFAFA] pt-[calc(env(safe-area-inset-top,1rem)+72px)] pb-18 overflow-hidden">
       
       {/* EXPLANATION NOTICE */}
-      <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+32px)] inset-x-0 flex justify-center z-10 pointer-events-none px-4">
-        <p className="text-[9px] text-slate-400 font-medium text-center bg-white/40 backdrop-blur-sm px-3 py-1 rounded-full border border-slate-200/50">
+      <div className="absolute top-[calc(env(safe-area-inset-top,1rem)+32px)] inset-x-0 flex flex-col items-center gap-2 z-10 px-4">
+        <SocialVisibilityWarning user={liveUser} onNavigate={onNavigate} />
+        <p className="pointer-events-none text-[9px] text-slate-400 font-medium text-center bg-white/40 backdrop-blur-sm px-3 py-1 rounded-full border border-slate-200/50">
           Karşılaşma'da sana varsayılan olarak karşı cins profiller gösterilir. Daha geniş keşif için Keşfet'i kullan.
         </p>
       </div>

@@ -1234,7 +1234,7 @@ export const createChat = functions.region('us-central1').https.onCall(async (da
 });
 
 // 22. Compatibility Analysis
-async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, existingDocId?: string, deterministicScores?: any) {
+async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, existingDocId?: string, deterministicScores?: any, customFocus?: string) {
   const now = new Date().toISOString();
   // Use existingDocId if provided, otherwise create a new one (legacy fallback)
   const docRef = existingDocId ? db.collection("compatibilityHistory").doc(existingDocId) : db.collection("compatibilityHistory").doc();
@@ -1253,6 +1253,14 @@ async function generateCompatibilityAiDirect(person1: any, person2: any, relatio
 Senin görevin bu skorları DEĞİŞTİRMEDEN yorumlamaktır.`;
     }
 
+    let customFocusPrompt = "";
+    if (customFocus) {
+      customFocusPrompt = `\n\nKullanıcı özellikle şu konuya odaklanılmasını istiyor:
+"${customFocus}"
+
+Analizini özellikle bu psikolojik/duygusal dinamik etrafında derinleştir.`;
+    }
+
     const response = await openai.chat.completions.create({ 
       model: "gpt-4o-mini", 
       response_format: { type: "json_object" },
@@ -1263,7 +1271,7 @@ Senin görevin bu skorları DEĞİŞTİRMEDEN yorumlamaktır.`;
         role: "user", 
         content: `Kişi 1: ${person1?.name || 'Bilinmiyor'} (Doğum: ${person1?.birthDate || 'Bilinmiyor'})
 Kişi 2: ${person2?.name || 'Bilinmiyor'} (Doğum: ${person2?.birthDate || 'Bilinmiyor'})
-İlişki Türü: ${relationshipType || 'Bilinmiyor'}${scoresPrompt}
+İlişki Türü: ${relationshipType || 'Bilinmiyor'}${scoresPrompt}${customFocusPrompt}
 
 Lütfen analizini KESİNLİKLE AŞAĞIDAKİ JSON YAPISINA sahip olarak ve %100 TÜRKÇE döndür. İngilizce kelime kullanmak yasaktır. Skorlar 40 ile 100 arasında tam sayılar olmalıdır.
 
@@ -1275,7 +1283,7 @@ Lütfen analizini KESİNLİKLE AŞAĞIDAKİ JSON YAPISINA sahip olarak ve %100 T
   "summaryLong": "En az 4-5 cümlelik, 'Yıldızlar diyor ki...' gibi mistik bir dille yazılmış, KESİNLİKLE TÜRKÇE olan, iddialı ve detaylı astrolojik analiz."
 }
 
-Sadece JSON dön. Asla fazladan bir şey yazma.` 
+Sadece JSON dön. Asla fazladan bir şey yazma.`  
       }], 
       max_tokens: 1000 
     });
@@ -1319,6 +1327,7 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
     }
     
     if (targetUserId) analysisData.targetUserId = targetUserId;
+    if (customFocus) analysisData.customFocus = customFocus;
     
     const batch = db.batch();
     batch.set(docRef, analysisData, { merge: true });
@@ -1363,7 +1372,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
   
   try {
     if (!data || !data.targetUserId) throw new functions.https.HttpsError('invalid-argument', 'Hedef kullanıcı ID gerekli.');
-    const { targetUserId, relationshipType } = data;
+    const { targetUserId, relationshipType, customFocus } = data;
 
     // Duplicate check: prevent starting new analysis if one is already pending or locked
     const existingPending = await db.collection("compatibilityHistory")
@@ -1510,7 +1519,8 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         userId, 
         targetUserId,
         usersData.historyId,
-        usersData.deterministicScores
+        usersData.deterministicScores,
+        customFocus
       );
     } catch (aiError: any) {
       console.error("runDiscoverCompatibilityAnalysis AI Error:", aiError);
@@ -1622,7 +1632,7 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
   
   try {
     if (!data || !data.person1 || !data.person2) throw new functions.https.HttpsError('invalid-argument', 'Kişi bilgileri gerekli.');
-    const { person1, person2, relationshipType } = data;
+    const { person1, person2, relationshipType, customFocus } = data;
     
     const cleanPerson1 = JSON.parse(JSON.stringify(person1));
     const cleanPerson2 = JSON.parse(JSON.stringify(person2));
@@ -1726,7 +1736,8 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
         userId, 
         undefined, 
         paymentData.historyId,
-        paymentData.deterministicScores
+        paymentData.deterministicScores,
+        customFocus
       );
     } catch (aiError: any) {
       console.error("runManualCompatibilityAnalysis AI Error:", aiError);
