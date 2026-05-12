@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 import { getEconomyConfig } from "./wallet";
+import { calculateBackendCompatibility } from "./utils/compatibilityHelper";
 
 /**
  * Shared helper to calculate total compatibility tokens and determine which field to decrement.
@@ -1233,7 +1234,7 @@ export const createChat = functions.region('us-central1').https.onCall(async (da
 });
 
 // 22. Compatibility Analysis
-async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, existingDocId?: string) {
+async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, existingDocId?: string, deterministicScores?: any) {
   const now = new Date().toISOString();
   // Use existingDocId if provided, otherwise create a new one (legacy fallback)
   const docRef = existingDocId ? db.collection("compatibilityHistory").doc(existingDocId) : db.collection("compatibilityHistory").doc();
@@ -1241,6 +1242,17 @@ async function generateCompatibilityAiDirect(person1: any, person2: any, relatio
 
   try {
     const openai = getOpenAI();
+    
+    let scoresPrompt = "";
+    if (deterministicScores) {
+      scoresPrompt = `\n\nÖNEMLİ BİLGİ: Sistem tarafından kişilerin frekanslarına göre KESİN OLARAK hesaplanan uyum skorları şunlardır:
+- Aşk Skoru: ${deterministicScores.love}
+- Dostluk Skoru: ${deterministicScores.friendship}
+- Enerji Uyum Skoru: ${deterministicScores.energy}
+
+Senin görevin bu skorları DEĞİŞTİRMEDEN yorumlamaktır.`;
+    }
+
     const response = await openai.chat.completions.create({ 
       model: "gpt-4o-mini", 
       response_format: { type: "json_object" },
@@ -1251,7 +1263,7 @@ async function generateCompatibilityAiDirect(person1: any, person2: any, relatio
         role: "user", 
         content: `Kişi 1: ${person1?.name || 'Bilinmiyor'} (Doğum: ${person1?.birthDate || 'Bilinmiyor'})
 Kişi 2: ${person2?.name || 'Bilinmiyor'} (Doğum: ${person2?.birthDate || 'Bilinmiyor'})
-İlişki Türü: ${relationshipType || 'Bilinmiyor'}
+İlişki Türü: ${relationshipType || 'Bilinmiyor'}${scoresPrompt}
 
 Lütfen analizini KESİNLİKLE AŞAĞIDAKİ JSON YAPISINA sahip olarak ve %100 TÜRKÇE döndür. İngilizce kelime kullanmak yasaktır. Skorlar 40 ile 100 arasında tam sayılar olmalıdır.
 
@@ -1293,13 +1305,19 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       status: 'locked', 
       revealed: false,
       unlockAt: unlockAtTime,
-      loveScore: parseScore(parsed.loveScore),
-      friendshipScore: parseScore(parsed.friendshipScore),
-      energyScore: parseScore(parsed.energyScore),
+      loveScore: deterministicScores ? deterministicScores.love : parseScore(parsed.loveScore),
+      friendshipScore: deterministicScores ? deterministicScores.friendship : parseScore(parsed.friendshipScore),
+      energyScore: deterministicScores ? deterministicScores.energy : parseScore(parsed.energyScore),
       summaryShort: parsed.summaryShort || "Yıldızların mistik fısıltısı duyuldu.",
       summaryLong: summaryContent.length > 5 ? summaryContent : "Kozmik analiz başarıyla tamamlandı ancak yıldızlar şu an konuşmak istemiyor.",
       createdAt: now 
     };
+    
+    if (deterministicScores) {
+      analysisData.scoreSource = 'backend_deterministic_v1';
+      analysisData.deterministicSignals = deterministicScores.signals;
+    }
+    
     if (targetUserId) analysisData.targetUserId = targetUserId;
     
     const batch = db.batch();
@@ -1387,6 +1405,28 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
       const user = uSnap.data() as any;
       const targetUser = tSnap.data() as any;
 
+      const p1Data = {
+          name: user.social?.nickname || user.displayName || "Sen",
+          birthDate: user.birthDate || user.social?.birthDate || "",
+          uid: userId,
+          zodiacSign: user.social?.zodiacSign || user.zodiacSign,
+          element: user.social?.element || user.element,
+          interests: user.social?.interests || [],
+          lookingFor: user.social?.lookingFor
+      };
+      
+      const p2Data = {
+          name: targetUser.social?.nickname || targetUser.displayName || "O",
+          birthDate: targetUser.birthDate || targetUser.social?.birthDate || "",
+          uid: targetUserId,
+          zodiacSign: targetUser.social?.zodiacSign || targetUser.zodiacSign,
+          element: targetUser.social?.element || targetUser.element,
+          interests: targetUser.social?.interests || [],
+          lookingFor: targetUser.social?.lookingFor
+      };
+      
+      const deterministicScores = calculateBackendCompatibility(p1Data, p2Data, relationshipType);
+
       let paymentType: 'count' | 'coins' = 'coins';
 
       const { total: compCount, field: fieldToDecrement } = getCompatibilityBalance(user);
@@ -1444,6 +1484,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         historyId: historyRef.id,
         paymentType,
         compatPrice,
+        deterministicScores,
         me: {
           name: user.social?.nickname || user.displayName || "Sen",
           birthDate: user.birthDate || user.social?.birthDate || "",
@@ -1468,7 +1509,8 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         relationshipType || 'ask', 
         userId, 
         targetUserId,
-        usersData.historyId
+        usersData.historyId,
+        usersData.deterministicScores
       );
     } catch (aiError: any) {
       console.error("runDiscoverCompatibilityAnalysis AI Error:", aiError);
@@ -1610,6 +1652,23 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
       if (!snap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const user = snap.data() as any;
 
+      const p1Data = {
+          name: cleanPerson1.name || "Sen",
+          birthDate: cleanPerson1.birthDate || "",
+          uid: userId,
+          zodiacSign: user.social?.zodiacSign || user.zodiacSign,
+          element: user.social?.element || user.element,
+          interests: user.social?.interests || [],
+          lookingFor: user.social?.lookingFor
+      };
+
+      const p2Data = {
+          name: cleanPerson2.name || "O",
+          birthDate: cleanPerson2.birthDate || ""
+      };
+
+      const deterministicScores = calculateBackendCompatibility(p1Data, p2Data, relationshipType);
+
       let paymentType: 'count' | 'coins' = 'coins';
 
       const { total: compCount, field: fieldToDecrement } = getCompatibilityBalance(user);
@@ -1654,7 +1713,7 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
         cacheKey: lockKey
       });
 
-      return { paymentType, compatPrice, historyId: historyRef.id };
+      return { paymentType, compatPrice, historyId: historyRef.id, deterministicScores };
     });
     
     // 2. Process AI implicitly inline - results in compatibilityHistory with 5min lock
@@ -1666,7 +1725,8 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
         relationshipType, 
         userId, 
         undefined, 
-        paymentData.historyId
+        paymentData.historyId,
+        paymentData.deterministicScores
       );
     } catch (aiError: any) {
       console.error("runManualCompatibilityAnalysis AI Error:", aiError);

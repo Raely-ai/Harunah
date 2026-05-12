@@ -7,9 +7,10 @@ interface BirthDateInputProps {
   onChange: (isoValue: string) => void;
   className?: string;
   error?: string;
+  hideIcon?: boolean;
 }
 
-export default function BirthDateInput({ value, onChange, className = "", error: externalError }: BirthDateInputProps) {
+export default function BirthDateInput({ value, onChange, className = "", error: externalError, hideIcon = false }: BirthDateInputProps) {
   const [displayValue, setDisplayValue] = useState(isoToDisplayDate(value));
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -60,9 +61,11 @@ export default function BirthDateInput({ value, onChange, className = "", error:
   return (
     <div className="space-y-1.5 w-full">
       <div className="relative">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-          <Calendar size={18} />
-        </div>
+        {!hideIcon && (
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+            <Calendar size={18} />
+          </div>
+        )}
         <input
           type="text"
           inputMode="numeric"
@@ -74,11 +77,11 @@ export default function BirthDateInput({ value, onChange, className = "", error:
           autoCorrect="off"
           spellCheck={false}
           autoFocus={false}
-          className={`w-full bg-slate-50 border rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-700 outline-none transition-all ${
+          className={`w-full bg-slate-50 border rounded-2xl transition-all font-bold text-slate-700 outline-none ${
             currentError 
               ? 'border-red-300 focus:ring-red-500/20 focus:border-red-500' 
               : 'border-slate-100 focus:ring-indigo-500/20 focus:border-indigo-500'
-          } ${className}`}
+          } ${hideIcon ? 'py-4 px-4 text-center' : 'py-4 pl-12 pr-4 text-sm'} ${className}`}
         />
       </div>
       {currentError && (

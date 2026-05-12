@@ -65,7 +65,31 @@ function AppContent() {
   // Profile status for onboarding gate
   const isSocialOnboardingRequired = useMemo(() => {
     if (!user || isProfileLoading || !userProfile) return false;
-    return !(!!userProfile.birthDate && !!(userProfile.gender || userProfile.social?.gender));
+
+    const hasCompletedSocial =
+      userProfile.social?.profileCompleted === true &&
+      userProfile.social?.enabled === true;
+
+    if (hasCompletedSocial) return false;
+
+    const hasNickname = Boolean(
+      userProfile.social?.nickname ||
+      userProfile.nickname ||
+      userProfile.displayName ||
+      user.displayName
+    );
+
+    const hasBirthDate = Boolean(
+      userProfile.birthDate ||
+      userProfile.social?.birthDate
+    );
+
+    const hasGender = Boolean(
+      userProfile.gender ||
+      userProfile.social?.gender
+    );
+
+    return !(hasNickname && hasBirthDate && hasGender);
   }, [user, isProfileLoading, userProfile]);
 
   const [activeFortune, setActiveFortune] = useState<FortuneType | null>(null);

@@ -215,6 +215,7 @@ export interface UserProfile {
     profileCompleted: boolean;
     nickname: string;
     gender: 'erkek' | 'kadın';
+    birthDate?: string;
     age?: number;
     lookingFor: string;
     bio: string;

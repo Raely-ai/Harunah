@@ -304,6 +304,24 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
       )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        {/* HERO INFO AREA */}
+        <div className="px-6 py-6 text-center space-y-4">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 border border-indigo-100 mb-2">
+            <Sparkles className="w-5 h-5 text-indigo-500" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">İlişki Frekans Analizi</h1>
+            <p className="text-[11px] sm:text-xs text-slate-500 font-medium max-w-xs sm:max-w-sm mx-auto mt-2 leading-relaxed">
+              Lasya; doğum frekansı, karakter enerjisi ve ilişki dinamiğini birlikte okuyarak özel bir uyum haritası çıkarır.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 pt-2">
+            <span className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest border border-rose-100">Duygusal Uyum</span>
+            <span className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-[9px] font-black uppercase tracking-widest border border-indigo-100">Çekim Haritası</span>
+            <span className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-xl text-[9px] font-black uppercase tracking-widest border border-amber-100">İletişim Dengesi</span>
+          </div>
+        </div>
+
         {/* LABORATORY FORM */}
         <div className="px-2 py-6 sm:px-4 sm:py-8">
           <div className="bg-white rounded-[2rem] sm:rounded-[3rem] p-4 sm:p-8 border border-slate-100 shadow-lg shadow-indigo-900/5 relative overflow-hidden">
@@ -311,99 +329,108 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 blur-[80px] rounded-full pointer-events-none" />
 
             <div className="relative z-10 space-y-10 sm:space-y-12">
-              <div className="flex items-center justify-between sm:justify-center gap-2 sm:gap-8">
+              <div className="flex items-start justify-between sm:justify-center gap-3 sm:gap-12">
                 {/* Person 1 (Self) */}
-                <div className="flex flex-col items-center gap-3 sm:gap-4 flex-1">
-                  <div className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border border-slate-100 overflow-hidden shadow-md w-full max-w-[128px]">
+                <div className="flex flex-col items-center gap-4 flex-1 w-full max-w-[150px] sm:max-w-[180px]">
+                  <div className="relative w-28 sm:w-36 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-100 overflow-hidden shadow-xl">
                     <img src={person1.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    <div className="absolute inset-x-0 bottom-0 py-2 bg-black/20 backdrop-blur-sm text-white text-[8px] sm:text-[9px] font-black uppercase text-center tracking-widest">SEN</div>
+                    <div className="absolute inset-x-0 bottom-0 py-2.5 bg-gradient-to-t from-black/60 to-transparent text-white text-[9px] sm:text-[10px] font-black uppercase text-center tracking-widest">SEN</div>
                   </div>
-                  <div className="w-full max-w-[128px] text-center space-y-1 px-1">
-                    <div className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase truncate w-full">{person1.name}</div>
-                    <div className="text-[9px] sm:text-[10px] font-bold text-slate-400 truncate">{person1.birthDate || "Belirtilmedi"}</div>
+                  <div className="w-full space-y-2.5 bg-slate-50/50 border border-slate-100 rounded-2xl p-2 shadow-sm">
+                    <div className="bg-white border border-slate-100 rounded-xl py-2 px-2">
+                      <div className="text-[11px] sm:text-xs font-black text-slate-900 uppercase truncate w-full text-center tracking-widest">{person1.name}</div>
+                    </div>
+                    <div className="bg-white border border-slate-100 rounded-xl py-2 px-2">
+                      <div className="text-[11px] sm:text-xs font-bold text-slate-500 truncate text-center tracking-widest">{person1.birthDate || "Belirtilmedi"}</div>
+                    </div>
                   </div>
                 </div>
 
                 {/* HEART BRIDGE */}
-                <div className="flex flex-col items-center gap-2 sm:gap-4 shrink-0 px-1">
+                <div className="flex flex-col items-center gap-3 sm:gap-5 shrink-0 pt-10 sm:pt-14 px-1">
                   <motion.div 
                     animate={{ scale: [1, 1.1, 1] }}
                     transition={{ duration: 2, repeat: Infinity }}
-                    className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-white shadow-md flex items-center justify-center border border-slate-50 relative z-10"
+                    className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white shadow-xl flex items-center justify-center border border-slate-50 relative z-10"
                   >
-                    <Heart className="w-5 h-5 sm:w-7 sm:h-7 text-rose-500 fill-rose-500" />
+                    <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-rose-500 fill-rose-500 drop-shadow-sm" />
                   </motion.div>
-                  <div className="h-16 sm:h-24 w-px bg-gradient-to-b from-indigo-200 via-rose-200 to-amber-200" />
                 </div>
 
                 {/* Person 2 (Target) */}
-                <div className="flex flex-col items-center gap-3 sm:gap-4 flex-1">
+                <div className="flex flex-col items-center gap-4 flex-1 w-full max-w-[150px] sm:max-w-[180px]">
                   <motion.button 
                     whileTap={{ scale: 0.95 }}
                     onClick={handlePhotoUpload}
                     disabled={isUploadingPhoto}
-                    className="relative w-24 sm:w-32 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-xl hover:border-rose-300 transition-colors w-full max-w-[128px]"
+                    className="relative w-28 sm:w-36 aspect-[3/4] rounded-[2rem] sm:rounded-[2.5rem] bg-slate-50 border-2 border-slate-200 flex items-center justify-center overflow-hidden shadow-xl hover:border-indigo-300 hover:shadow-indigo-500/20 transition-all group"
                   >
                     {isUploadingPhoto ? (
-                      <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-indigo-500 animate-spin" />
+                      <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
                     ) : person2.photo ? (
                       <img src={person2.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
-                      <div className="flex flex-col items-center gap-1 sm:gap-2 opacity-30">
-                        <Camera className="w-6 h-6 sm:w-8 sm:h-8 text-slate-500" />
-                        <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-tighter text-center px-2">O'NUN FOTO</span>
+                      <div className="flex flex-col items-center gap-2 opacity-40 group-hover:opacity-100 transition-opacity">
+                        <Camera className="w-8 h-8 text-slate-500 group-hover:text-indigo-500 transition-colors" />
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center px-2">FOTO EKLE</span>
                       </div>
                     )}
                   </motion.button>
-                  <div className="w-full max-w-[128px] space-y-1 sm:space-y-2 px-1">
-                    <div className="border-b border-slate-200 py-[2px] sm:py-1">
+                  <div className="w-full space-y-2.5 bg-slate-50/50 border border-slate-100 rounded-2xl p-2 shadow-sm">
+                    <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
                       <input 
                         type="text" 
                         value={person2.name}
                         onChange={(e) => setPerson2(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="İSMİ?"
-                        className="w-full bg-transparent text-[10px] sm:text-[11px] font-black text-slate-900 border-none focus:ring-0 p-0 placeholder:text-slate-300 text-center uppercase tracking-tight"
+                        placeholder="İSİM?"
+                        className="w-full bg-transparent text-[11px] sm:text-xs font-black text-slate-900 border-none focus:ring-0 py-2 px-2 placeholder:text-slate-300 text-center uppercase tracking-widest"
                       />
                     </div>
-                    <div className="border-b border-slate-200 py-[2px] sm:py-1 relative">
+                    <div className="bg-white border border-slate-100 rounded-xl overflow-hidden relative">
                       <BirthDateInput 
                         value={person2.birthDate}
                         onChange={(val) => setPerson2(prev => ({ ...prev, birthDate: val }))}
-                        className="!bg-transparent border-none focus:ring-0 p-0 text-center tracking-widest uppercase !h-auto !py-0"
+                        hideIcon={true}
+                        className="!bg-transparent !border-none !py-2 !px-2 text-[11px] sm:text-xs tracking-widest uppercase !rounded-none !shadow-none"
                       />
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-wrap justify-center gap-2">
-                {relationshipTypes.map(type => (
-                  <button
-                    key={type.id}
-                    onClick={() => setRelationshipType(type.id)}
-                    className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                      relationshipType === type.id 
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-xl' 
-                        : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'
-                    }`}
-                  >
-                    {type.label}
-                  </button>
-                ))}
+              <div className="space-y-3">
+                <div className="text-center">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Analiz Türünü Seç</span>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {relationshipTypes.map(type => (
+                    <button
+                      key={type.id}
+                      onClick={() => setRelationshipType(type.id)}
+                      className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                        relationshipType === type.id 
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/20' 
+                          : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600'
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <motion.button 
                 whileTap={{ scale: 0.98 }}
                 onClick={handleManualAnalysis}
                 disabled={isAnalyzing}
-                className={`w-full py-5 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all ${
+                className={`w-full py-4 sm:py-5 rounded-2xl sm:rounded-[2rem] font-black text-[11px] sm:text-xs uppercase tracking-[0.2em] sm:tracking-[0.3em] flex items-center justify-center gap-3 transition-all border ${
                   isAnalyzing 
-                    ? 'bg-slate-100 text-slate-300 shadow-none' 
-                    : 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
+                    ? 'bg-slate-50 border-slate-100 text-slate-400 shadow-none' 
+                    : 'bg-gradient-to-r from-slate-900 to-slate-800 border-slate-700 text-white shadow-xl shadow-slate-900/10 hover:shadow-slate-900/20 hover:scale-[1.01]'
                 }`}
               >
-                {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                {isAnalyzing ? 'KODLAR OKUNUYOR...' : `ANALİZ ET (${currentUser.compatibilityCount})`}
+                {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5 text-amber-200" />}
+                {isAnalyzing ? 'KODLAR OKUNUYOR...' : `ANALİZİ BAŞLAT (${currentUser.compatibilityCount} HAK)`}
               </motion.button>
             </div>
           </div>
@@ -431,9 +458,14 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
             {loading ? (
               <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-indigo-500 animate-spin" /></div>
             ) : mergedList.length === 0 ? (
-              <div className="text-center py-20 opacity-20">
-                <Ghost className="w-12 h-12 mx-auto mb-4" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Henüz bir veri yok</p>
+              <div className="text-center py-12 px-4 bg-white/40 backdrop-blur-sm rounded-[2.5rem] border border-slate-100/50">
+                <div className="w-16 h-16 mx-auto bg-slate-50 rounded-full flex items-center justify-center mb-4 border border-slate-100 shadow-sm">
+                  <Ghost className="w-8 h-8 text-slate-300" />
+                </div>
+                <h4 className="text-sm font-black text-slate-900 mb-2">Henüz Arşivin Yok</h4>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
+                  İsim ve doğum tarihi girerek ilk ilişki uyum haritanı oluştur.
+                </p>
               </div>
             ) : (
               mergedList.map((item: any) => (
@@ -561,7 +593,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
             </span>
             <div className="w-1 h-1 rounded-full bg-slate-200" />
             <span className="text-[8px] font-bold text-slate-400 italic truncate max-w-[120px]">
-              {showLock ? 'Kozmik Enerjiler Hizalanıyor...' : item.summaryShort}
+              {showLock ? 'Enerjiler hizalanıyor...' : item.summaryShort}
             </span>
           </div>
         </div>
@@ -579,7 +611,7 @@ function HistoryCard({ item, onClick, speedUpPrice, onSpeedUp, isSpeedingUp }: a
               className="px-2 py-1 bg-amber-400 hover:bg-amber-500 text-white rounded-lg text-[8px] font-black flex items-center gap-1 shadow-lg shadow-amber-400/20 uppercase tracking-tighter disabled:opacity-50"
             >
               <FastForward className="w-2.5 h-2.5" />
-              {isSpeedingUp ? '...' : `HIZLANDIR (${speedUpPrice} J)`}
+              {isSpeedingUp ? '...' : `HEMEN AÇ (${speedUpPrice} J)`}
             </motion.button>
           </div>
         )}

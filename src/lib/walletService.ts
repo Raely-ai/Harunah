@@ -17,7 +17,7 @@ import { cacheManager } from "./cacheManager";
 import { toSafeDate } from "./dateUtils";
 
 // Helper to call Firebase Functions
-export const callFunction = async (name: string, data?: any) => {
+export const callFunction = async (name: string, data: any = {}) => {
   try {
     // 1. Ensure authentication is fully initialized
     const user = await waitForAuth();
@@ -28,10 +28,10 @@ export const callFunction = async (name: string, data?: any) => {
       return { success: false, status: 'SKIPPED_UNAUTHENTICATED' };
     }
     
-    // 3. Setup function reference
-    const func = httpsCallable(functions, name);
+    // 3. Setup function reference with default timeout to prevent preflight hangs
+    const func = httpsCallable(functions, name, { timeout: 60000 });
     
-    // 4. Invoke
+    // 4. Invoke (Ensure data is at least an empty object for onCall POST body format)
     const result = await func(data);
     return result.data as any;
   } catch (error: any) {
@@ -235,11 +235,11 @@ export const walletService = {
     }
   },
 
-  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; finishTime?: string }> {
+  async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached?: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
     return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
   },
   
-  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; finishTime: string }> {
+  async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId?: string; finishTime?: string; code?: string; message?: string; status?: string }> {
     return await callFunction('runManualCompatibilityAnalysis', data);
   },
 
