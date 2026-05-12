@@ -14,6 +14,7 @@ if (!admin.apps.length) {
 export const db = getFirestore();
 export const messaging = getMessaging();
 export const storage = getStorage();
+export const auth = admin.auth();
 
 export const corsHandler = cors({ origin: true });
 

@@ -114,5 +114,7 @@ export const {
   adminUpdateUser,
   adminUpdateConfig,
   adminUpdateReport,
-  adminManagePromoCode
+  adminManagePromoCode,
+  adminCreateTestUsers,
+  adminManageTestUsers
 } = adminFunctions;

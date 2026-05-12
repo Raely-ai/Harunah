@@ -36,41 +36,28 @@ export const callFunction = async (name: string, data?: any) => {
     return result.data as any;
   } catch (error: any) {
     // 5. Handle errors
+    const code = error.code || 'internal';
+    const message = error.message || "Bir hata oluştu.";
+    const details = error.details || null;
+
     // Quota errors
-    const isQuotaError = error.message?.toLowerCase().includes('quota') || 
-                         error.code === 'resource-exhausted' ||
-                         error.code === 'functions/resource-exhausted';
+    const isQuotaError = message.toLowerCase().includes('quota') || 
+                         code === 'resource-exhausted' ||
+                         code === 'functions/resource-exhausted';
     
     if (isQuotaError) {
-      console.warn(`Firebase Function ${name} hit quota limit. Falling back.`);
-      return { success: false, status: 'QUOTA_EXCEEDED', message: "Hizmet şu an yoğun." };
+      console.warn(`Firebase Function ${name} hit quota limit.`);
+      return { success: false, code: 'QUOTA_EXCEEDED', message: "Hizmet şu an yoğun. Lütfen biraz sonra tekrar deneyin.", details };
     }
 
     console.error(`Firebase Function ${name} error:`, error);
-    if (error.details) {
-      console.error(`[Firebase] Function ${name} detail:`, error.details);
-    }
     
-    // Extract meaningful error message
-    let message = "Bir hata oluştu.";
-    if (error.message) {
-      message = error.message;
-    }
-    
-    if (error.code === 'functions/internal' || error.code === 'internal') {
-      const details = error.details ? (typeof error.details === 'string' ? error.details : JSON.stringify(error.details)) : "";
-      if (details) {
-        message = `Sunucu Hatası: ${message} (${details})`;
-      } else {
-        message = `Sunucu Hatası: ${message}`;
-      }
-    }
-
-    const enhancedError = new Error(message);
-    (enhancedError as any).code = error.code;
-    (enhancedError as any).details = error.details;
-    
-    throw enhancedError;
+    return {
+      success: false,
+      code,
+      message,
+      details
+    };
   }
 };
 
@@ -249,27 +236,15 @@ export const walletService = {
   },
 
   async runCompatibilityAnalysis(targetUserId: string, relationshipType: string): Promise<{ success: boolean; analysis?: any; cached: boolean; requestId?: string; finishTime?: string }> {
-    try {
-      return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
-    } catch (error: any) {
-      return { success: false, cached: false };
-    }
+    return await callFunction('runDiscoverCompatibilityAnalysis', { targetUserId, relationshipType });
   },
   
   async runManualCompatibilityAnalysis(data: { person1: any, person2: any, relationshipType: string }): Promise<{ success: boolean; requestId: string; finishTime: string }> {
-    try {
-      return await callFunction('runManualCompatibilityAnalysis', data);
-    } catch (error: any) {
-      return { success: false, requestId: '', finishTime: '' };
-    }
+    return await callFunction('runManualCompatibilityAnalysis', data);
   },
 
   async speedUpCompatibilityAnalysis(requestId: string): Promise<{ success: boolean; message?: string }> {
-    try {
-      return await callFunction('speedUpCompatibilityAnalysis', { requestId });
-    } catch (error: any) {
-      return { success: false, message: error.message || "Hızlandırma başarısız." };
-    }
+    return await callFunction('speedUpCompatibilityAnalysis', { requestId });
   },
 
   async updateSocialSettings(settings: any): Promise<{ success: boolean }> {

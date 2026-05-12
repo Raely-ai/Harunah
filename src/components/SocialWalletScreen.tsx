@@ -498,7 +498,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
           <MissionRow 
             isDaily
             title="Günlük Giriş"
-            reward={rewards?.dailyLoginRewardEnergy || 20}
+            reward={rewards?.dailyLoginRewardEnergy || 5}
             icon={Calendar}
             color="emerald"
             countdown={dailyRemaining}
@@ -506,7 +506,7 @@ export default function SocialWalletScreen({ currentUser, onNavigate, economyCon
             onClick={handleClaimDailyReward}
             disabled={!!dailyRemaining}
             description="Her gün düzenli enerjini topla"
-            label={`⚡ +${rewards?.dailyLoginRewardEnergy || 20} Enerji Al`}
+            label={`⚡ +${rewards?.dailyLoginRewardEnergy || 5} Enerji Al`}
           />
 
           {/* 2. Watch Ad */}

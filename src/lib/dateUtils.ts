@@ -53,13 +53,18 @@ export function validateBirthDate(dateStr: string): { isValid: boolean; error?: 
     return { isValid: false, error: "Geçerli bir doğum tarihi girin." };
   }
 
+  // Double check year is logical (e.g. not 0001)
+  if (year < 1900 || year > new Date().getFullYear()) {
+    return { isValid: false, error: "Geçerli bir yıl girin." };
+  }
+
   // Age checks
   const age = calculateAge(birthDate);
   if (age < 18) {
-    return { isValid: false, error: "18 yaşından küçük kullanıcılar kayıt olamaz." };
+    return { isValid: false, error: "18 yaşından küçük kullanıcılar kabul edilmemektedir." };
   }
   if (age > 80) {
-    return { isValid: false, error: "80 yaş üstü kullanıcılar kayıt olamaz." };
+    return { isValid: false, error: "80 yaş üstü kullanıcılar kabul edilmemektedir." };
   }
 
   return { isValid: true };

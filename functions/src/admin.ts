@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions";
-import { db, FieldValue, sendPushToUser, messaging } from "./base";
+import { db, FieldValue, sendPushToUser, messaging, auth } from "./base";
 
 // 1. Admin Broadcast Notification
 export const adminBroadcastNotification = functions.region('us-central1').https.onCall(async (data, context) => {
@@ -561,11 +561,11 @@ export const adminCreateTestUsers = functions.region('us-central1').https.onCall
       throw new functions.https.HttpsError('permission-denied', 'Bu işlem için yetkiniz yok.');
     }
 
-    const { maleCount = 20, femaleCount = 20 } = data;
+    const { maleCount = 10, femaleCount = 10 } = data;
     const totalCount = maleCount + femaleCount;
     
-    if (totalCount > 50) {
-      throw new functions.https.HttpsError('invalid-argument', 'Tek seferde en fazla 50 kullanıcı oluşturulabilir.');
+    if (totalCount > 20) {
+      throw new functions.https.HttpsError('failed-precondition', 'Tek seferde en fazla 20 test kullanıcı oluşturulabilir.');
     }
 
     const turkishMaleNames = ['Ahmet', 'Mehmet', 'Can', 'Burak', 'Emre', 'Ali', 'Yusuf', 'Eren', 'Ozan', 'Tarkan', 'Mert', 'Kaan', 'Arda', 'Cem', 'Tolga', 'Barış', 'Kemal', 'Serkan', 'Oğuz', 'Gökhan', 'Hakan', 'Erdem', 'Volkan', 'Koray'];
@@ -584,7 +584,6 @@ export const adminCreateTestUsers = functions.region('us-central1').https.onCall
     ];
 
     const results = { created: 0, failed: 0 };
-    const auth = require('firebase-admin').auth();
     const batch = db.batch();
 
     const timestamp = Date.now();
@@ -656,6 +655,7 @@ export const adminCreateTestUsers = functions.region('us-central1').https.onCall
 
   } catch (error: any) {
     console.error("adminCreateTestUsers error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'Bir hata oluştu.');
   }
 });
@@ -684,7 +684,6 @@ export const adminManageTestUsers = functions.region('us-central1').https.onCall
     }
 
     let modifiedCount = 0;
-    const auth = require('firebase-admin').auth();
 
     // Max limit chunk array per batch limits
     const chunks: any[] = [];
@@ -738,6 +737,7 @@ export const adminManageTestUsers = functions.region('us-central1').https.onCall
 
   } catch (error: any) {
     console.error("adminManageTestUsers error:", error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', error.message || 'Bir hata oluştu.');
   }
 });

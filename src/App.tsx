@@ -590,8 +590,10 @@ function AppContent() {
   };
 
   const handleNavigate = (tab: AppTab) => {
-    // If onboarding is required, don't allow navigating away
+    // CRITICAL: If onboarding is required, FORBID navigating away to any other tab
+    // This blocks Tab Bar, sidebar links, or any programmatic navigation
     if (isSocialOnboardingRequired && tab !== 'social-onboarding') {
+      console.warn("[OnboardingGuard] Navigation blocked. Onboarding is mandatory.");
       return;
     }
     
@@ -599,6 +601,13 @@ function AppContent() {
     setActiveTab(tab);
     window.scrollTo(0, 0);
   };
+
+  // Extra Layer of protection: Effect-based sync
+  useEffect(() => {
+    if (isSocialOnboardingRequired && activeTab !== 'social-onboarding') {
+      setActiveTab('social-onboarding');
+    }
+  }, [isSocialOnboardingRequired, activeTab]);
 
   const handleSelectFortune = (type: FortuneType) => {
     // No early return for null profile/config - we use defaults

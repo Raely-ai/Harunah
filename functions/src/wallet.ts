@@ -770,7 +770,7 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
   
   try {
     const economy = await getEconomyConfig();
-    const rewardAmount = Number(economy?.rewards?.dailyLoginRewardEnergy || 20);
+    const rewardAmount = Number(economy?.rewards?.dailyLoginRewardEnergy || 5);
 
     const userRef = db.collection("users").doc(userId);
 
@@ -788,9 +788,13 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
         throw new functions.https.HttpsError('already-exists', 'Bugünkü ödülünüzü zaten aldınız.');
       }
 
+      // Safe energy calculation to handle string energy in old documents
+      const currentEnergy = Number(userData.energy || 0);
+      const safeCurrentEnergy = isNaN(currentEnergy) ? 0 : currentEnergy;
+
       transaction.update(userRef, {
-        energy: FieldValue.increment(rewardAmount),
-        lastDailyRewardAt: now.toISOString()
+        energy: safeCurrentEnergy + rewardAmount,
+        lastDailyRewardAt: FieldValue.serverTimestamp()
       });
 
       const txRef = db.collection("walletTransactions").doc();
@@ -801,7 +805,7 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
         source: 'daily_login',
         amount: rewardAmount,
         balanceType: 'energy',
-        createdAt: now.toISOString(),
+        createdAt: new Date().toISOString(),
         remainingAmount: rewardAmount,
         status: 'active',
         description: 'Günlük giriş ödülü'
@@ -813,7 +817,8 @@ export const claimDailyLoginReward = functions.region('us-central1').https.onCal
     console.error("claimDailyLoginReward error:", error);
     if (error instanceof functions.https.HttpsError) throw error;
     const msg = error instanceof Error ? error.message : String(error);
-    throw new functions.https.HttpsError('failed-precondition', `Günlük ödül işlenirken hata oluştu: ${msg}`);
+    // Be more descriptive about the internal error if it happens
+    throw new functions.https.HttpsError('internal', `Günlük ödül işlenirken sunucu hatası oluştu: ${msg}`);
   }
 });
 

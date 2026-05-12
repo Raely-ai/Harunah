@@ -203,7 +203,20 @@ export default function SocialCompatibilityHistory({ currentUser, onBack, isTab,
         toast.success("Kozmik analiz süreci başladı! ✨");
         setPerson2({ name: '', birthDate: '', photo: '' });
       } else {
-        toast.error("Analiz başlatılamadı. Kredi durumunuzu kontrol edin.");
+        const code = result.code || result.status;
+        const msg = result.message || "";
+        
+        if (code === 'INSUFFICIENT_FUNDS' || code === 'insufficient-funds' || code === 'failed-precondition' && msg.includes('bakiye')) {
+          toast.error("Bakiyeniz yetersiz. Lütfen J-Coin veya Analiz Hakkı yükleyin.");
+        } else if (code === 'QUOTA_EXCEEDED' || code === 'resource-exhausted') {
+          toast.error("Sunucu yoğunluğu nedeniyle analiz başlatılamadı. Lütfen biraz sonra tekrar deneyin.");
+        } else if (code === 'internal' || code === 'functions/internal') {
+          toast.error("Sunucu hatası oluştu. Lütfen tekrar deneyin.");
+        } else if (code === 'permission-denied') {
+          toast.error("Bu işlem için yetkiniz yok.");
+        } else {
+          toast.error(msg || "Analiz başlatılamadı. Lütfen tekrar deneyin.");
+        }
       }
     } catch (error: any) {
       toast.error(error.message || "Analiz sırasında bir hata oluştu.");

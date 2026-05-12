@@ -137,7 +137,7 @@ service cloud.firestore {
 
     match /compatibilityPeeks/{id} {
       allow read: if request.auth != null && resource.data.toUserId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.toUserId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow update: if request.auth != null && resource.data.toUserId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isSeen']);
       allow create, delete: if false;
     }
 

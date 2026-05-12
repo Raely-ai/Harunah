@@ -163,8 +163,11 @@ export default function SocialOnboardingFlow({
   };
 
   const prevStep = () => {
-    if (step > 1) setStep(step - 1);
-    else onBack();
+    if (step > 1) {
+      setStep(step - 1);
+    } else if (!isRequired) {
+      onBack();
+    }
   };
 
   const isStepValid = () => {
@@ -392,12 +395,19 @@ export default function SocialOnboardingFlow({
 
       {/* Header */}
       <header className="relative z-10 p-4 flex items-center justify-between flex-shrink-0">
-        {(!isRequired || step > 1) ? (
+        {(step > 1) ? (
           <button 
             onClick={prevStep}
             className="w-10 h-10 rounded-xl bg-white border border-black/5 flex items-center justify-center text-muted hover:text-heading transition-colors shadow-sm"
           >
             <ChevronLeft className="w-5 h-5" />
+          </button>
+        ) : (!isRequired) ? (
+          <button 
+            onClick={onBack}
+            className="p-2 text-muted hover:text-heading transition-colors"
+          >
+            <X className="w-6 h-6" />
           </button>
         ) : (
           <div className="w-10 h-10" />

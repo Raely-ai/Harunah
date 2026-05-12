@@ -22,8 +22,18 @@ export default function BirthDateInput({ value, onChange, className = "", error:
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawValue = e.target.value;
-    const formatted = formatBirthDateInput(rawValue);
+    let rawValue = e.target.value;
+    
+    // Only allow numbers and dots
+    rawValue = rawValue.replace(/[^0-9.]/g, "");
+    
+    // If we're deleting, don't auto-add dots back immediately if we just deleted one
+    const isDeleting = (e.nativeEvent as any).inputType === "deleteContentBackward";
+    
+    let formatted = rawValue;
+    if (!isDeleting) {
+      formatted = formatBirthDateInput(rawValue);
+    }
     
     setDisplayValue(formatted);
     
@@ -60,6 +70,10 @@ export default function BirthDateInput({ value, onChange, className = "", error:
           onChange={handleChange}
           placeholder="GG.AA.YYYY"
           maxLength={10}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          autoFocus={false}
           className={`w-full bg-slate-50 border rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-700 outline-none transition-all ${
             currentError 
               ? 'border-red-300 focus:ring-red-500/20 focus:border-red-500' 
