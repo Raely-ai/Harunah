@@ -230,7 +230,18 @@ export default function DiscoverProfilePopup({
           toast.success("Uyum analizin hazırlanıyor! Yıldızlar hesaplanıyor... ✨");
         }
       } else {
-        toast.error("Analiz başlatılamadı. Lütfen bakiye kontrolü yapın.");
+        const code = result.code || result.status;
+        const msg = result.message || "";
+        
+        if (code === 'INSUFFICIENT_FUNDS' || code === 'insufficient-funds' || code === 'failed-precondition' && msg.includes('bakiye')) {
+          toast.error("Bakiyeniz yetersiz. Lütfen J-Coin veya Analiz Hakkı yükleyin.");
+        } else if (code === 'QUOTA_EXCEEDED' || code === 'resource-exhausted') {
+          toast.error("AI servis kotası dolu. Lütfen daha sonra tekrar deneyin.");
+        } else if (code === 'internal' || code === 'functions/internal') {
+          toast.error("Sunucu hatası oluştu. Lütfen tekrar deneyin.");
+        } else {
+          toast.error(msg || "Analiz başlatılamadı. Lütfen bakiye kontrolü yapın.");
+        }
       }
 
     } catch (error: any) {

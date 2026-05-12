@@ -47,7 +47,7 @@ export const callFunction = async (name: string, data?: any) => {
     
     if (isQuotaError) {
       console.warn(`Firebase Function ${name} hit quota limit.`);
-      return { success: false, code: 'QUOTA_EXCEEDED', message: "Hizmet şu an yoğun. Lütfen biraz sonra tekrar deneyin.", details };
+      return { success: false, code: 'QUOTA_EXCEEDED', message: "AI servis kotası dolu. Lütfen daha sonra tekrar deneyin.", details };
     }
 
     console.error(`Firebase Function ${name} error:`, error);

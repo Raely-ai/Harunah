@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 import { db, FieldValue, getOpenAI, sendPushToUser } from "./base";
 import { getEconomyConfig } from "./wallet";
 
@@ -1232,8 +1233,12 @@ export const createChat = functions.region('us-central1').https.onCall(async (da
 });
 
 // 22. Compatibility Analysis
-async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, cacheKey?: string) {
+async function generateCompatibilityAiDirect(person1: any, person2: any, relationshipType: string, userId: string, targetUserId?: string, existingDocId?: string) {
   const now = new Date().toISOString();
+  // Use existingDocId if provided, otherwise create a new one (legacy fallback)
+  const docRef = existingDocId ? db.collection("compatibilityHistory").doc(existingDocId) : db.collection("compatibilityHistory").doc();
+  const historyId = docRef.id;
+
   try {
     const openai = getOpenAI();
     const response = await openai.chat.completions.create({ 
@@ -1277,11 +1282,10 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       return (!isNaN(num) && num > 0 && num <= 100) ? num : (Math.floor(Math.random() * 41) + 40); // 40-80 fallback
     };
     
-    const docRef = db.collection("compatibilityHistory").doc();
     const unlockAtTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
     const analysisData: any = { 
-      id: docRef.id,
-      requestId: docRef.id, // For backwards compatibility
+      id: historyId,
+      requestId: historyId,
       userId,
       person1,
       person2,
@@ -1297,10 +1301,9 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       createdAt: now 
     };
     if (targetUserId) analysisData.targetUserId = targetUserId;
-    if (cacheKey) analysisData.cacheKey = cacheKey;
     
     const batch = db.batch();
-    batch.set(docRef, analysisData);
+    batch.set(docRef, analysisData, { merge: true });
     batch.set(db.collection("notifications").doc(), { 
       userId, 
       type: 'system', 
@@ -1314,13 +1317,25 @@ Sadece JSON dön. Asla fazladan bir şey yazma.`
       title: "Uyum Analizi Başlatıldı 🔮", 
       body: "Frekansların taranıyor... Analizin birazdan hazır olacak.", 
       category: 'compatibility',
-      data: { type: 'compatibilityProgress', analysisId: docRef.id }
+      data: { type: 'compatibilityProgress', analysisId: historyId }
     });
     return analysisData;
   } catch (e: any) {
     console.error("AI Generation Fatal Error:", e);
-    const errorMessage = e && e.message ? e.message : 'Bilinmeyen hata';
-    throw new functions.https.HttpsError('internal', `AI servisine şu an ulaşılamıyor: ${errorMessage}`);
+    
+    // Detect OpenAI/AI quota or rate limit errors
+    const errorStr = (e.message || "").toLowerCase();
+    const isQuota = errorStr.includes("insufficient_quota") || 
+                    errorStr.includes("quota exceeded") || 
+                    errorStr.includes("rate_limit_exceeded") ||
+                    e.status === 429 || e.code === "insufficient_quota" || e.code === "rate_limit_exceeded";
+    
+    if (isQuota) {
+      throw new functions.https.HttpsError('resource-exhausted', "AI kullanım kotası dolmuş. Lütfen yönetici ayarlarını/API bakiyesini kontrol edin.");
+    }
+    
+    if (e instanceof functions.https.HttpsError) throw e;
+    throw new functions.https.HttpsError('internal', `AI servisine şu an ulaşılamıyor: ${e.message || 'Bilinmeyen hata'}`);
   }
 }
 
@@ -1351,8 +1366,20 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
     const economy = await getEconomyConfig() || {};
     const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
 
-    // 2. Perform Transaction for Payment
+    // 2. Perform Transaction for Payment and Lock Creation
     const usersData = await db.runTransaction(async (transaction) => {
+      // Re-verify duplicate inside transaction
+      const existingPendingAgain = await transaction.get(
+        db.collection("compatibilityHistory")
+          .where("userId", "==", userId)
+          .where("targetUserId", "==", targetUserId)
+          .where("status", "in", ["locked", "pending"])
+          .limit(1)
+      );
+      if (!existingPendingAgain.empty) {
+        throw new functions.https.HttpsError('already-exists', 'ALREADY_PENDING');
+      }
+
       const [uSnap, tSnap] = await Promise.all([transaction.get(userRef), transaction.get(targetRef)]);
       if (!uSnap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       if (!tSnap.exists) throw new functions.https.HttpsError('not-found', "Hedef kullanıcı bulunamadı.");
@@ -1387,7 +1414,34 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         throw new functions.https.HttpsError('failed-precondition', "Yeterli jetonun yok.");
       }
 
+      // Create the pending record BEFORE AI call to act as a lock
+      const historyRef = db.collection("compatibilityHistory").doc();
+      const unlockAtTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      transaction.set(historyRef, {
+        id: historyRef.id,
+        userId,
+        targetUserId,
+        status: 'locked',
+        revealed: false,
+        unlockAt: unlockAtTime,
+        createdAt: new Date().toISOString(),
+        source: 'discover',
+        person1: {
+          name: user.social?.nickname || user.displayName || "Sen",
+          birthDate: user.birthDate || user.social?.birthDate || "",
+          photo: user.social?.photos?.[0] || user.photoURL || "",
+          age: user.age || 0
+        },
+        person2: {
+          name: targetUser.social?.nickname || targetUser.displayName || "O",
+          birthDate: targetUser.birthDate || targetUser.social?.birthDate || "",
+          photo: targetUser.social?.photos?.[0] || targetUser.photoURL || "",
+          age: targetUser.age || 0
+        }
+      });
+
       return {
+        historyId: historyRef.id,
         paymentType,
         compatPrice,
         me: {
@@ -1413,12 +1467,19 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
         usersData.target, 
         relationshipType || 'ask', 
         userId, 
-        targetUserId
+        targetUserId,
+        usersData.historyId
       );
     } catch (aiError: any) {
       console.error("runDiscoverCompatibilityAnalysis AI Error:", aiError);
       const aiMsg = aiError instanceof Error ? aiError.message : String(aiError);
+      
+      const errorCode = aiError instanceof functions.https.HttpsError ? aiError.code : 'internal';
+
       await db.runTransaction(async (t) => {
+        // Clear the failed record
+        t.delete(db.collection("compatibilityHistory").doc(usersData.historyId));
+
         if (usersData.paymentType === 'count') {
           t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
         } else if (usersData.paymentType === 'coins') {
@@ -1438,7 +1499,7 @@ export const runDiscoverCompatibilityAnalysis = functions.region('us-central1').
           });
         }
       });
-      throw new functions.https.HttpsError('internal', `Uyum analizi hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
+      throw new functions.https.HttpsError(errorCode, `Uyum analizi hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
     }
     
     // NEW: Notify the target user that someone is curious (Compatibility Peek)
@@ -1530,7 +1591,21 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
     const economy = await getEconomyConfig() || {};
     const compatPrice = economy.socialPricing?.compatibility?.[0]?.priceCoins || 25;
     
+    const lockKey = crypto.createHash('md5').update(JSON.stringify(cleanPerson1) + JSON.stringify(cleanPerson2)).digest('hex');
+
     const paymentData = await db.runTransaction(async (transaction) => {
+      // Duplicate check: prevent starting new manual analysis if one for same inputs is already pending/locked
+      const existingPending = await transaction.get(
+        db.collection("compatibilityHistory")
+          .where("userId", "==", userId)
+          .where("cacheKey", "==", lockKey)
+          .where("status", "in", ["locked", "pending"])
+          .limit(1)
+      );
+      if (!existingPending.empty) {
+        throw new functions.https.HttpsError('already-exists', 'Aynı kişiler için analiz zaten hazırlanıyor.');
+      }
+
       const snap = await transaction.get(userRef);
       if (!snap.exists) throw new functions.https.HttpsError('not-found', "Kullanıcı bulunamadı.");
       const user = snap.data() as any;
@@ -1562,17 +1637,47 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
         throw new functions.https.HttpsError('failed-precondition', "Yeterli jetonun yok.");
       }
 
-      return { paymentType, compatPrice };
+      // Create the pending record BEFORE AI call to act as a lock
+      const historyRef = db.collection("compatibilityHistory").doc();
+      const unlockAtTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      transaction.set(historyRef, {
+        id: historyRef.id,
+        userId,
+        person1: cleanPerson1,
+        person2: cleanPerson2,
+        relationshipType: relationshipType || 'ask',
+        status: 'locked',
+        revealed: false,
+        unlockAt: unlockAtTime,
+        createdAt: new Date().toISOString(),
+        source: 'manual',
+        cacheKey: lockKey
+      });
+
+      return { paymentType, compatPrice, historyId: historyRef.id };
     });
     
     // 2. Process AI implicitly inline - results in compatibilityHistory with 5min lock
     let analysisData;
     try {
-      analysisData = await generateCompatibilityAiDirect(cleanPerson1, cleanPerson2, relationshipType, userId);
+      analysisData = await generateCompatibilityAiDirect(
+        cleanPerson1, 
+        cleanPerson2, 
+        relationshipType, 
+        userId, 
+        undefined, 
+        paymentData.historyId
+      );
     } catch (aiError: any) {
       console.error("runManualCompatibilityAnalysis AI Error:", aiError);
       const aiMsg = aiError instanceof Error ? aiError.message : String(aiError);
+      
+      const errorCode = aiError instanceof functions.https.HttpsError ? aiError.code : 'internal';
+
       await db.runTransaction(async (t) => {
+        // Clear the failed record
+        t.delete(db.collection("compatibilityHistory").doc(paymentData.historyId));
+
         if (paymentData.paymentType === 'count') {
           t.update(userRef, { compatibilityCount: FieldValue.increment(1) });
         } else if (paymentData.paymentType === 'coins') {
@@ -1592,7 +1697,7 @@ export const runManualCompatibilityAnalysis = functions.region('us-central1').ru
           });
         }
       });
-      throw new functions.https.HttpsError('internal', `Analiz hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
+      throw new functions.https.HttpsError(errorCode, `Analiz hazırlanamadı: ${aiMsg}. Hakkın iade edildi.`);
     }
     return { 
       success: true, 

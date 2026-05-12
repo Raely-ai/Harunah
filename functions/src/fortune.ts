@@ -178,9 +178,26 @@ export const processFortuneAI = functions.region('us-central1').runWith({ secret
       if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Fal kaydı bulunamadı.');
       const reading = snap.data() as any;
       if (reading.userId !== userId) throw new functions.https.HttpsError('permission-denied', 'Yetkisiz erişim.');
+      
       if (reading.status === 'completed') return { alreadyCompleted: true, content: reading.content };
-      if (reading.status === 'processing_ai') return { alreadyProcessing: true };
-      transaction.update(readingRef, { isAIGenerating: true, updatedAt: new Date().toISOString() });
+      if (reading.isAIGenerating === true) {
+        // Expiry check: if it's been generating for more than 5 minutes, allow retrying
+        if (reading.aiStartedAt) {
+          const startedAt = new Date(reading.aiStartedAt).getTime();
+          const diffMs = Date.now() - startedAt;
+          if (diffMs < 5 * 60 * 1000) {
+            return { alreadyProcessing: true };
+          }
+        } else {
+          return { alreadyProcessing: true };
+        }
+      }
+      
+      transaction.update(readingRef, { 
+        isAIGenerating: true, 
+        aiStartedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString() 
+      });
       return { reading, proceed: true };
     });
 
@@ -225,7 +242,13 @@ export const processFortuneAI = functions.region('us-central1').runWith({ secret
     let content = response.choices[0].message.content || "";
     content = content.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
 
-    await readingRef.update({ hiddenResult: content, isAIGenerated: true, isAIGenerating: false, updatedAt: new Date().toISOString() });
+    await readingRef.update({ 
+      hiddenResult: content, 
+      isAIGenerated: true, 
+      isAIGenerating: false, 
+      aiCompletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString() 
+    });
     return { success: true };
   } catch (error: any) {
     console.error("processFortuneAI error:", error);
@@ -239,7 +262,15 @@ export const processFortuneAI = functions.region('us-central1').runWith({ secret
         if (reading.status !== 'completed' && reading.creditsUsed > 0) {
           const { refundTransaction } = require("./wallet");
           await refundTransaction(userId, reading.creditsUsed, reading.balanceType === 'energy' ? 'energy' : 'main');
-          await readingRef.update({ status: 'error', refundStatus: 'processed', updatedAt: new Date().toISOString() });
+          await readingRef.update({ 
+            status: 'error', 
+            isAIGenerating: false,
+            refundStatus: 'processed', 
+            updatedAt: new Date().toISOString() 
+          });
+        } else {
+          // Even if not refunded, clear the spinning lock
+          await readingRef.update({ isAIGenerating: false, updatedAt: new Date().toISOString() });
         }
       }
     } catch (refundErr) {
@@ -289,8 +320,29 @@ export const upgradeFortunePriority = functions.region('us-central1').https.onCa
 // 4. Generate Daily Message
 export const generateDailyMessage = functions.region('us-central1').runWith({ secrets: ["OPENAI_API_KEY"] }).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Giriş yapmalısınız.');
+  const userId = context.auth.uid;
   
   try {
+    const userRef = db.collection("users").doc(userId);
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const lockResult = await db.runTransaction(async (transaction) => {
+      const uSnap = await transaction.get(userRef);
+      if (!uSnap.exists) throw new functions.https.HttpsError('not-found', 'Kullanıcı bulunamadı.');
+      const user = uSnap.data() as any;
+
+      if (user.lastDailyMessageAt === today && user.dailyMessageText) {
+        return { alreadyGenerated: true, text: user.dailyMessageText };
+      }
+
+      transaction.update(userRef, { lastDailyMessageAt: today });
+      return { alreadyGenerated: false };
+    });
+
+    if (lockResult.alreadyGenerated) {
+      return { text: lockResult.text, category: 'general', cached: true };
+    }
+
     const openai = getOpenAI();
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -300,7 +352,11 @@ export const generateDailyMessage = functions.region('us-central1').runWith({ se
       ],
       temperature: 0.8, max_tokens: 100
     });
-    return { text: response.choices[0].message.content || "Yıldızlar seninle.", category: 'general' };
+
+    const aiText = response.choices[0].message.content || "Yıldızlar seninle.";
+    await userRef.update({ dailyMessageText: aiText });
+
+    return { text: aiText, category: 'general' };
   } catch (error: any) {
     console.error("generateDailyMessage error:", error);
     return { text: "Yıldızlar bugün senin için parlıyor.", category: 'general' };
